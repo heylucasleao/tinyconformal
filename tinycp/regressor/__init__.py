@@ -5,3 +5,4 @@
 
 from .cqr import ConformalizedQuantileRegressor
 from .icp import ConformalizedRegressor
+from .exactness_bound import ExactnessBound
