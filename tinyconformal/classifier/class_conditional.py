@@ -1,4 +1,4 @@
-# Copyright (c) 2024-2025 Lucas Leão
+# Copyright (c) 2024-2026 Lucas Leão
 # tinyCP - A small toolbox for conformal prediction
 # Licensed under the MIT License
 
@@ -11,11 +11,11 @@ from .base import BaseConformalClassifier
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="venn_abers")
 
 
-class BinaryMarginalConformalClassifier(
+class BinaryClassConditionalConformalClassifier(
     ClassifierMixin, BaseEstimator, BaseConformalClassifier
 ):
     """
-    A marginal coverage conformal classifier methodology utilizing a classifier as the underlying learner.
+    A modrian class conditional conformal classifier methodology utilizing a classifier as the underlying learner.
     This class is inspired by the WrapperClassifier classes from the Crepes library.
     """
 
@@ -28,22 +28,25 @@ class BinaryMarginalConformalClassifier(
         Constructs the classifier with a specified learner and a Venn-Abers calibration layer.
 
         Parameters:
-        learner: BaseEstimator
+        ----------
+        learner : BaseEstimator
             The base learner to be used in the classifier.
-        alpha: float, default=0.05
+        alpha : float, default=0.05
             The significance level applied in the classifier.
 
         Attributes:
-        learner: BaseEstimator
+        ----------
+        learner : BaseEstimator
             The base learner employed in the classifier.
-        calibration_layer: VennAbers
+        calibration_layer : VennAbers
             The calibration layer utilized in the classifier.
-        feature_importances_: array-like of shape (n_features,)
-            The feature importances derived from the learner.
-        hinge : array-like of shape (n_samples,), default=None
-            Nonconformity scores based on the predicted probabilities. Measures the confidence margin
-            between the predicted probability of the true class and the most likely incorrect class.
-        alpha: float, default=0.05
+        classes : array-like of shape (n_classes,), default=None
+            The unique class labels identified during training.
+        hinge : list of array-like, default=None
+            Nonconformity scores for each class based on the predicted probabilities.
+        n : array-like of shape (n_classes,), default=None
+            The number of calibration points for each class.
+        alpha : float, default=0.05
             The significance level applied in the classifier.
         """
 
@@ -51,21 +54,28 @@ class BinaryMarginalConformalClassifier(
 
     def unlabeled_fit(self, X=None):
         """
-        Calibrates the nonconformity scores using unlabeled data (X) based on the model's
-        own predictions (Flechsig & Pilz, 2025).
+        Fits the class-conditional conformal layer using unlabeled data (X) based on
+        pseudo-labels derived from the model's predictions (Flechsig & Pilz, 2025).
 
-        Parameters
+        Parameters:
         ----------
         X : array-like of shape (n_samples, n_features)
             Unlabeled calibration features.
+
+        Returns:
+        -------
+        self : object
+            The fitted classifier.
         """
         if X is None:
             raise ValueError("Unlabeled calibration data (X) must be provided.")
 
         self.is_unlabeled = True
         y_prob = self.learner.predict_proba(X)
-        self.hinge = 1.0 - np.max(y_prob, axis=1)
-        self.n = len(X)
+        idx_max = np.argmax(y_prob, axis=1)
+        ncscore = np.min(self.generate_non_conformity_score(y_prob), axis=1)
+        self.hinge = [ncscore[idx_max == c] for c in self.classes]
+        self.n = [np.sum(idx_max == c) for c in self.classes]
 
         return self
 
@@ -90,10 +100,9 @@ class BinaryMarginalConformalClassifier(
         Raises:
         ------
         ValueError:
-            If OOB is enabled but the learner does not support OOB predictions,
+            If OOB is enabled but not supported by the learner,
             or if `X` and `y` are not provided when `oob=False`.
         """
-
         if y is None:
             raise ValueError("The true labels (y) must be provided.")
 
@@ -127,30 +136,39 @@ class BinaryMarginalConformalClassifier(
         y_prob, _ = self.calibration_layer.predict_proba(self.decision_function_)
 
         y_prob = y_prob[np.arange(len(y)), y]
-
-        self.hinge = self.generate_non_conformity_score(y_prob)
-        self.n = len(y)
+        hinge = self.generate_non_conformity_score(y_prob)
+        self.hinge = [hinge[y == c] for c in self.classes]
+        self.n = [np.sum(y == c) for c in self.classes]
 
         return self
+
+    def _compute_q_level(self, n, alpha):
+        """
+        Compute the quantile level for each class based on the number of samples and significance level.
+        """
+        alpha = self._get_alpha(alpha)
+        q_level = np.zeros(len(self.classes))
+        for c in self.classes:
+            q_level[c] = np.ceil((n[c] + 1) * (1 - alpha)) / n[c]
+        return q_level
 
     def _compute_qhat(self, ncscore, q_level):
         """
         Compute the q-hat value based on the nonconformity scores and the quantile level.
         """
-        return np.quantile(ncscore, q_level, method="higher")
-
-    def _compute_q_level(self, n, alpha=None):
-        """
-        Compute the quantile level based on the number of samples and significance level.
-        """
-        alpha = self._get_alpha(alpha)
-        return np.ceil((n + 1) * (1 - alpha)) / n
+        qhat = np.zeros(len(self.classes))
+        for c in self.classes:
+            qhat[c] = np.quantile(ncscore[c], q_level[c], method="higher")
+        return qhat
 
     def _compute_set(self, ncscore, qhat):
         """
         Compute a predict set based on the given ncscore and qhat.
         """
-        return (ncscore <= qhat).astype(int)
+        prediction_set = np.zeros((len(ncscore), len(self.classes)))
+        for c in self.classes:
+            prediction_set[:, c] = (ncscore <= qhat[c])[:, c]
+        return prediction_set
 
     def predict_set(self, X, alpha=None):
         """
@@ -197,8 +215,8 @@ class BinaryMarginalConformalClassifier(
 
         for i in range(ncscore.shape[0]):
             for j in range(ncscore.shape[1]):
-                numerator = np.sum(self.hinge >= ncscore[i][j]) + 1
-                denumerator = self.n + 1
+                numerator = np.sum(self.hinge[j] >= ncscore[i][j]) + 1
+                denumerator = self.n[j] + 1
                 p_values[i, j] = numerator / denumerator
 
         return p_values

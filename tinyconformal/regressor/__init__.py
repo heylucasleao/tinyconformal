@@ -1,4 +1,4 @@
-# Copyright (c) 2024-2025 Lucas Leão
+# Copyright (c) 2024-2026 Lucas Leão
 # tinyCP - A small toolbox for conformal prediction
 # Licensed under the MIT License
 
