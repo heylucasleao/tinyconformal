@@ -76,7 +76,9 @@ def efficiency_curve(
     """
 
     def get_error_metrics(clf, X: np.ndarray, y: np.ndarray) -> tuple:
-        error_rate = np.asarray([0.45, 0.40, 0.35, 0.30, 0.25, 0.20, 0.15, 0.10, 0.05])
+        error_rate = np.asarray(
+            [0.45, 0.40, 0.35, 0.30, 0.25, 0.20, 0.15, 0.10, 0.05, 0.01]
+        )
         efficiency_rate = np.zeros(error_rate.shape)
         validity_rate = np.zeros(error_rate.shape)
 
