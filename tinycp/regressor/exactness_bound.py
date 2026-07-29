@@ -43,7 +43,7 @@ class ExactnessBound:
         Examples
         --------
         >>> from sklearn.ensemble import RandomForestRegressor
-        >>> from tinycp import ConformalizedRegressor, ExactnessBound
+        >>> from tinyconformal import ConformalizedRegressor, ExactnessBound
         >>>
         >>> rf = RandomForestRegressor(random_state=42)
         >>> p = 0.95
@@ -91,7 +91,7 @@ class ExactnessBound:
         Examples
         --------
         >>> from quantile_forest import RandomForestQuantileRegressor
-        >>> from tinycp import ConformalizedQuantileRegressor, ExactnessBound
+        >>> from tinyconformal import ConformalizedQuantileRegressor, ExactnessBound
         >>>
         >>> qf = RandomForestQuantileRegressor(default_quantiles=[0.025, 0.975], random_state=42)
         >>> p = 0.95
