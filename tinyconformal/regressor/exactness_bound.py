@@ -1,3 +1,7 @@
+# Copyright (c) 2024-2026 Lucas Leão
+# tinyCP - A small toolbox for conformal prediction
+# Licensed under the MIT License
+
 import numpy as np
 from sklearn.model_selection import cross_val_predict
 from sklearn.base import BaseEstimator
