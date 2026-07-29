@@ -51,7 +51,33 @@ class BinaryClassConditionalConformalClassifier(
         """
 
         super().__init__(learner, alpha)
-        self.classes = None
+
+    def unlabeled_fit(self, X=None):
+        """
+        Fits the class-conditional conformal layer using unlabeled data (X) based on
+        pseudo-labels derived from the model's predictions (Flechsig & Pilz, 2025).
+
+        Parameters:
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Unlabeled calibration features.
+
+        Returns:
+        -------
+        self : object
+            The fitted classifier.
+        """
+        if X is None:
+            raise ValueError("Unlabeled calibration data (X) must be provided.")
+
+        self.is_unlabeled = True
+        y_prob = self.learner.predict_proba(X)
+        idx_max = np.argmax(y_prob, axis=1)
+        ncscore = np.min(self.generate_non_conformity_score(y_prob), axis=1)
+        self.hinge = [ncscore[idx_max == c] for c in self.classes]
+        self.n = [np.sum(idx_max == c) for c in self.classes]
+
+        return self
 
     def fit(self, X=None, y=None, oob=False):
         """
@@ -104,8 +130,6 @@ class BinaryClassConditionalConformalClassifier(
 
             # Use predict_proba for training data
             self.decision_function_ = self.learner.predict_proba(X)
-
-        self.classes = self.learner.classes_
 
         self.calibration_layer.fit(self.decision_function_, y)
 

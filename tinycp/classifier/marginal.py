@@ -49,6 +49,26 @@ class BinaryMarginalConformalClassifier(
 
         super().__init__(learner, alpha)
 
+    def unlabeled_fit(self, X=None):
+        """
+        Calibrates the nonconformity scores using unlabeled data (X) based on the model's
+        own predictions (Flechsig & Pilz, 2025).
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Unlabeled calibration features.
+        """
+        if X is None:
+            raise ValueError("Unlabeled calibration data (X) must be provided.")
+
+        self.is_unlabeled = True
+        y_prob = self.learner.predict_proba(X)
+        self.hinge = 1.0 - np.max(y_prob, axis=1)
+        self.n = len(X)
+
+        return self
+
     def fit(self, X=None, y=None, oob=False):
         """
         Fits the classifier to the training data. Calculates the conformity score for each training instance.

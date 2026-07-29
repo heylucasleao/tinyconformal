@@ -40,6 +40,33 @@ class ConformalizedQuantileRegressor(
         """
         super().__init__(learner, alpha)
 
+    def unlabeled_fit(self, X, tilde_beta: float):
+        """
+        Calibrates the CQR nonconformity scores using unlabeled data (X) based on a specified
+        quantile model exactness measure (tilde_beta, beta) as in Flechsig & Pilz (2025).
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Unlabeled calibration features.
+        tilde_beta : float
+            The quantile model error bound (e.g., residual bound computed on OOB/CV quantile predictions).
+
+        Returns
+        -------
+        self : object
+            The fitted conformalized quantile regressor.
+        """
+        if X is None:
+            raise ValueError("Unlabeled calibration data (X) must be provided.")
+
+        self.is_unlabeled = True
+        self.tilde_beta = float(tilde_beta)
+        self.n = len(X)
+        self.ncscore = np.full(shape=self.n, fill_value=self.tilde_beta)
+
+        return self
+
     def fit(self, X, y, oob=False):
         """
         Fit the conformalized regressor by calculating nonconformity scores.

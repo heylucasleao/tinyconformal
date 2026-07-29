@@ -60,8 +60,9 @@ class BaseConformalClassifier(ABC):
         self.learner = learner
         self.alpha = alpha
         self.calibration_layer = VennAbers()
+        self.classes = getattr(self.learner, "classes_", [0, 1])
         self.decision_function_ = None
-
+        self.is_unlabeled = False
         check_is_fitted(learner)
 
         if learner.n_classes_ > 2:
@@ -182,7 +183,8 @@ class BaseConformalClassifier(ABC):
 
     def predict_proba(self, X):
         """
-        Predicts the class probabilities for the instances in X.
+        Returns class probabilities. Uses Venn-Abers if fit() was used,
+        or raw learner probabilities if unlabeled_fit() was used.
 
         Parameters:
         X: array-like of shape (n_samples, n_features)
@@ -192,8 +194,11 @@ class BaseConformalClassifier(ABC):
         p_prime: array-like of shape (n_samples, n_classes)
             The calibrated class probabilities.
         """
-
         y_score = self.learner.predict_proba(X)
+
+        if getattr(self, "is_unlabeled", True):
+            return y_score
+
         p_prime, _ = self.calibration_layer.predict_proba(y_score)
         return p_prime
 
@@ -225,6 +230,11 @@ class BaseConformalClassifier(ABC):
         Returns
             The optimal alpha value that maximizes the scoring function.
         """
+
+        if getattr(self, "is_unlabeled", True):
+            raise ValueError(
+                "Calibration is not applicable for unlabeled data. Please use labeled data for calibration."
+            )
 
         scoring_func = self._select_scoring_function(func)
 

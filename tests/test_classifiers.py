@@ -8,8 +8,8 @@ import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.datasets import make_classification
-from tinycp.classifier.marginal import BinaryMarginalConformalClassifier
-from tinycp.classifier.class_conditional import (
+from tinyconformal.classifier.marginal import BinaryMarginalConformalClassifier
+from tinyconformal.classifier.class_conditional import (
     BinaryClassConditionalConformalClassifier,
 )
 

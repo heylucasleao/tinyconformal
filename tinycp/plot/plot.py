@@ -13,53 +13,97 @@ from sklearn.metrics import confusion_matrix as sklearn_confusion_matrix
 from scipy.stats import beta
 
 
-def efficiency_curve(clf, X: np.ndarray, fig_type=None, width=800, height=400):
+def efficiency_curve(
+    clf, X: np.ndarray, y: np.ndarray, fig_type=None, width=800, height=400
+):
     """
-    Generates an efficiency and validity curve for a classifier.
+    Compute and plot the efficiency and validity curves for a conformal classifier.
 
-    Args:
-        clf (object): The classifier model.
-        X (np.ndarray): Input data.
-        fig_type (str, optional): Type of figure to display (e.g., 'png', 'svg'). Defaults to None.
+    Evaluates the model's statistical calibration (validity) and empirical
+    usefulness (efficiency) across a predefined range of significance levels
+    (alpha). This visualization helps diagnose under- or over-conservatism and
+    identifies the optimal operating alpha for the classifier.
 
-    Returns:
-        A efficiency curve plot.
+    Parameters
+    ----------
+    clf : object
+        The conformal classifier model. Must implement a `predict_set(X, alpha)`
+        method that returns a binary matrix of prediction sets.
+    X : array-like of shape (n_samples, n_features)
+        Input data features used for evaluation.
+    y : array-like of shape (n_samples,) or (n_samples, 1)
+        True target labels for the input data.
+    fig_type : str, optional
+        Format to automatically save or render the figure (e.g., 'png', 'svg').
+        If None, the interactive plot is displayed in the browser.
+    width : int, default=800
+        The width of the generated Plotly figure in pixels.
+    height : int, default=400
+        The height of the generated Plotly figure in pixels.
+
+    Returns
+    -------
+    plotly.graph_objects.Figure
+        An interactive Plotly figure object containing the Validity, Efficiency,
+        and Theoretical Coverage curves.
+
+    Raises
+    ------
+    AttributeError
+        If the provided `clf` object does not have a `predict_set` method.
+    ValueError
+        If the shapes of `X` and `y` are incompatible.
+
+    Notes
+    -----
+    - **Validity** measures empirical coverage, defined as the proportion of
+    samples where the true label is included in the prediction set. A valid
+    model stays on or above the :math:`1 - \alpha` line.
+    - **Efficiency** is quantified here as the *singleton rate* (the fraction of
+    prediction sets containing exactly one class). Higher values indicate more
+    informative and precise predictions.
+    - A drop in efficiency at high alpha levels typically indicates the generation
+    of empty prediction sets, as the model drops classes to meet the high
+    permitted error budget.
+
+    References
+    ----------
+    .. Angelopoulos, A. N., & Replinger, S. (2021). A gentle introduction to
+    conformal prediction and distribution-free uncertainty quantification.
+    arXiv preprint arXiv:2107.07511.
+    .. Shafer, G., & Vovk, V. (2008). A tutorial on conformal prediction.
+    Journal of Machine Learning Research, 9(3).
     """
 
-    def get_error_metrics(clf, X: np.ndarray) -> List:
-        """
-        Calculates error metrics for different error rates.
-
-        Args:
-            clf (object): The classifier model.
-            X (np.ndarray): Input data.
-
-        Returns:
-            Tuple: Arrays for error_rate, efficiency_rate, and validity_rate.
-        """
-
-        error_rate = np.asarray([0.45, 0.40, 0.35, 0.30, 0.25, 0.20, 0.15, 0.10, 0.05])
+    def get_error_metrics(clf, X: np.ndarray, y: np.ndarray) -> tuple:
+        error_rate = np.asarray(
+            [0.45, 0.40, 0.35, 0.30, 0.25, 0.20, 0.15, 0.10, 0.05, 0.01]
+        )
         efficiency_rate = np.zeros(error_rate.shape)
         validity_rate = np.zeros(error_rate.shape)
+
+        y_flat = y.flatten().astype(int)
+        n_samples = len(X)
+
         for i, error in enumerate(error_rate):
             predict_set = clf.predict_set(X, alpha=error)
-            efficiency_rate[i] = np.sum([np.sum(p) == 1 for p in predict_set]) / len(
-                predict_set
-            )
-            validity_rate[i] = np.sum(predict_set) / len(predict_set)
+            set_sizes = predict_set.sum(axis=1)
+            efficiency_rate[i] = np.sum(set_sizes == 1) / n_samples
+            covered = predict_set[np.arange(n_samples), y_flat]
+            validity_rate[i] = np.mean(covered)
+
         return error_rate, efficiency_rate, validity_rate
 
-    error_rate, efficiency_rate, validity_rate = get_error_metrics(clf, X)
+    error_rate, efficiency_rate, validity_rate = get_error_metrics(clf, X, y)
 
     fig = go.Figure()
 
-    # Create the bar chart
     fig.add_trace(
         go.Scatter(
             x=error_rate,
             y=efficiency_rate,
             mode="lines+markers",
-            name="efficicency",
+            name="Efficiency (Singleton Rate)",
             line=dict(color="darkblue"),
         )
     )
@@ -69,21 +113,32 @@ def efficiency_curve(clf, X: np.ndarray, fig_type=None, width=800, height=400):
             x=error_rate,
             y=validity_rate,
             mode="lines+markers",
-            name="validity",
+            name="Validity (Empirical Coverage)",
             line=dict(color="orange"),
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=error_rate,
+            y=1 - error_rate,
+            mode="lines",
+            name="Theoretical Coverage (1 - alpha)",
+            line=dict(color="grey", dash="dash"),
         )
     )
 
     fig.update_layout(
         title="Efficiency & Validity Curve",
-        xaxis_title="Error Rate",
-        yaxis_title="Score",
+        xaxis_title="Significance Level (Alpha / Error Rate)",
+        yaxis_title="Score / Rate",
         legend=dict(title="Metric"),
         width=width,
         height=height,
+        hovermode="x",
     )
-    fig.update_layout(hovermode="x")
-    fig.update_traces(hovertemplate="%{y}")
+    fig.update_traces(hovertemplate="%{y:.2f}")
+
     return fig.show(fig_type)
 
 
