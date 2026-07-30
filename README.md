@@ -73,12 +73,16 @@ For settings where labeled calibration data are unavailable, you can fit the con
 ```python
 from sklearn.ensemble import RandomForestClassifier
 from tinyconformal.classifier import BinaryMarginalConformalClassifier
+from sklearn.model_selection import cross_val_score
 
 learner = RandomForestClassifier(n_estimators=100, oob_score=True)
 learner.fit(X_train, y_train)
 
+score = cross_val_score(rf, X_train, y_train, cv=5, scoring='accuracy', n_jobs=-1)
+beta = round(np.mean(1 - score), 3)
+
 conformal_classifier = BinaryMarginalConformalClassifier(learner)
-conformal_classifier.unlabeled_fit(X_unlabeled)
+conformal_classifier.unlabeled_fit(X_unlabeled, beta)
 
 predictions = conformal_classifier.predict(X_test)
 ```
@@ -90,10 +94,10 @@ from sklearn.ensemble import RandomForestRegressor
 from tinyconformal import ConformalizedRegressor, ExactnessBound
 
 learner = RandomForestRegressor(random_state=42)
-tilde_beta = ExactnessBound.estimate_icp_bound(learner, X_train, y_train, p=0.95, cv=5)
+tilde_beta, beta = ExactnessBound.estimate_icp_bound(learner, X_train, y_train, p=0.95, cv=5)
 
 regressor = ConformalizedRegressor(learner, alpha=0.05)
-regressor.unlabeled_fit(X_unlabeled, tilde_beta=tilde_beta)
+regressor.unlabeled_fit(X_unlabeled, tilde_beta=tilde_beta, beta=beta)
 
 intervals = regressor.predict_interval(X_test)
 ```
