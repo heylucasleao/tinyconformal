@@ -63,6 +63,7 @@ class BaseConformalClassifier(ABC):
         self.classes = getattr(self.learner, "classes_", [0, 1])
         self.decision_function_ = None
         self.is_unlabeled = False
+        self.beta = None
         check_is_fitted(learner)
 
         if learner.n_classes_ > 2:
@@ -376,19 +377,20 @@ class BaseConformalClassifier(ABC):
         -------
         results : dict
             A dictionary containing the following evaluation metrics:
-            - "total": Total number of samples.
-            - "alpha": Significance level used.
-            - "coverage_rate": Coverage rate of the prediction sets.
-            - "one_c": Proportion of prediction sets containing exactly one element.
-            - "avg_c": Average size of the prediction sets.
-            - "empty": Proportion of empty prediction sets.
-            - "error": Classification error rate.
-            - "log_loss": Log loss of the predictions.
-            - "ece": Expected calibration error.
-            - "bm": Bookmaker informedness score.
-            - "mcc": Matthews correlation coefficient.
-            - "f1": F1 score.
-            - "fpr": False positive rate.
+            - "total" (int): Total number of samples.
+            - "alpha" (float): Significance level used.
+            - "beta" (float): Base model error rate (if `unlabeled_fit` was used)
+            - "coverage_rate" (float): Coverage rate of the prediction sets.
+            - "one_c" (float): Proportion of prediction sets containing exactly one element.
+            - "avg_c" (float): Average size of the prediction sets.
+            - "empty" (float): Proportion of empty prediction sets.
+            - "error" (float): Classification error rate.
+            - "log_loss" (float): Log loss of the predictions.
+            - "ece" (float): Expected calibration error.
+            - "bm" (float): Bookmaker informedness score.
+            - "mcc" (float): Matthews correlation coefficient.
+            - "f1" (float): F1 score.
+            - "fpr" (float): False positive rate.
         """
 
         alpha = self._get_alpha(alpha)
@@ -417,6 +419,7 @@ class BaseConformalClassifier(ABC):
         results = {
             "total": total,
             "alpha": alpha,
+            "beta": self.beta,
             "coverage_rate": coverage_rate,
             "one_c": one_c,
             "avg_c": avg_c,

@@ -49,19 +49,46 @@ class BinaryMarginalConformalClassifier(
 
         super().__init__(learner, alpha)
 
-    def unlabeled_fit(self, X=None):
-        """
-        Calibrates the nonconformity scores using unlabeled data (X) based on the model's
-        own predictions (Flechsig & Pilz, 2025).
+    def unlabeled_fit(
+        self,
+        X=None,
+        beta=None,
+    ):
+        """Fits the class-conditional conformal layer using unlabeled data via
+        pseudo-labels (Flechsig & Pilz, 2025).
 
-        Parameters
+        Standard CP guarantees coverage >= 1 - alpha using labeled data.
+        With unlabeled data, the model exactness error (beta) degrades the bound:
+        Coverage >= 1 - alpha - beta
+
+        Parameters:
         ----------
         X : array-like of shape (n_samples, n_features)
             Unlabeled calibration features.
+        beta : float, optional (default=None)
+            Base model error rate (1 - accuracy). Used to adjust the expected
+            theoretical coverage bound (1 - alpha - beta).
+
+        Returns:
+        -------
+        self : object
+            The fitted classifier.
         """
         if X is None:
             raise ValueError("Unlabeled calibration data (X) must be provided.")
 
+        if beta is None:
+            warnings.warn(
+                "The parameter 'beta' (base model error rate, 1 - accuracy) was not provided. "
+                "Without 'beta', the nominal target coverage (1 - alpha) will not hold, "
+                "and the actual lower coverage bound (1 - alpha - beta) cannot be interpreted correctly. "
+                "Consider estimating accuracy beforehand, e.g., via: "
+                "`beta = 1 - cross_val_score(learner, X_train, y_train, cv=5, scoring='accuracy', n_jobs=-1).mean()`",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        self.beta = beta
         self.is_unlabeled = True
         y_prob = self.learner.predict_proba(X)
         self.hinge = 1.0 - np.max(y_prob, axis=1)

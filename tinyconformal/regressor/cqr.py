@@ -40,7 +40,12 @@ class ConformalizedQuantileRegressor(
         """
         super().__init__(learner, alpha)
 
-    def unlabeled_fit(self, X, tilde_beta: float):
+    def unlabeled_fit(
+        self,
+        X,
+        tilde_beta: float,
+        beta: float = None,
+    ):
         """
         Calibrates the CQR nonconformity scores using unlabeled data (X) based on a specified
         quantile model exactness measure (tilde_beta, beta) as in Flechsig & Pilz (2025).
@@ -60,6 +65,14 @@ class ConformalizedQuantileRegressor(
         if X is None:
             raise ValueError("Unlabeled calibration data (X) must be provided.")
 
+        if beta is None:
+            raise ValueError(
+                "The parameter 'beta' must be provided. "
+                "Without 'beta', the actual lower coverage bound (1 - alpha - beta) cannot be determined. "
+                "Consider using `tilde_beta, beta = ExactnessBound.estimate_icp_bound(...)`."
+            )
+
+        self.beta = beta
         self.is_unlabeled = True
         self.tilde_beta = float(tilde_beta)
         self.n = len(X)

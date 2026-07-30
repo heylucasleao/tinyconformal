@@ -20,10 +20,14 @@ class ExactnessBound:
         y_train,
         p: float = 0.95,
         cv: int = 5,
-    ) -> float:
+    ) -> tuple[float, float]:
         """
         Estimates the exactness bound (tilde_beta) for standard Inductive Conformal Prediction (ICP)
         using mean regression learners.
+
+        Calculates out-of-fold absolute prediction residuals |y - y_hat| via
+        cross-validation, returning the residual bound at quantile p along with
+        the derived error rate beta.
 
         Parameters
         ----------
@@ -43,6 +47,8 @@ class ExactnessBound:
         -------
         tilde_beta : float
             The absolute residual bound |y - y_hat| at percentile p.
+        beta : float
+            The complementary error rate (1.0 - p)
 
         Examples
         --------
@@ -51,16 +57,22 @@ class ExactnessBound:
         >>>
         >>> rf = RandomForestRegressor(random_state=42)
         >>> p = 0.95
-        >>> tilde_beta = ExactnessBound.estimate_icp_bound(rf, X_train, y_train, p=p, cv=5)
+        >>> tilde_beta, beta = ExactnessBound.estimate_icp_bound(rf, X_train, y_train, p=p, cv=5)
         >>>
         >>> rf.fit(X_train, y_train)
         >>> reg = ConformalizedRegressor(rf, alpha=0.05)
-        >>> reg.unlabeled_fit(X_unlabeled, tilde_beta=tilde_beta, beta=1.0 - p)
+        >>> reg.unlabeled_fit(X_unlabeled, tilde_beta=tilde_beta, beta=beta)
         """
+        if not (0.0 < p < 1.0):
+            raise ValueError(
+                f"The quantile probability 'p' must be in (0, 1), got {p}."
+            )
         y_cv_pred = cross_val_predict(learner, X_train, y_train, cv=cv)
         cv_residuals = np.abs(y_train - y_cv_pred)
 
-        return float(np.quantile(cv_residuals, p, method="higher"))
+        return float(np.quantile(cv_residuals, p, method="higher")), round(
+            float(1.0 - p), 3
+        )
 
     @staticmethod
     def estimate_cqr_bound(
@@ -69,7 +81,7 @@ class ExactnessBound:
         y_train,
         p: float = 0.95,
         cv: int = 5,
-    ) -> float:
+    ) -> tuple[float, float]:
         """
         Estimates the exactness bound (tilde_beta) for Conformalized Quantile Regression (CQR)
         using quantile learners.
@@ -91,6 +103,8 @@ class ExactnessBound:
         -------
         tilde_beta : float
             The CQR quantile error bound at percentile p.
+        beta : float
+            The complementary error rate (1.0 - p)
 
         Examples
         --------
@@ -99,13 +113,19 @@ class ExactnessBound:
         >>>
         >>> qf = RandomForestQuantileRegressor(default_quantiles=[0.025, 0.975], random_state=42)
         >>> p = 0.95
-        >>> tilde_beta = ExactnessBound.estimate_cqr_bound(qf, X_train, y_train, p=p, cv=5)
+        >>> tilde_beta, beta = ExactnessBound.estimate_cqr_bound(qf, X_train, y_train, p=p, cv=5)
         >>>
         >>> qf.fit(X_train, y_train)
         >>> cqr = ConformalizedQuantileRegressor(qf, alpha=0.05)
-        >>> cqr.unlabeled_fit(X_unlabeled, tilde_beta=tilde_beta, beta=1.0 - p)
+        >>> cqr.unlabeled_fit(X_unlabeled, tilde_beta=tilde_beta, beta=beta)
         """
+        if not (0.0 < p < 1.0):
+            raise ValueError(
+                f"The quantile probability 'p' must be in (0, 1), got {p}."
+            )
         preds = cross_val_predict(learner, X_train, y_train, cv=cv)
         cqr_residuals = np.maximum(preds[:, 0] - y_train, y_train - preds[:, 1])
 
-        return float(np.quantile(cqr_residuals, p, method="higher"))
+        return float(np.quantile(cqr_residuals, p, method="higher")), round(
+            float(1.0 - p), 3
+        )
