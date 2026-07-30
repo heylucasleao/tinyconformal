@@ -52,15 +52,25 @@ class BinaryClassConditionalConformalClassifier(
 
         super().__init__(learner, alpha)
 
-    def unlabeled_fit(self, X=None):
-        """
-        Fits the class-conditional conformal layer using unlabeled data (X) based on
-        pseudo-labels derived from the model's predictions (Flechsig & Pilz, 2025).
+    def unlabeled_fit(
+        self,
+        X=None,
+        beta=None,
+    ):
+        """Fits the class-conditional conformal layer using unlabeled data via
+        pseudo-labels (Flechsig & Pilz, 2025).
+
+        Standard CP guarantees coverage >= 1 - alpha using labeled data.
+        With unlabeled data, the model exactness error (beta) degrades the bound:
+        Coverage >= 1 - alpha - beta
 
         Parameters:
         ----------
         X : array-like of shape (n_samples, n_features)
             Unlabeled calibration features.
+        beta : float, optional (default=None)
+            Base model error rate (1 - accuracy). Used to adjust the expected
+            theoretical coverage bound (1 - alpha - beta).
 
         Returns:
         -------
@@ -70,10 +80,23 @@ class BinaryClassConditionalConformalClassifier(
         if X is None:
             raise ValueError("Unlabeled calibration data (X) must be provided.")
 
+        if beta is None:
+            warnings.warn(
+                "The parameter 'beta' (model exactness error rate) was not provided. "
+                "Without 'beta', the nominal target coverage (1 - alpha) will not hold, "
+                "and the actual lower coverage bound (1 - alpha - beta) cannot be interpreted correctly. "
+                "Consider estimating exactness beforehand, e.g., via: "
+                "`tilde_beta = np.median(np.abs(y_tr - y_pred_cv))` with `beta = 0.50`.",
+                UserWarning,
+                stacklevel=2,
+            )
+
         self.is_unlabeled = True
+        self.beta = beta
         y_prob = self.learner.predict_proba(X)
         idx_max = np.argmax(y_prob, axis=1)
-        ncscore = np.min(self.generate_non_conformity_score(y_prob), axis=1)
+        max_prob = y_prob[np.arange(len(X)), idx_max]
+        ncscore = self.generate_non_conformity_score(max_prob)
         self.hinge = [ncscore[idx_max == c] for c in self.classes]
         self.n = [np.sum(idx_max == c) for c in self.classes]
 
