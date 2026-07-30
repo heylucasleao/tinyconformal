@@ -82,11 +82,11 @@ class BinaryClassConditionalConformalClassifier(
 
         if beta is None:
             warnings.warn(
-                "The parameter 'beta' (model exactness error rate) was not provided. "
+                "The parameter 'beta' (base model error rate, 1 - accuracy) was not provided. "
                 "Without 'beta', the nominal target coverage (1 - alpha) will not hold, "
                 "and the actual lower coverage bound (1 - alpha - beta) cannot be interpreted correctly. "
-                "Consider estimating exactness beforehand, e.g., via: "
-                "`tilde_beta = np.median(np.abs(y_tr - y_pred_cv))` with `beta = 0.50`.",
+                "Consider estimating accuracy beforehand, e.g., via: "
+                "`beta = 1 - cross_val_score(learner, X_train, y_train, cv=5, scoring='accuracy', n_jobs=-1).mean()`",
                 UserWarning,
                 stacklevel=2,
             )
