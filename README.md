@@ -1,5 +1,9 @@
 # TinyConformal
-TinyConformal is an experimental Python library for conformal predictions, providing tools to generate valid prediction sets with a specified significance level (alpha). This project aims to facilitate the implementation of personal and future projects on the topic.
+
+Related project: [tinyshift](https://github.com/HeyLucasLeao/tinyshift)
+
+TinyConformal is a Python library for conformal prediction in classification and regression.
+It provides tools to build valid prediction sets and prediction intervals with a target significance level (`alpha`).
 
 For more information on a previous project related to Out-of-Bag (OOB) solutions, visit [this link](https://github.com/HeyLucasLeao/cp-study).
 
@@ -14,36 +18,68 @@ Currently, TinyConformal supports Out-of-Bag (OOB) solutions for `RandomForestCl
 
 ## Installation
 
-Install TinyConformal using pip:
+### Using pip
 
 ```bash
 pip install tinyconformal
 ```
 
-> **Note:** If you want to enable plotting capabilities, you need to install the extras using Poetry:
+Optional extras:
 
 ```bash
-poetry install --E plot
+pip install "tinyconformal[plot]"
+pip install "tinyconformal[notebook]"
+pip install "tinyconformal[dev]"
 ```
 
-## Usage
+### Using uv
 
-### Importing Classifiers
+Install in the current environment:
 
-Import the conformal classifiers from the `tinyconformal.classifier` module:
+```bash
+uv pip install tinyconformal
+```
+
+Add as a dependency in a project:
+
+```bash
+uv add tinyconformal
+```
+
+Optional extras with uv:
+
+```bash
+uv pip install "tinyconformal[plot]"
+uv pip install "tinyconformal[notebook]"
+uv pip install "tinyconformal[dev]"
+```
+
+## Submodules and usage
+
+TinyConformal is organized into two main submodules:
+
+- `tinyconformal.classifier`: conformal classifiers for binary classification.
+- `tinyconformal.regressor`: conformal regressors and exactness-bound utilities.
+
+### Classifier submodule
+
+Import from `tinyconformal.classifier`:
 
 ```python
-from tinyconformal.classifier import BinaryClassConditionalConformalClassifier
 from tinyconformal.classifier import BinaryMarginalConformalClassifier
+from tinyconformal.classifier import BinaryClassConditionalConformalClassifier
 ```
-### Importing Regressors
 
-Import the conformal regressors from the `tinyconformal.regressor` module:
+### Regressor submodule
+
+Import from `tinyconformal.regressor`:
 
 ```python
 from tinyconformal.regressor import ConformalizedRegressor
 from tinyconformal.regressor import ConformalizedQuantileRegressor
+from tinyconformal.regressor import ExactnessBound
 ```
+
 ### Example
 
 Example usage of `BinaryClassConditionalConformalClassifier`:
@@ -59,7 +95,7 @@ learner.fit(X_train, y_train)
 
 # Create and fit the conformal classifier
 conformal_classifier = BinaryClassConditionalConformalClassifier(learner)
-conformal_classifier.fit(X=X_train, y=y_train, oob=True)
+conformal_classifier.fit(y=y_train, oob=True)
 
 # Make predictions
 X_test = ...  # your test data
@@ -87,13 +123,18 @@ For regressors, you can combine an exactness bound estimate with unlabeled calib
 
 ```python
 from sklearn.ensemble import RandomForestRegressor
-from tinyconformal import ConformalizedRegressor, ExactnessBound
+from tinyconformal.regressor import ConformalizedRegressor, ExactnessBound
 
 learner = RandomForestRegressor(random_state=42)
-tilde_beta = ExactnessBound.estimate_icp_bound(learner, X_train, y_train, p=0.95, cv=5)
+tilde_beta, beta = ExactnessBound.estimate_icp_bound(
+    learner, X_train, y_train, p=0.95, cv=5
+)
+
+# Fit learner before using conformal regressor
+learner.fit(X_train, y_train)
 
 regressor = ConformalizedRegressor(learner, alpha=0.05)
-regressor.unlabeled_fit(X_unlabeled, tilde_beta=tilde_beta)
+regressor.unlabeled_fit(X_unlabeled, tilde_beta=tilde_beta, beta=beta)
 
 intervals = regressor.predict_interval(X_test)
 ```
@@ -114,16 +155,16 @@ print(results)
 `BinaryMarginalConformalClassifier` is a marginal-coverage conformal classifier that uses a classifier as the underlying learner.
 
 - Training via labeled calibration: `fit(X, y)`
-- Training via OOB calibration: `fit(X, y, oob=True)`
-- Training via unlabeled calibration: `unlabeled_fit(X)`
+- Training via OOB calibration: `fit(y=y_train, oob=True)`
+- Training via unlabeled calibration: `unlabeled_fit(X, beta=...)`
 
 ### BinaryClassConditionalConformalClassifier
 
 `BinaryClassConditionalConformalClassifier` is a class-conditional conformal classifier that uses a classifier as the underlying learner.
 
 - Training via labeled calibration: `fit(X, y)`
-- Training via OOB calibration: `fit(X, y, oob=True)`
-- Training via unlabeled calibration: `unlabeled_fit(X)` using pseudo-labels derived from the model probabilities
+- Training via OOB calibration: `fit(y=y_train, oob=True)`
+- Training via unlabeled calibration: `unlabeled_fit(X, beta=...)` using pseudo-labels derived from the model probabilities
 
 ### ConformalizedRegressor
 
@@ -131,7 +172,7 @@ print(results)
 
 - Training via labeled calibration: `fit(X, y)`
 - Training via OOB calibration: `fit(X, y, oob=True)`
-- Training via unlabeled calibration: `unlabeled_fit(X, tilde_beta=...)` using an exactness bound
+- Training via unlabeled calibration: `unlabeled_fit(X, tilde_beta=..., beta=...)` using an exactness bound
 
 ### ConformalizedQuantileRegressor
 
@@ -139,7 +180,7 @@ print(results)
 
 - Training via labeled calibration: `fit(X, y)`
 - Training via OOB calibration: `fit(X, y, oob=True)`
-- Training via unlabeled calibration: `unlabeled_fit(X, tilde_beta=...)` using an exactness bound
+- Training via unlabeled calibration: `unlabeled_fit(X, tilde_beta=..., beta=...)` using an exactness bound
 
 ### ExactnessBound
 
