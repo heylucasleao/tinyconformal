@@ -111,3 +111,90 @@ def test_oob_class_conditional_classifier(dataset, learner):
     classifier = BinaryClassConditionalConformalClassifier(learner)
     classifier.fit(y=dataset["y_train"], oob=True)
     _assert_classifier_outputs(classifier, dataset)
+
+
+@pytest.mark.parametrize(
+    "classifier_cls",
+    [BinaryMarginalConformalClassifier, BinaryClassConditionalConformalClassifier],
+)
+def test_unlabeled_fit_requires_X(classifier_cls, learner):
+    classifier = classifier_cls(learner)
+
+    with pytest.raises(ValueError, match="Unlabeled calibration data"):
+        classifier.unlabeled_fit(X=None)
+
+
+@pytest.mark.parametrize(
+    "classifier_cls",
+    [BinaryMarginalConformalClassifier, BinaryClassConditionalConformalClassifier],
+)
+def test_unlabeled_fit_warns_when_beta_missing(classifier_cls, learner, dataset):
+    classifier = classifier_cls(learner)
+
+    with pytest.warns(UserWarning, match="beta"):
+        classifier.unlabeled_fit(dataset["X_calib"])
+
+
+@pytest.mark.parametrize(
+    "classifier_cls",
+    [BinaryMarginalConformalClassifier, BinaryClassConditionalConformalClassifier],
+)
+def test_unlabeled_fit_disables_calibration(classifier_cls, learner, dataset):
+    classifier = classifier_cls(learner)
+    classifier.unlabeled_fit(dataset["X_calib"], beta=0.1)
+
+    with pytest.raises(ValueError, match="Calibration is not applicable"):
+        classifier.calibrate(dataset["X_test"], dataset["y_test"])
+
+
+def test_unlabeled_fit_marginal_predict_p_properties(dataset, learner):
+    classifier = BinaryMarginalConformalClassifier(learner)
+    classifier.unlabeled_fit(dataset["X_calib"], beta=0.1)
+
+    assert classifier.is_unlabeled is True
+    assert classifier.beta == 0.1
+    assert classifier.hinge.shape == (dataset["X_calib"].shape[0],)
+    assert classifier.n == dataset["X_calib"].shape[0]
+
+    p_values = classifier.predict_p(dataset["X_test"])
+    assert p_values.shape == (dataset["X_test"].shape[0], 2)
+    assert np.all(p_values >= 0)
+    assert np.all(p_values <= 1)
+
+
+def test_unlabeled_fit_class_conditional_predict_p_properties(dataset, learner):
+    classifier = BinaryClassConditionalConformalClassifier(learner)
+    classifier.unlabeled_fit(dataset["X_calib"], beta=0.1)
+
+    assert classifier.is_unlabeled is True
+    assert classifier.beta == 0.1
+    assert len(classifier.hinge) == 2
+    assert len(classifier.n) == 2
+    assert sum(classifier.n) == dataset["X_calib"].shape[0]
+
+    p_values = classifier.predict_p(dataset["X_test"])
+    assert p_values.shape == (dataset["X_test"].shape[0], 2)
+    assert np.all(p_values >= 0)
+    assert np.all(p_values <= 1)
+
+
+@pytest.mark.parametrize(
+    "classifier_cls",
+    [BinaryMarginalConformalClassifier, BinaryClassConditionalConformalClassifier],
+)
+def test_fit_requires_y(classifier_cls, learner, dataset):
+    classifier = classifier_cls(learner)
+
+    with pytest.raises(ValueError, match="true labels"):
+        classifier.fit(dataset["X_calib"], y=None, oob=False)
+
+
+@pytest.mark.parametrize(
+    "classifier_cls",
+    [BinaryMarginalConformalClassifier, BinaryClassConditionalConformalClassifier],
+)
+def test_fit_oob_rejects_X(classifier_cls, learner, dataset):
+    classifier = classifier_cls(learner)
+
+    with pytest.raises(ValueError, match="should not be provided"):
+        classifier.fit(dataset["X_calib"], y=dataset["y_train"], oob=True)
