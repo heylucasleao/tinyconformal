@@ -109,12 +109,16 @@ For settings where labeled calibration data are unavailable, you can fit the con
 ```python
 from sklearn.ensemble import RandomForestClassifier
 from tinyconformal.classifier import BinaryMarginalConformalClassifier
+from sklearn.model_selection import cross_val_score
 
 learner = RandomForestClassifier(n_estimators=100, oob_score=True)
 learner.fit(X_train, y_train)
 
+score = cross_val_score(rf, X_train, y_train, cv=5, scoring='accuracy', n_jobs=-1)
+beta = round(np.mean(1 - score), 3)
+
 conformal_classifier = BinaryMarginalConformalClassifier(learner)
-conformal_classifier.unlabeled_fit(X_unlabeled)
+conformal_classifier.unlabeled_fit(X_unlabeled, beta)
 
 predictions = conformal_classifier.predict(X_test)
 ```
