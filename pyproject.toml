@@ -18,6 +18,16 @@ dependencies = [
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
-plot = ["plotly (>=5.22.0)", "kaleido (<=0.2.1)"]
-notebook = ["nbformat (>=5.10.4)", "ipykernel (>=6.7.0)"]
-all = ["plot", "notebook"]
+plot = [
+    "tinyshift[plot]",
+]
+
+notebook = [
+    "nbformat>=5.10.4",
+    "ipykernel>6.7.0",
+]
+
+dev = [
+    "tinyconformal[plot,notebook]",
+    "pytest>=7.0.0",
+]
