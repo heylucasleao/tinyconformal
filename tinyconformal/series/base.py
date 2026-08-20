@@ -3,9 +3,9 @@
 # Licensed under the MIT License
 
 from abc import ABC, abstractmethod
+from typing import Any, Dict, List, Optional, Union
 import numpy as np
 import pandas as pd
-from typing import List, Union, Any, Dict, Optional
 from sklearn.base import BaseEstimator, clone
 from sklearn.metrics import mean_absolute_error
 
@@ -60,21 +60,21 @@ class BaseTimeSeriesConformalRegressor(ABC):
         pass
 
     @abstractmethod
-    def fit(self, *args, **kwargs):
+    def fit(self, df: pd.DataFrame, *args, **kwargs):
         """Fits the conformal model."""
         pass
 
     @abstractmethod
     def predict_interval(self, *args, **kwargs) -> np.ndarray:
         """
-        Generate prediction intervals for the input data.
+        Generates prediction intervals for the input data.
         To be implemented by subclasses.
         """
         pass
 
     def _compute_qhat(self, ncscore: np.ndarray, q_level: float, axis: int = None):
         """
-        Compute the q-hat value based on the nonconformity scores and the quantile level.
+        Computes the q-hat quantile value based on nonconformity scores and target level.
         """
         return np.quantile(ncscore, q_level, method="higher", axis=axis)
 
@@ -99,10 +99,6 @@ class BaseTimeSeriesConformalRegressor(ABC):
         """
         Calculates the Mean Winkler Interval Score (MWIS) for prediction intervals.
 
-        If the target observation falls inside the prediction interval, the score equal
-        to the interval width (narrower intervals are rewarded). If the observation falls
-        outside, a penalty proportional to the distance from the nearest bound is added.
-
         Parameters
         ----------
         y_true : ndarray
@@ -123,112 +119,37 @@ class BaseTimeSeriesConformalRegressor(ABC):
         penalty_upper = (2.0 / alpha) * (y_true - upper) * (y_true > upper)
         return float(np.mean(width + penalty_lower + penalty_upper))
 
-    def _extract_predictions(self, preds: pd.DataFrame) -> np.ndarray:
+    def _extract_predictions(self, fcst_df: pd.DataFrame) -> np.ndarray:
         """
-        Pivots Nixtla long-format DataFrame prediction into a 2D/3D NumPy array.
+        Pivots Nixtla long-format DataFrame prediction into a 2D NumPy array.
+        Ensures strict row and column alignment sorting.
         """
-        target_models = (
-            [self.model_col]
-            if isinstance(self.model_col, str)
-            else list(self.model_col)
-        )
-
-        if len(target_models) == 1:
-            return preds.pivot(
-                index=self.id_col, columns=self.time_col, values=target_models[0]
-            ).to_numpy()
-
-        return np.stack(
-            [
-                preds.pivot(
-                    index=self.id_col, columns=self.time_col, values=col
-                ).to_numpy()
-                for col in target_models
-            ],
-            axis=-1,
-        )
-
-    def _extract_target(self, y: pd.DataFrame) -> np.ndarray:
-        """
-        Pivots Nixtla target DataFrame into a 2D NumPy array (n_series, horizon).
-        """
-        return y.pivot(
-            index=self.id_col, columns=self.time_col, values=self.target_col
-        ).to_numpy()
-
-    def _sequential_backtesting(self, df: pd.DataFrame, step_size: int = None):
-        """
-        Executes sequential backtesting rolling windows over the input DataFrame.
-        """
-        step_size = step_size if step_size is not None else self.horizon
-        total_len = len(df[self.time_col].unique())
-        min_required = self.horizon * self.n_windows
-
-        if total_len <= min_required:
-            raise ValueError(
-                f"Data timeline length ({total_len}) must be greater than required window capacity ({min_required})."
-            )
-
-        residuals: List[np.ndarray] = []
-
-        for w in reversed(range(self.n_windows)):
-            cutoff_end = total_len - (w * step_size)
-            train_end = cutoff_end - self.horizon
-
-            time_steps = sorted(df[self.time_col].unique())
-            train_times = time_steps[:train_end]
-            val_times = time_steps[train_end:cutoff_end]
-
-            df_tr = df[df[self.time_col].isin(train_times)]
-            df_val = df[df[self.time_col].isin(val_times)]
-
-            temp_model = clone(self.learner)
-            temp_model.fit(df_tr)
-
-            preds_val = self._extract_predictions(temp_model.predict(h=self.horizon))
-            y_val_arr = self._extract_target(df_val)
-            residual = self._generate_residuals(preds_val, y_val_arr)
-            residuals.append(residual)
-
-        return residuals
-
-    def fit(
-        self,
-        df: pd.DataFrame,
-        target_col: str,
-        time_col: str,
-        id_col: str,
-        model_col: Union[str, List[str]],
-        step_size: int = None,
-    ):
-        """
-        Fits the Nixtla model and computes conformal prediction residuals via backtesting.
-        """
-        if not isinstance(df, pd.DataFrame):
-            raise TypeError(f"Input 'df' must be a pandas DataFrame. Got {type(df)}.")
-
-        for col_name, col_val in [
-            ("target_col", target_col),
-            ("time_col", time_col),
-            ("id_col", id_col),
-        ]:
-            if col_val not in df.columns:
-                raise KeyError(
-                    f"Column '{col_val}' specified for '{col_name}' was not found in DataFrame."
+        if self.model_col is None:
+            model_cols = [
+                c for c in fcst_df.columns if c not in [self.id_col, self.time_col]
+            ]
+            if not model_cols:
+                raise ValueError(
+                    "No prediction model column was detected in the model output DataFrame."
                 )
+            self.model_col = model_cols[0]
 
-        self.target_col = target_col
-        self.time_col = time_col
-        self.id_col = id_col
-        self.model_col = model_col
+        pivoted = fcst_df.pivot(
+            index=self.id_col, columns=self.time_col, values=self.model_col
+        )
+        pivoted = pivoted.sort_index(axis=0).sort_index(axis=1)
+        return pivoted.values
 
-        residuals = self._sequential_backtesting(df, step_size=step_size)
-
-        self.ncscore = np.vstack(residuals)
-        self.learner.fit(df)
-        self.n = len(self.ncscore)
-
-        return self
+    def _extract_target(self, target_df: pd.DataFrame) -> np.ndarray:
+        """
+        Pivots ground-truth DataFrames into a 2D NumPy array (n_series, horizon).
+        Ensures strict row and column alignment sorting matching predictions.
+        """
+        pivoted = target_df.pivot(
+            index=self.id_col, columns=self.time_col, values=self.target_col
+        )
+        pivoted = pivoted.sort_index(axis=0).sort_index(axis=1)
+        return pivoted.values
 
     def predict(
         self,
@@ -249,27 +170,22 @@ class BaseTimeSeriesConformalRegressor(ABC):
         alpha: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
-        Evaluate the performance the regressor on the given dataset.
-        Parameters:
-            df_test:
-                The evaluation dataset containing both input features and target values.
-            h:
-                The forecast horizon for multi-step predictions.
-            alpha:
-                Significance level for prediction intervals. If None, the regressor's default alpha is used.
-        Returns:
-            A dictionary containing the following evaluation metrics:
-            - "total" (int): The total number of samples in the dataset.
-            - "alpha" (float): The significance level used for evaluation.
-            - "beta" (float): Base model error rate (if `unlabeled_fit` was used)
-            - "coverage_rate" (float): The coverage rate of the prediction intervals.
-            - "interval_width_mean" (float): The mean width of the prediction intervals.
-            - "mwis" (float): The Mean Weighted Interval Score (MWIS).
-            - "mae" (float): The Mean Absolute Error (MAE) of the predictions.
-            - "mbe" (float): The Mean Bias Error (MBE) of the predictions.
-            - "mse" (float): The Mean Squared Error (MSE) of the predictions.
-        """
+        Evaluates the regressor performance on the given dataset.
 
+        Parameters
+        ----------
+        df_test : pd.DataFrame
+            Evaluation dataset containing input features and target values.
+        h : int, optional
+            Forecast horizon for multi-step predictions.
+        alpha : float, optional
+            Significance level for prediction intervals.
+
+        Returns
+        -------
+        Dict[str, Any]
+            Dictionary containing metrics (coverage_rate, interval_width_mean, mwis, mae, mbe, mse).
+        """
         alpha = self._get_alpha(alpha)
         y_true = self._extract_target(df_test)
 
