@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin
 from .base import BaseTimeSeriesConformalRegressor
+from typing import Optional
 
 
 class ConformalDistributionTimeSeriesRegressor(
@@ -221,11 +222,55 @@ class ConformalDistributionTimeSeriesRegressor(
 
         return self
 
-    def predict_interval(
-        self, X_df: pd.DataFrame = None, h: int = None, alpha: float = None
+    def _sample_correction(self, alpha: float):
+        """Computes finite-sample quantile adjustment for exact coverage bounds."""
+        n = self.n
+        low_q = max(0.0, alpha / 2.0 - 1.0 / (2.0 * n))
+        high_q = min(1.0, 1.0 - alpha / 2.0 + 1.0 / (2.0 * n))
+        return low_q, high_q
+
+    def _predict_raw(
+        self,
+        h: Optional[int] = None,
+        X_df: Optional[pd.DataFrame] = None,
     ) -> np.ndarray:
         """
-        Generates prediction intervals for the input dataset.
-        To be implemented in prediction phase.
+        Generates base model point predictions from Nixtla estimator into standard ndarray.
         """
-        pass
+        h = h if h is not None else self.horizon
+        preds_df = self.learner.predict(h=h, X_df=X_df)
+        return self._extract_predictions(preds_df)
+
+    def _get_conformal_distribution(
+        self,
+        h: Optional[int] = None,
+        X_df: Optional[pd.DataFrame] = None,
+    ) -> np.ndarray:
+        """
+        Generates the 3D empirical trajectory tensor: shape (n_series, n_residuals, horizon)
+        """
+        preds = self._predict_raw(h=h, X_test=X_df)  # shape: (n_series, horizon)
+        return preds[:, np.newaxis, :] + self.ncscore[np.newaxis, :, :]
+
+    def predict_interval(
+        self,
+        h: Optional[int] = None,
+        X_df: Optional[pd.DataFrame] = None,
+        alpha: float = None,
+    ) -> np.ndarray:
+        """
+        Generates prediction intervals [lower, upper] for Nixtla inputs.
+
+        Returns
+        -------
+        intervals : ndarray of shape (n_series, horizon, 2)
+        """
+        alpha = self._get_alpha(alpha)
+        low_q, high_q = self._sample_correction(alpha)
+
+        conformal_dist = self._get_conformal_distribution(h=h, X_df=X_df)
+
+        lower_bound = self._compute_qhat(conformal_dist, low_q, axis=1)
+        upper_bound = self._compute_qhat(conformal_dist, high_q, axis=1)
+
+        return np.stack([lower_bound, upper_bound], axis=-1)

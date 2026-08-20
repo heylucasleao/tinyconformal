@@ -42,7 +42,6 @@ class BaseTimeSeriesConformalRegressor(ABC):
         self.residuals_ = None
         self.ncscore = None
         self.n = None
-        self.beta = None
 
         self.target_col = None
         self.time_col = None
@@ -198,7 +197,6 @@ class BaseTimeSeriesConformalRegressor(ABC):
         return {
             "total": len(df_test),
             "alpha": alpha,
-            "beta": self.beta,
             "coverage_rate": rounded(self._coverage_rate(y_true, y_pred_intervals)),
             "interval_width_mean": rounded(self._interval_width_mean(y_pred_intervals)),
             "mwis": rounded(self._mwi_score(y_true, y_pred_intervals, alpha)),
