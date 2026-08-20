@@ -150,7 +150,8 @@ class ConformalDistributionTimeSeriesRegressor(
 
             temp_model = copy.deepcopy(self.learner)
 
-            temp_model.fit(
+            self._invoke(
+                temp_model.fit,
                 df=train_df,
                 id_col=self.id_col,
                 time_col=self.time_col,
@@ -159,9 +160,13 @@ class ConformalDistributionTimeSeriesRegressor(
             )
 
             predict_cols = [self.id_col, self.time_col] + self.exog_cols_
-            X_val = val_df[predict_cols]
-            fcst = temp_model.predict(
-                h=self.horizon, X_df=X_val if self.exog_cols_ else None
+            predict_cols = [self.id_col, self.time_col] + self.exog_cols_
+            X_val = val_df[predict_cols] if self.exog_cols_ else None
+
+            fcst = self._invoke(
+                temp_model.predict,
+                h=self.horizon,
+                X_df=X_val,
             )
 
             y_hat = self._extract_predictions(fcst)
@@ -212,7 +217,8 @@ class ConformalDistributionTimeSeriesRegressor(
         self.ncscore = np.vstack(residuals)
         self.n = len(self.ncscore)
 
-        self.learner.fit(
+        self._invoke(
+            self.learner.fit,
             df=df,
             id_col=self.id_col,
             time_col=self.time_col,
@@ -238,7 +244,12 @@ class ConformalDistributionTimeSeriesRegressor(
         Generates base model point predictions from Nixtla estimator into standard ndarray.
         """
         h = h if h is not None else self.horizon
-        preds_df = self.learner.predict(h=h, X_df=X_df)
+
+        preds_df = self._invoke(
+            self.learner.predict,
+            h=h,
+            X_df=X_df,
+        )
         return self._extract_predictions(preds_df)
 
     def _get_conformal_distribution(
@@ -249,8 +260,16 @@ class ConformalDistributionTimeSeriesRegressor(
         """
         Generates the 3D empirical trajectory tensor: shape (n_series, n_residuals, horizon)
         """
-        preds = self._predict_raw(h=h, X_test=X_df)  # shape: (n_series, horizon)
-        return preds[:, np.newaxis, :] + self.ncscore[np.newaxis, :, :]
+        h = h if h is not None else self.horizon
+
+        if h > self.horizon:
+            raise ValueError(
+                f"Requested forecast horizon h={h} exceeds fitted calibration horizon ({self.horizon})."
+            )
+
+        preds = self._predict_raw(h=h, X_df=X_df)  # shape: (n_series, horizon)
+        ncscore_sliced = self.ncscore[:, :h]
+        return preds[:, np.newaxis, :] + ncscore_sliced[np.newaxis, :, :]
 
     def predict_interval(
         self,

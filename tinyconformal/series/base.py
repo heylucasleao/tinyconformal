@@ -3,11 +3,12 @@
 # Licensed under the MIT License
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, clone
 from sklearn.metrics import mean_absolute_error
+import inspect
 
 
 class BaseTimeSeriesConformalRegressor(ABC):
@@ -91,6 +92,25 @@ class BaseTimeSeriesConformalRegressor(ABC):
         """Calculates mean interval width."""
         widths = y_pred_intervals[..., 1] - y_pred_intervals[..., 0]
         return float(np.mean(widths))
+
+    def _invoke(self, method, **kwargs):
+        """
+        Executa um método (fit, predict, cross_validation) injetando apenas
+        os argumentos aceitos pela sua assinatura.
+        """
+        sig = inspect.signature(method)
+        has_var_kw = any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+        )
+
+        if has_var_kw:
+            filtered = {k: v for k, v in kwargs.items() if v is not None}
+        else:
+            filtered = {
+                k: v for k, v in kwargs.items() if k in sig.parameters and v is not None
+            }
+
+        return method(**filtered)
 
     def _mwi_score(
         self, y_true: np.ndarray, y_pred_intervals: np.ndarray, alpha: float
