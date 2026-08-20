@@ -1,32 +1,88 @@
+# Copyright (c) 2024-2026 Lucas Leão
+# TinyConformal - A small toolbox for conformal prediction
+# Licensed under the MIT License
+
 import numpy as np
+from sklearn.base import RegressorMixin, BaseEstimator
+from .base_ts import BaseTimeSeriesConformalRegressor
 
 
-class MultiStepSplitConformal:
-    def __init__(self, base_model, horizon: int, alpha: float = 0.1):
+class MultiStepTimeSeriesRegressor(
+    RegressorMixin, BaseEstimator, BaseTimeSeriesConformalRegressor
+):
+    """
+    Multi-step Conformal Distribution Regressor for Time Series (Nixtla approach).
+
+    Generates empirical forecast trajectories by adding historical backtesting signed errors
+    (e = y - y_hat) to point predictions, naturally adapting to asymmetric and heteroscedastic
+    error distributions across the forecast horizon.
+    """
+
+    def __init__(
+        self,
+        learner: BaseEstimator,
+        horizon: int,
+        n_windows: int = 3,
+        alpha: float = 0.05,
+    ):
         """
-        MSCP: Calcula quantis calibrados específicos para cada passo h.
+        Parameters
+        ----------
+        learner : BaseEstimator
+            The base time series regressor learner.
+        horizon : int
+            Forecast horizon step count (H).
+        n_windows : int, default=3
+            Number of backtesting rolling windows.
+        alpha : float, default=0.05
+            Significance level.
         """
-        self.base_model = base_model
-        self.horizon = horizon
-        self.alpha = alpha
-        self.quantiles_ = None
+        super().__init__(
+            learner=learner, horizon=horizon, n_windows=n_windows, alpha=alpha
+        )
 
-    def fit_calibration(self, X_cal, Y_cal):
+    def _store_nonconformity_scores(self, raw_residuals: np.ndarray):
         """
-        Y_cal deve ter formato (N_amostras, horizon)
+        Stores signed residuals (Y_val - preds_val) to preserve distribution shape and bias.
         """
-        preds = self.base_model.predict(X_cal)
-        residuals = np.abs(Y_cal - preds)
+        self.residuals_ = raw_residuals  # Shape: (N_residuals, horizon)
+        self.ncscore = self.residuals_
 
-        n = len(Y_cal)
-        q_level = np.ceil((n + 1) * (1 - self.alpha)) / n
-        q_level = min(1.0, max(0.0, q_level))
+    def predict_interval(self, X_test, alpha: float = None) -> np.ndarray:
+        """
+        Generates lower and upper prediction interval bounds for each horizon step.
 
-        # Calcula o quantil (1 - alpha) de erro para CADA h
-        self.quantiles_ = np.quantile(residuals, q_level, axis=0)
+        Parameters
+        ----------
+        X_test : array-like of shape (n_samples, n_features)
+            Test features matrix.
+        alpha : float, optional
+            Significance level. If None, uses self.alpha.
 
-    def predict_interval(self, X_test):
-        preds = self.base_model.predict(X_test)
-        lower = preds - self.quantiles_
-        upper = preds + self.quantiles_
-        return preds, lower, upper
+        Returns
+        -------
+        intervals : ndarray of shape (n_samples, horizon, 2)
+            Prediction bounds containing [lower, upper] for each sample and horizon step.
+        """
+        alpha = self._get_alpha(alpha)
+
+        # Point predictions from primary fitted model. Shape: (N_test, horizon)
+        preds = self.learner.predict(X_test)
+        if preds.ndim == 1:
+            preds = preds[:, np.newaxis]
+
+        # 1. Simulate empirical paths: Point Forecasts + Historical Backtest Residuals
+        # Shape: (N_test, N_residuals, horizon)
+        conformal_dist = preds[:, np.newaxis, :] + self.residuals_[np.newaxis, :, :]
+
+        # 2. Conformal tail quantile calculation with small-sample correction
+        n = self.n
+        low_q = max(0.0, alpha / 2.0 - 1.0 / (2.0 * n))
+        high_q = min(1.0, 1.0 - alpha / 2.0 + 1.0 / (2.0 * n))
+
+        # 3. Extract percentiles across calibration sample dimension (axis=1)
+        lower_bound = np.quantile(conformal_dist, low_q, axis=1)
+        upper_bound = np.quantile(conformal_dist, high_q, axis=1)
+
+        # Output shape matching multi-step intervals: (N_test, horizon, 2)
+        return np.stack([lower_bound, upper_bound], axis=-1)
