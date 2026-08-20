@@ -4,10 +4,10 @@
 
 import numpy as np
 from sklearn.base import RegressorMixin, BaseEstimator
-from .base_ts import BaseTimeSeriesConformalRegressor
+from .base import BaseTimeSeriesConformalRegressor
 
 
-class MultiStepTimeSeriesRegressor(
+class ConformalDistributionTimeSeriesRegressor(
     RegressorMixin, BaseEstimator, BaseTimeSeriesConformalRegressor
 ):
     """
@@ -41,21 +41,71 @@ class MultiStepTimeSeriesRegressor(
             learner=learner, horizon=horizon, n_windows=n_windows, alpha=alpha
         )
 
-    def _store_nonconformity_scores(self, raw_residuals: np.ndarray):
+    def _sample_correction(self, alpha):
         """
-        Stores signed residuals (Y_val - preds_val) to preserve distribution shape and bias.
-        """
-        self.residuals_ = raw_residuals  # Shape: (N_residuals, horizon)
-        self.ncscore = self.residuals_
+        Computes the small-sample correction for quantile levels based on the number of calibration samples.
 
-    def predict_interval(self, X_test, alpha: float = None) -> np.ndarray:
+        Parameters
+        ----------
+        alpha : float
+            Significance level.
+
+        Returns
+        -------
+        low_q, high_q : tuple of floats
+            Corrected lower and upper quantile levels.
         """
-        Generates lower and upper prediction interval bounds for each horizon step.
+        n = self.n
+        low_q = max(0.0, alpha / 2.0 - 1.0 / (2.0 * n))
+        high_q = min(1.0, 1.0 - alpha / 2.0 + 1.0 / (2.0 * n))
+        return low_q, high_q
+
+    def generate_conformal_quantile(self, X_test, alpha=None):
+        """
+        Generates the conformal distribution trajectories for X_test and extracts
+        the lower and upper quantile bounds.
 
         Parameters
         ----------
         X_test : array-like of shape (n_samples, n_features)
             Test features matrix.
+        alpha : float, optional
+            Significance level for conformal prediction. If None, uses self.alpha.
+
+        Returns
+        -------
+        lower_bound, upper_bound : tuple of ndarrays
+            Lower and upper confidence bounds for the test predictions.
+        """
+        alpha = self._get_alpha(alpha)
+
+        # Point predictions from fitted main model -> Shape: (N_test, horizon)
+        preds = self.learner.predict(X_test)
+
+        if preds.ndim == 1:
+            preds = preds[:, np.newaxis]
+
+        # Simulate empirical paths: Point Forecasts + Historical Backtest Residuals
+        # Shape: (N_test, N_residuals, horizon)
+        conformal_dist = preds[:, np.newaxis, :] + self.ncscore[np.newaxis, :, :]
+
+        # Conformal tail quantile calculation with small-sample correction
+        low_q, high_q = self._sample_correction(alpha)
+
+        # Calculates percentiles along axis=1 (calibration sample dimension)
+        lower_bound = self._compute_qhat(conformal_dist, low_q, axis=1)
+        upper_bound = self._compute_qhat(conformal_dist, high_q, axis=1)
+
+        return lower_bound, upper_bound
+
+    def predict_interval(self, X_test, alpha=None) -> np.ndarray:
+        """
+        Generates prediction interval boundaries [lower, upper] for input data.
+
+        Parameters
+        ----------
+        X_test : array-like of shape (n_samples, n_features)
+            Test feature matrix.
         alpha : float, optional
             Significance level. If None, uses self.alpha.
 
@@ -65,24 +115,6 @@ class MultiStepTimeSeriesRegressor(
             Prediction bounds containing [lower, upper] for each sample and horizon step.
         """
         alpha = self._get_alpha(alpha)
+        lower_bound, upper_bound = self.generate_conformal_quantile(X_test, alpha)
 
-        # Point predictions from primary fitted model. Shape: (N_test, horizon)
-        preds = self.learner.predict(X_test)
-        if preds.ndim == 1:
-            preds = preds[:, np.newaxis]
-
-        # 1. Simulate empirical paths: Point Forecasts + Historical Backtest Residuals
-        # Shape: (N_test, N_residuals, horizon)
-        conformal_dist = preds[:, np.newaxis, :] + self.residuals_[np.newaxis, :, :]
-
-        # 2. Conformal tail quantile calculation with small-sample correction
-        n = self.n
-        low_q = max(0.0, alpha / 2.0 - 1.0 / (2.0 * n))
-        high_q = min(1.0, 1.0 - alpha / 2.0 + 1.0 / (2.0 * n))
-
-        # 3. Extract percentiles across calibration sample dimension (axis=1)
-        lower_bound = np.quantile(conformal_dist, low_q, axis=1)
-        upper_bound = np.quantile(conformal_dist, high_q, axis=1)
-
-        # Output shape matching multi-step intervals: (N_test, horizon, 2)
         return np.stack([lower_bound, upper_bound], axis=-1)

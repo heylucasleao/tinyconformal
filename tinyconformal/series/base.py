@@ -37,17 +37,28 @@ class BaseTimeSeriesConformalRegressor(BaseConformalRegressor, ABC):
         self.horizon = horizon
         self.n_windows = n_windows
         self.residuals_ = None
+        self.alpha = alpha
 
-    def fit_calibration(self, X_full, Y_full, step_size: int = None):
+    def _get_alpha(self, alpha):
+        """Helper to retrieve the alpha value."""
+        return alpha or self.alpha
+
+    def _compute_qhat(self, ncscore, q_level):
+        """
+        Compute the q-hat value based on the nonconformity scores and the quantile level.
+        """
+        return np.quantile(ncscore, q_level, method="higher")
+
+    def fit(self, X, y, step_size: int = None):
         """
         Executes Temporal Cross-Validation (Backtesting) across historical data to
         compute calibration residuals without data leakage.
 
         Parameters
         ----------
-        X_full : array-like of shape (n_samples, n_features)
+        X : array-like of shape (n_samples, n_features)
             Full feature matrix ordered chronologically.
-        Y_full : array-like of shape (n_samples, horizon) or (n_samples,)
+        y : array-like of shape (n_samples, horizon) or (n_samples,)
             Target matrix/vector ordered chronologically.
         step_size : int, optional
             Step size between rolling windows. Defaults to `self.horizon`.
@@ -57,11 +68,13 @@ class BaseTimeSeriesConformalRegressor(BaseConformalRegressor, ABC):
         self : object
             The calibrated time series conformal regressor.
         """
-        if X_full is None or Y_full is None:
-            raise ValueError("Both 'X_full' and 'Y_full' must be provided.")
+        if X is None or y is None:
+            raise ValueError(
+                "Both training data (X) and true labels (y) must be provided."
+            )
 
         step_size = step_size if step_size is not None else self.horizon
-        total_len = len(X_full)
+        total_len = len(X)
         min_required = self.horizon * self.n_windows
 
         if total_len <= min_required:
@@ -76,8 +89,8 @@ class BaseTimeSeriesConformalRegressor(BaseConformalRegressor, ABC):
             cutoff_end = total_len - (w * step_size)
             train_end = cutoff_end - self.horizon
 
-            X_tr, Y_tr = X_full[:train_end], Y_full[:train_end]
-            X_val, Y_val = X_full[train_end:cutoff_end], Y_full[train_end:cutoff_end]
+            X_tr, Y_tr = X[:train_end], y[:train_end]
+            X_val, Y_val = X[train_end:cutoff_end], y[train_end:cutoff_end]
 
             # Fit temporary clone on historical window
             temp_model = clone(self.learner)
@@ -93,24 +106,11 @@ class BaseTimeSeriesConformalRegressor(BaseConformalRegressor, ABC):
         # Concatenate residuals across windows -> Shape: (n_windows * samples_per_win, horizon)
         raw_residuals = np.vstack(raw_residuals)
 
-        # Abstract method call to allow concrete implementations (e.g., signed vs absolute scores)
-        self._store_nonconformity_scores(raw_residuals)
+        # Process and assign nonconformity scores
+        self.ncscore = raw_residuals
 
         # Fit main single learner on 100% of the dataset
-        self.learner.fit(X_full, Y_full)
-        self.n = len(self.residuals_)
+        self.learner.fit(X, y)
+        self.n = len(self.ncscore)
 
         return self
-
-    @abstractmethod
-    def _store_nonconformity_scores(self, raw_residuals: np.ndarray):
-        """
-        Process and store residuals from backtesting into self.residuals_ / self.ncscore.
-        """
-        pass
-
-    def fit(self, X_full, Y_full, step_size: int = None):
-        """
-        Alias for fit_calibration to maintain scikit-learn API consistency.
-        """
-        return self.fit_calibration(X_full, Y_full, step_size=step_size)
