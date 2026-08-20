@@ -27,6 +27,12 @@ class ConformalDistributionTimeSeriesRegressor(
             learner=learner, horizon=horizon, n_windows=n_windows, alpha=alpha
         )
 
+    def _generate_residuals(self, y_pred, y_true) -> np.ndarray:
+        """
+        Generates residuals for the conformal distribution using the Nixtla approach.
+        """
+        return y_pred - y_true
+
     def _sample_correction(self, alpha: float):
         n = self.n
         low_q = max(0.0, alpha / 2.0 - 1.0 / (2.0 * n))

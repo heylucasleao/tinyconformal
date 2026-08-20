@@ -50,6 +50,16 @@ class BaseTimeSeriesConformalRegressor(ABC):
         self.model_col = None
 
     @abstractmethod
+    def _generate_residuals(
+        self, preds_val: np.ndarray, y_val_arr: np.ndarray
+    ) -> np.ndarray:
+        """
+        Computes nonconformity scores/residuals from predictions and true targets.
+        To be implemented by subclasses.
+        """
+        pass
+
+    @abstractmethod
     def fit(self, *args, **kwargs):
         """Fits the conformal model."""
         pass
@@ -177,8 +187,8 @@ class BaseTimeSeriesConformalRegressor(ABC):
 
             preds_val = self._extract_predictions(temp_model.predict(h=self.horizon))
             y_val_arr = self._extract_target(df_val)
-
-            residuals.append(y_val_arr - preds_val)
+            residual = self._generate_residuals(preds_val, y_val_arr)
+            residuals.append(residual)
 
         return residuals
 
