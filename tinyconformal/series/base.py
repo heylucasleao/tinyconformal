@@ -4,8 +4,10 @@
 
 from abc import ABC, abstractmethod
 import numpy as np
+from typing import List
+import numpy as np
 from sklearn.base import BaseEstimator, clone
-from .base import BaseConformalRegressor
+from regressor.base import BaseConformalRegressor
 
 
 class BaseTimeSeriesConformalRegressor(BaseConformalRegressor, ABC):
@@ -39,15 +41,60 @@ class BaseTimeSeriesConformalRegressor(BaseConformalRegressor, ABC):
         self.residuals_ = None
         self.alpha = alpha
 
-    def _get_alpha(self, alpha):
-        """Helper to retrieve the alpha value."""
-        return alpha or self.alpha
+    def _sequential_backtesting(self, X, y, step_size: int = None):
+        """
+        Performs sequential backtesting to compute calibration residuals without data leakage.
 
-    def _compute_qhat(self, ncscore, q_level):
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Full feature matrix ordered chronologically.
+        y : array-like of shape (n_samples, horizon) or (n_samples,)
+            Target matrix/vector ordered chronologically.
+        step_size : int, optional
+            Step size between rolling windows. Defaults to `self.horizon`.
+
+        Returns
+        -------
+        residuals : List[np.ndarray]
+            List of residual arrays for each backtesting window.
         """
-        Compute the q-hat value based on the nonconformity scores and the quantile level.
-        """
-        return np.quantile(ncscore, q_level, method="higher")
+        if X is None or y is None:
+            raise ValueError(
+                "Both training data (X) and true labels (y) must be provided."
+            )
+
+        step_size = step_size if step_size is not None else self.horizon
+        total_len = len(X)
+        min_required = self.horizon * self.n_windows
+
+        if total_len <= min_required:
+            raise ValueError(
+                f"Data length ({total_len}) must be greater than required window capacity ({min_required})."
+            )
+
+        residuals: List[np.ndarray] = []
+
+        # Sequential Backtesting (Rolling Windows)
+        for w in reversed(range(self.n_windows)):
+            cutoff_end = total_len - (w * step_size)
+            train_end = cutoff_end - self.horizon
+
+            X_tr, Y_tr = X[:train_end], y[:train_end]
+            X_val, Y_val = X[train_end:cutoff_end], y[train_end:cutoff_end]
+
+            # Fit temporary clone on historical window
+            temp_model = clone(self.learner)
+            temp_model.fit(X_tr, Y_tr)
+
+            # Predict validation horizon
+            preds_val = temp_model.predict(X_val)
+
+            # Store raw residuals (y_true - y_pred)
+            residual = Y_val - preds_val
+            residuals.append(residual)
+
+        return residuals
 
     def fit(self, X, y, step_size: int = None):
         """
@@ -82,34 +129,12 @@ class BaseTimeSeriesConformalRegressor(BaseConformalRegressor, ABC):
                 f"Data length ({total_len}) must be greater than required window capacity ({min_required})."
             )
 
-        raw_residuals = []
+        residuals: List[np.ndarray] = []
 
-        # Sequential Backtesting (Rolling Windows)
-        for w in reversed(range(self.n_windows)):
-            cutoff_end = total_len - (w * step_size)
-            train_end = cutoff_end - self.horizon
+        residuals = self._sequential_backtesting(X, y, step_size=step_size)
 
-            X_tr, Y_tr = X[:train_end], y[:train_end]
-            X_val, Y_val = X[train_end:cutoff_end], y[train_end:cutoff_end]
+        self.ncscore = np.vstack(residuals)
 
-            # Fit temporary clone on historical window
-            temp_model = clone(self.learner)
-            temp_model.fit(X_tr, Y_tr)
-
-            # Predict validation horizon
-            preds_val = temp_model.predict(X_val)
-
-            # Store raw residuals (y_true - y_pred)
-            res = Y_val - preds_val
-            raw_residuals.append(res)
-
-        # Concatenate residuals across windows -> Shape: (n_windows * samples_per_win, horizon)
-        raw_residuals = np.vstack(raw_residuals)
-
-        # Process and assign nonconformity scores
-        self.ncscore = raw_residuals
-
-        # Fit main single learner on 100% of the dataset
         self.learner.fit(X, y)
         self.n = len(self.ncscore)
 

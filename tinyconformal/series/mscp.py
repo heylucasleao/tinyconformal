@@ -60,7 +60,44 @@ class ConformalDistributionTimeSeriesRegressor(
         high_q = min(1.0, 1.0 - alpha / 2.0 + 1.0 / (2.0 * n))
         return low_q, high_q
 
-    def generate_conformal_quantile(self, X_test, alpha=None):
+    def _predict_raw(self, X_test: np.ndarray) -> np.ndarray:
+        """
+        Generates base model point predictions ensured to be a 2D array.
+
+        Parameters
+        ----------
+        X_test : array-like of shape (n_samples, n_features)
+            Test features matrix.
+
+        Returns
+        -------
+        preds : ndarray of shape (n_samples, horizon)
+            2D array of point forecasts.
+        """
+        preds = self.learner.predict(X_test)
+        if preds.ndim == 1:
+            preds = preds[:, np.newaxis]
+        return preds
+
+    def _get_conformal_distribution(self, X_test: np.ndarray) -> np.ndarray:
+        """
+        Generates the 3D empirical trajectory tensor combining point forecasts
+        with historical calibration residuals.
+
+        Parameters
+        ----------
+        X_test : array-like of shape (n_samples, n_features)
+            Test features matrix.
+
+        Returns
+        -------
+        conformal_dist : ndarray of shape (n_samples, n_residuals, horizon)
+            3D array of simulated prediction trajectories.
+        """
+        preds = self._predict_raw(X_test)
+        return preds[:, np.newaxis, :] + self.ncscore[np.newaxis, :, :]
+
+    def _generate_conformal_bounds(self, X_test, alpha=None):
         """
         Generates the conformal distribution trajectories for X_test and extracts
         the lower and upper quantile bounds.
@@ -78,21 +115,8 @@ class ConformalDistributionTimeSeriesRegressor(
             Lower and upper confidence bounds for the test predictions.
         """
         alpha = self._get_alpha(alpha)
-
-        # Point predictions from fitted main model -> Shape: (N_test, horizon)
-        preds = self.learner.predict(X_test)
-
-        if preds.ndim == 1:
-            preds = preds[:, np.newaxis]
-
-        # Simulate empirical paths: Point Forecasts + Historical Backtest Residuals
-        # Shape: (N_test, N_residuals, horizon)
-        conformal_dist = preds[:, np.newaxis, :] + self.ncscore[np.newaxis, :, :]
-
-        # Conformal tail quantile calculation with small-sample correction
         low_q, high_q = self._sample_correction(alpha)
-
-        # Calculates percentiles along axis=1 (calibration sample dimension)
+        conformal_dist = self._get_conformal_distribution(X_test)
         lower_bound = self._compute_qhat(conformal_dist, low_q, axis=1)
         upper_bound = self._compute_qhat(conformal_dist, high_q, axis=1)
 
@@ -115,6 +139,6 @@ class ConformalDistributionTimeSeriesRegressor(
             Prediction bounds containing [lower, upper] for each sample and horizon step.
         """
         alpha = self._get_alpha(alpha)
-        lower_bound, upper_bound = self.generate_conformal_quantile(X_test, alpha)
+        lower_bound, upper_bound = self._generate_conformal_bounds(X_test, alpha)
 
         return np.stack([lower_bound, upper_bound], axis=-1)
