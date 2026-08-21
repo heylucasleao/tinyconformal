@@ -10,9 +10,7 @@ from typing import Optional, Tuple
 from tinyshift.utils.imports import requires_extra
 
 
-class ConformalDistributionTimeSeriesRegressor(
-    RegressorMixin, BaseEstimator, BaseConformalTimeSeriesRegressor
-):
+class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
     """
     Multi-Step Conformal Distribution Regressor for Time Series.
 

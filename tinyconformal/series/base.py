@@ -98,6 +98,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         self.alpha = alpha
         self.time_col = time_col
         self.target_col = target_col
+        self.horizon = horizon
 
         self.model_col_ = None
         self.exog_cols_ = []
