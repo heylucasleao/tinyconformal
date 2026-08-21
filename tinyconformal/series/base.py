@@ -41,7 +41,6 @@ class BaseTimeSeriesConformalRegressor(ABC):
         self.horizon = horizon
         self.n_windows = n_windows
         self.residuals_ = None
-        self.ncscore = None
         self.n = None
 
         self.target_col = None
