@@ -5,7 +5,6 @@
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin
-from .base import BaseTimeSeriesConformalRegressor
 from typing import Optional, Tuple, List, Dict
 from sklearn.metrics import mean_absolute_error
 from abc import abstractmethod
@@ -13,11 +12,9 @@ import inspect
 import copy
 
 
-class ConformalDistributionTimeSeriesRegressor(
-    RegressorMixin, BaseEstimator, BaseTimeSeriesConformalRegressor
-):
+class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
     """
-    ConformalDistributionTimeSeriesRegressor
+    BaseConformalTimeSeriesRegressor
 
     Multi-Step Conformal Distribution Regressor for Time Series.
 
@@ -94,13 +91,11 @@ class ConformalDistributionTimeSeriesRegressor(
         n : int, default=0
             Total number of calibration trajectories extracted across windows and series.
         """
-        super().__init__(
-            learner=learner,
-            horizon=horizon,
-            n_windows=n_windows,
-            alpha=alpha,
-        )
+        self.learner = learner
+        self.h = horizon
+        self.n_windows = n_windows
         self.id_col = id_col
+        self.alpha = alpha
         self.time_col = time_col
         self.target_col = target_col
 
