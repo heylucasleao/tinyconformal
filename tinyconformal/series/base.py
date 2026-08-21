@@ -21,7 +21,7 @@ class BaseTimeSeriesConformalRegressor(ABC):
         self,
         learner: BaseEstimator,
         horizon: int,
-        n_windows: int = 3,
+        n_windows: int = 10,
         alpha: float = 0.05,
     ):
         """
@@ -31,7 +31,7 @@ class BaseTimeSeriesConformalRegressor(ABC):
             Unfitted or fitted Nixtla-compatible estimator (StatsForecast or MLForecast).
         horizon : int
             Forecast horizon step count (H).
-        n_windows : int, default=3
+        n_windows : int, default=10
             Number of backtesting rolling windows used to extract calibration residuals.
         alpha : float, default=0.05
             Significance level for conformal prediction.
@@ -108,17 +108,6 @@ class BaseTimeSeriesConformalRegressor(ABC):
             )
         return h
 
-    def _coverage_rate(self, y_true: np.ndarray, y_pred_intervals: np.ndarray) -> float:
-        """Evaluates empirical interval coverage rate."""
-        lower, upper = y_pred_intervals[..., 0], y_pred_intervals[..., 1]
-        coverages = (y_true >= lower) & (y_true <= upper)
-        return float(np.mean(coverages))
-
-    def _interval_width_mean(self, y_pred_intervals: np.ndarray) -> float:
-        """Calculates mean interval width."""
-        widths = y_pred_intervals[..., 1] - y_pred_intervals[..., 0]
-        return float(np.mean(widths))
-
     def _invoke(self, method, **kwargs):
         """
         Executes a callable (fit, predict, cross_validation) injecting only
@@ -138,27 +127,26 @@ class BaseTimeSeriesConformalRegressor(ABC):
 
         return method(**filtered)
 
-    def _mwi_score(
-        self, y_true: np.ndarray, y_pred_intervals: np.ndarray, alpha: float
+    def _coverage_rate(
+        self, y_true: np.ndarray, lower: np.ndarray, upper: np.ndarray
     ) -> float:
-        """
-        Calculates the Mean Winkler Interval Score (MWIS) for prediction intervals.
+        """Evaluates empirical interval coverage rate."""
+        coverages = (y_true >= lower) & (y_true <= upper)
+        return float(np.mean(coverages))
 
-        Parameters
-        ----------
-        y_true : ndarray
-            True target values.
-        y_pred_intervals : ndarray
-            Prediction intervals array where the last axis contains [lower_bound, upper_bound].
-        alpha : float
-            Significance level, where (1 - alpha) represents the target coverage rate.
+    def _interval_width_mean(self, lower: np.ndarray, upper: np.ndarray) -> float:
+        """Calculates mean interval width."""
+        widths = upper - lower
+        return float(np.mean(widths))
 
-        Returns
-        -------
-        score : float
-            The computed Mean Winkler Interval Score across all predictions.
-        """
-        lower, upper = y_pred_intervals[..., 0], y_pred_intervals[..., 1]
+    def _mwi_score(
+        self,
+        y_true: np.ndarray,
+        lower: np.ndarray,
+        upper: np.ndarray,
+        alpha: float,
+    ) -> float:
+        """Calculates the Mean Winkler Interval Score (MWIS) for prediction intervals."""
         width = upper - lower
         penalty_lower = (2.0 / alpha) * (lower - y_true) * (y_true < lower)
         penalty_upper = (2.0 / alpha) * (y_true - upper) * (y_true > upper)
@@ -220,21 +208,48 @@ class BaseTimeSeriesConformalRegressor(ABC):
             Dictionary containing evaluation metrics (coverage_rate, interval_width_mean, mwis, mae, mbe, mse).
         """
         alpha = self._get_alpha(alpha)
-        y_true = self._extract_target(df_test)
 
-        y_pred_intervals = self.predict_interval(X_df=df_test, h=h, alpha=alpha)
-        y_pred = np.mean(y_pred_intervals, axis=-1)
+        eval_df = self.predict_interval(X_df=df_test, h=h, alpha=alpha)
 
-        def rounded(val):
-            return float(np.round(val, 3))
+        eval_df = eval_df.merge(
+            df_test[[self.id_col, self.time_col, self.target_col]],
+            on=[self.id_col, self.time_col],
+            how="inner",
+        )
+        y_true = eval_df[self.target_col].to_numpy()
+        mask = lambda c: any(pattern in c for pattern in ("-lo-", "-hi-"))
+        bounds = [c for c in eval_df.columns if mask(c)]
+        lo_cols = [model for model in bounds if "-lo-" in model]
+        records = []
 
-        return {
-            "total": len(df_test),
-            "alpha": alpha,
-            "coverage_rate": rounded(self._coverage_rate(y_true, y_pred_intervals)),
-            "interval_width_mean": rounded(self._interval_width_mean(y_pred_intervals)),
-            "mwis": rounded(self._mwi_score(y_true, y_pred_intervals, alpha)),
-            "mae": rounded(mean_absolute_error(y_true.ravel(), y_pred.ravel())),
-            "mbe": rounded(np.mean(y_pred - y_true)),
-            "mse": rounded(np.mean((y_pred - y_true) ** 2)),
-        }
+        def rounded(value):
+            return np.round(value, 3)
+
+        for lo_col in lo_cols:
+            model_name, level_str = lo_col.split("-lo-")
+            hi_col = f"{model_name}-hi-{level_str}"
+
+            lower = eval_df[lo_col].to_numpy()
+            upper = eval_df[hi_col].to_numpy()
+            y_pred = eval_df[model_name].to_numpy()
+            mae = mean_absolute_error(y_true, y_pred)
+            mbe = np.mean(y_pred - y_true)
+            mse = np.mean((y_pred - y_true) ** 2)
+
+            records.append(
+                {
+                    "model": model_name,
+                    "level": f"{level_str}%",
+                    "alpha": alpha,
+                    "coverage_rate": rounded(self._coverage_rate(y_true, lower, upper)),
+                    "interval_width_mean": rounded(
+                        self._interval_width_mean(lower, upper)
+                    ),
+                    "mwis": rounded(self._mwi_score(y_true, lower, upper, alpha)),
+                    "mae": rounded(mae),
+                    "mbe": rounded(mbe),
+                    "mse": rounded(mse),
+                }
+            )
+
+        return pd.DataFrame(records)
