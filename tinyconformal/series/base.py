@@ -9,6 +9,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 from sklearn.metrics import mean_absolute_error
 import inspect
+import copy
 
 
 class BaseTimeSeriesConformalRegressor(ABC):
