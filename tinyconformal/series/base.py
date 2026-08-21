@@ -9,7 +9,6 @@ from typing import Optional, Tuple, List, Dict
 from sklearn.metrics import mean_absolute_error
 from abc import abstractmethod
 import inspect
-import copy
 
 
 class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
@@ -188,92 +187,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             }
 
         return method(**filtered)
-
-    def _sequential_backtesting(
-        self,
-        df: pd.DataFrame,
-        step_size: int = None,
-        static_features: list = None,
-    ) -> list:
-        """
-        Executes sequential rolling-window backtesting across calibration windows.
-
-        Parameters:
-        ----------
-        df : pd.DataFrame
-            The calibration DataFrame containing time series values.
-        step_size : int, optional
-            Step size for window shift. Defaults to self.horizon if None.
-        static_features : list, optional
-            List of static feature column names.
-
-        Returns:
-        -------
-        dict
-            Dictionary containing list of 2D residual matrices per model extracted
-            from backtesting windows.
-        """
-        residuals_by_model: Dict[List] = {}
-
-        if step_size is None:
-            step_size = self.horizon
-
-        df = df.sort_values(by=[self.id_col, self.time_col]).reset_index(drop=True)
-
-        unique_times = np.sort(df[self.time_col].unique())
-        total_times = len(unique_times)
-
-        for w in reversed(range(self.n_windows)):
-            val_end_idx = total_times - (w * step_size)
-            val_start_idx = val_end_idx - self.horizon
-
-            if val_start_idx <= 0:
-                raise ValueError(
-                    f"Time series length is too short for the specified n_windows ({self.n_windows}) "
-                    f"and horizon ({self.horizon})."
-                )
-
-            train_cutoff = unique_times[val_start_idx - 1]
-            val_cutoff = unique_times[val_end_idx - 1]
-
-            train_df = df[df[self.time_col] <= train_cutoff].copy()
-            val_df = df[
-                (df[self.time_col] > train_cutoff) & (df[self.time_col] <= val_cutoff)
-            ].copy()
-
-            temp_model = copy.deepcopy(self.learner)
-
-            self._invoke(
-                temp_model.fit,
-                df=train_df,
-                id_col=self.id_col,
-                time_col=self.time_col,
-                target_col=self.target_col,
-                static_features=static_features,
-            )
-
-            predict_cols = [self.id_col, self.time_col] + self.exog_cols_
-            X_val = val_df[predict_cols] if self.exog_cols_ else None
-
-            fcst = self._invoke(
-                temp_model.predict,
-                h=self.horizon,
-                X_df=X_val,
-            )
-
-            model_cols = self._infer_model_cols(fcst)
-            y_true = self._extract_target(val_df)
-            n_series = fcst[self.id_col].nunique()
-
-            for model in model_cols:
-                y_hat = fcst[model].to_numpy().reshape(n_series, self.horizon)
-                r = self._generate_residuals(y_hat, y_true)
-
-                if model not in residuals_by_model:
-                    residuals_by_model[model] = []
-                residuals_by_model[model].append(r)
-
-        return residuals_by_model
 
     def _coverage_rate(
         self, y_true: np.ndarray, lower: np.ndarray, upper: np.ndarray
@@ -639,14 +552,15 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
 
         for lo_col in lo_cols:
             model_name, level_str = lo_col.split("-lo-")
+
             hi_col = f"{model_name}-hi-{level_str}"
 
             lower = eval_df[lo_col].to_numpy()
             upper = eval_df[hi_col].to_numpy()
-            y_pred = eval_df[model_name].to_numpy()
-            mae = mean_absolute_error(y_true, y_pred)
-            mbe = np.mean(y_pred - y_true)
-            mse = np.mean((y_pred - y_true) ** 2)
+
+            if level_str.upper().endswith("-CQR"):
+                level_str = level_str[:-4]
+                model_name += "-CQR"
 
             records.append(
                 {
@@ -658,10 +572,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
                         self._interval_width_mean(lower, upper)
                     ),
                     "mwis": rounded(self._mwi_score(y_true, lower, upper, alpha)),
-                    "mae": rounded(mae),
-                    "mbe": rounded(mbe),
-                    "mse": rounded(mse),
                 }
             )
 
-        return pd.DataFrame(records)
+        return pd.DataFrame(records).sort_values(by=["model", "level"])

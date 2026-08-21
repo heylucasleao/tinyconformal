@@ -11,7 +11,8 @@ For more information on a previous project related to Out-of-Bag (OOB) solutions
 - Added support for exactness-bound-based calibration through `ExactnessBound` for ICP and CQR workflows.
 - Added `unlabeled_fit` support for conformal classifiers and regressors, enabling calibration without labeled calibration data when an exactness bound is available.
 - Classifiers can now be calibrated from unlabeled data using pseudo-labels derived from model predictions, while regressors can use a pre-estimated exactness bound to build the conformity scores.
-- Added `tinyconformal.series` support with `ConformalDistributionTimeSeriesRegressor` for multi-step time series interval forecasting with customizable backtesting strides (`step_size`).
+- Added `tinyconformal.series` support with `ConformalDistributionTimeSeriesRegressor` and `ConformalQuantileTimeSeriesRegressor` for multi-step time series interval forecasting with customizable backtesting strides (`step_size`).
+- Added support for Conformalized Quantile Regression (CQR) on multi-step time series using base estimators producing quantile forecasts.
 
 Previously, `calibrate` used `Balanced Accuracy Score`; it can now also be calibrated with `Matthews Correlation Coefficient` or `Bookmaker Informedness Score` for improved reliability. The `evaluate` method also reports `bm` and `mcc`.
 
@@ -163,7 +164,7 @@ print(results)
 
 ### Time Series Example
 
-For time series, ConformalDistributionTimeSeriesRegressor extracts signed empirical residuals ($R = \hat{y} - y$) across backtesting windows to build horizon-specific prediction intervals for Nixtla-style learners (MLForecast or StatsForecast):
+For point-forecast models, `ConformalDistributionTimeSeriesRegressor` extracts signed empirical residuals ($R = \hat{y} - y$) across backtesting windows to build horizon-specific prediction intervals for Nixtla-style learners (MLForecast or StatsForecast):
 
 ```python
 from lightgbm import LGBMRegressor
@@ -188,6 +189,34 @@ conformal_ts = ConformalDistributionTimeSeriesRegressor(
 conformal_ts.fit(df)
 intervals_df = conformal_ts.predict_interval(h=7)
 ```
+
+For models outputting lower and upper quantile forecasts, `ConformalQuantileTimeSeriesRegressor` computes CQR nonconformity scores $E = \max(\hat{q}_{\text{low}} - y, y - \hat{q}_{\text{high}})$ to produce calibrated prediction intervals:
+
+```python
+from lightgbm import LGBMRegressor
+from mlforecast import MLForecast
+from tinyconformal.series import ConformalQuantileTimeSeriesRegressor
+
+# Forecaster configured to output quantile columns
+mlf = MLForecast(
+    models=[LGBMRegressor(objective="quantile", alpha=0.05), LGBMRegressor(objective="quantile", alpha=0.95)],
+    freq="D",
+    lags=[1, 7],
+)
+
+conformal_cqr_ts = ConformalQuantileTimeSeriesRegressor(
+    learner=mlf,
+    horizon=7,
+    n_windows=5,
+    step_size=7,
+    quantile_cols=("LGBM-lo-90", "LGBM-hi-90"),
+    alpha=0.10,
+)
+
+conformal_cqr_ts.fit(df)
+intervals_df = conformal_cqr_ts.predict_interval(h=7)
+```
+
 ### Time Series Mechanics: Horizon vs. Step Size
 
 When calibrating over time series, nonconformity scores are extracted by performing sequential backtesting across multiple calibration windows. The calibration movement is controlled by two parameters:
@@ -267,6 +296,13 @@ Window 2:       [============ Expanded Train ============] [--- H=4 (t11 to t14)
 `ConformalDistributionTimeSeriesRegressor` is a multi-step time series conformal regressor compatible with Nixtla interface estimators (`MLForecast` or `StatsForecast`).
 
 Training & Residual extraction via backtesting: `fit(df, step_size=...)`
+
+Multi-step interval forecasting: `predict_interval(h=..., alpha=...)`
+
+### ConformalQuantileTimeSeriesRegressor
+`ConformalQuantileTimeSeriesRegressor` is a multi-step time series conformal quantile regressor (CQR) compatible with Nixtla interface estimators that output quantile predictions.
+
+Training & Nonconformity score calculation via backtesting:` fit(df, step_size=...)`
 
 Multi-step interval forecasting: `predict_interval(h=..., alpha=...)`
 
