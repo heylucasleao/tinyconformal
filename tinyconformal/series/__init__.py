@@ -4,3 +4,4 @@
 
 
 from .mscp import ConformalDistributionTimeSeriesRegressor
+from .tscqr import ConformalQuantileTimeSeriesRegressor

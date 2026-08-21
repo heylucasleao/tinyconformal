@@ -4,10 +4,11 @@
 
 import numpy as np
 import pandas as pd
-from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.base import BaseEstimator
 from .base import BaseConformalTimeSeriesRegressor
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List, Dict
 from tinyshift.utils.imports import requires_extra
+import copy
 
 
 class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
@@ -99,6 +100,92 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         R_{t,h} = \\hat{y}_{t,h} - y_{t,h}
         """
         return y_hat - y_true
+
+    def _sequential_backtesting(
+        self,
+        df: pd.DataFrame,
+        step_size: int = None,
+        static_features: list = None,
+    ) -> list:
+        """
+        Executes sequential rolling-window backtesting across calibration windows.
+
+        Parameters:
+        ----------
+        df : pd.DataFrame
+            The calibration DataFrame containing time series values.
+        step_size : int, optional
+            Step size for window shift. Defaults to self.horizon if None.
+        static_features : list, optional
+            List of static feature column names.
+
+        Returns:
+        -------
+        dict
+            Dictionary containing list of 2D residual matrices per model extracted
+            from backtesting windows.
+        """
+        residuals_by_model: Dict[List] = {}
+
+        if step_size is None:
+            step_size = self.horizon
+
+        df = df.sort_values(by=[self.id_col, self.time_col]).reset_index(drop=True)
+
+        unique_times = np.sort(df[self.time_col].unique())
+        total_times = len(unique_times)
+
+        for w in reversed(range(self.n_windows)):
+            val_end_idx = total_times - (w * step_size)
+            val_start_idx = val_end_idx - self.horizon
+
+            if val_start_idx <= 0:
+                raise ValueError(
+                    f"Time series length is too short for the specified n_windows ({self.n_windows}) "
+                    f"and horizon ({self.horizon})."
+                )
+
+            train_cutoff = unique_times[val_start_idx - 1]
+            val_cutoff = unique_times[val_end_idx - 1]
+
+            train_df = df[df[self.time_col] <= train_cutoff].copy()
+            val_df = df[
+                (df[self.time_col] > train_cutoff) & (df[self.time_col] <= val_cutoff)
+            ].copy()
+
+            temp_model = copy.deepcopy(self.learner)
+
+            self._invoke(
+                temp_model.fit,
+                df=train_df,
+                id_col=self.id_col,
+                time_col=self.time_col,
+                target_col=self.target_col,
+                static_features=static_features,
+            )
+
+            predict_cols = [self.id_col, self.time_col] + self.exog_cols_
+            X_val = val_df[predict_cols] if self.exog_cols_ else None
+
+            fcst = self._invoke(
+                temp_model.predict,
+                h=self.horizon,
+                X_df=X_val,
+            )
+
+            model_cols = self._infer_model_cols(fcst)
+            y_true = self._extract_target(val_df)
+            n_series = fcst[self.id_col].nunique()
+
+            for model in model_cols:
+                y_hat = fcst[model].to_numpy().reshape(n_series, self.horizon)
+                r = self._generate_residuals(y_hat, y_true)
+
+                if model not in residuals_by_model:
+                    residuals_by_model[model] = []
+                residuals_by_model[model].append(r)
+
+        return residuals_by_model
 
     @requires_extra("series")
     def fit(
