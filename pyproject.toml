@@ -27,7 +27,19 @@ notebook = [
     "ipykernel>6.7.0",
 ]
 
+series = [
+    "statsforecast>=1.4.0",
+    "mlforecast>=0.7.0",
+    "utilsforecast>=0.1.0",
+]
+
+all = [
+    "tinyshift[series,plot,notebook]",
+]
+
 dev = [
-    "tinyconformal[plot,notebook]",
+    "tinyshift[all]",
     "pytest>=7.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
 ]
