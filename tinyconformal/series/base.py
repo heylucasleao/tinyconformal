@@ -3,10 +3,10 @@
 # Licensed under the MIT License
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 import numpy as np
 import pandas as pd
-from sklearn.base import BaseEstimator, clone
+from sklearn.base import BaseEstimator
 from sklearn.metrics import mean_absolute_error
 import inspect
 
@@ -47,7 +47,7 @@ class BaseTimeSeriesConformalRegressor(ABC):
         self.target_col = None
         self.time_col = None
         self.id_col = None
-        self.model_col = None
+        self.exog_cols_ = None
 
     @abstractmethod
     def _generate_residuals(
@@ -65,7 +65,7 @@ class BaseTimeSeriesConformalRegressor(ABC):
         pass
 
     @abstractmethod
-    def predict_interval(self, *args, **kwargs) -> np.ndarray:
+    def predict(self, *args, **kwargs) -> np.ndarray:
         """
         Generates prediction intervals for the input data.
         To be implemented by subclasses.
@@ -77,6 +77,24 @@ class BaseTimeSeriesConformalRegressor(ABC):
         Computes the q-hat quantile value based on nonconformity scores and target level.
         """
         return np.quantile(ncscore, q_level, method="higher", axis=axis)
+
+    def _infer_model_cols(self, df: pd.DataFrame) -> List[str]:
+        """Infere dinamicamente as colunas de previsão do estimador base."""
+        if self.model_col_ is not None:
+            return (
+                [self.model_col_]
+                if isinstance(self.model_col_, str)
+                else self.model_col_
+            )
+
+        excluded = {self.id_col, self.time_col, *self.exog_cols_}
+        model_cols = [c for c in df.columns if c not in excluded]
+
+        if not model_cols:
+            raise ValueError(
+                "Não foi possível inferir nenhuma coluna de modelo no DataFrame retornado."
+            )
+        return model_cols
 
     def _get_alpha(self, alpha: Optional[float] = None) -> float:
         """Helper to retrieve active alpha value."""
@@ -143,7 +161,7 @@ class BaseTimeSeriesConformalRegressor(ABC):
         Pivots Nixtla long-format DataFrame prediction into a 2D NumPy array.
         Ensures strict row and column alignment sorting.
         """
-        if self.model_col is None:
+        if self.model_col_ is None:
             model_cols = [
                 c for c in fcst_df.columns if c not in [self.id_col, self.time_col]
             ]
@@ -151,10 +169,10 @@ class BaseTimeSeriesConformalRegressor(ABC):
                 raise ValueError(
                     "No prediction model column was detected in the model output DataFrame."
                 )
-            self.model_col = model_cols[0]
+            self.model_col_ = model_cols[0]
 
         pivoted = fcst_df.pivot(
-            index=self.id_col, columns=self.time_col, values=self.model_col
+            index=self.id_col, columns=self.time_col, values=self.model_col_
         )
         pivoted = pivoted.sort_index(axis=0).sort_index(axis=1)
         return pivoted.values
@@ -169,18 +187,6 @@ class BaseTimeSeriesConformalRegressor(ABC):
         )
         pivoted = pivoted.sort_index(axis=0).sort_index(axis=1)
         return pivoted.values
-
-    def predict(
-        self,
-        X_df: Optional[pd.DataFrame] = None,
-        h: Optional[int] = None,
-        alpha: Optional[float] = None,
-    ) -> np.ndarray:
-        """
-        Generates point predictions as the center of prediction intervals.
-        """
-        intervals = self.predict_interval(X_df=X_df, h=h, alpha=alpha)
-        return np.mean(intervals, axis=-1)
 
     def evaluate(
         self,

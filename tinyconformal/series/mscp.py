@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin
 from .base import BaseTimeSeriesConformalRegressor
-from typing import Optional
+from typing import Optional, Tuple, Dict, List
 
 
 class ConformalDistributionTimeSeriesRegressor(
@@ -86,7 +86,7 @@ class ConformalDistributionTimeSeriesRegressor(
         self.time_col = time_col
         self.target_col = target_col
 
-        self.model_col = None
+        self.model_col_ = None
         self.exog_cols_ = []
         self.ncscore = None
         self.n = 0
@@ -121,7 +121,8 @@ class ConformalDistributionTimeSeriesRegressor(
         list of ndarray
             List containing 2D residual matrices extracted from each backtesting window.
         """
-        residuals = []
+        residuals_by_model: Dict[List] = {}
+
         if step_size is None:
             step_size = self.horizon
 
@@ -169,12 +170,19 @@ class ConformalDistributionTimeSeriesRegressor(
                 X_df=X_val,
             )
 
-            y_hat = self._extract_predictions(fcst)
+            model_cols = self._infer_model_cols(fcst)
             y_true = self._extract_target(val_df)
-            r = self._generate_residuals(y_hat, y_true)
-            residuals.append(r)
+            n_series = fcst[self.id_col].nunique()
 
-        return residuals
+            for model in model_cols:
+                y_hat = fcst[model].to_numpy().reshape(n_series, self.horizon)
+                r = self._generate_residuals(y_hat, y_true)
+
+                if model not in residuals_by_model:
+                    residuals_by_model[model] = []
+                residuals_by_model[model].append(r)
+
+        return residuals_by_model
 
     def fit(
         self,
@@ -208,14 +216,17 @@ class ConformalDistributionTimeSeriesRegressor(
             if col not in (self.id_col, self.time_col, self.target_col)
         ]
 
-        residuals = self._sequential_backtesting(
+        residuals_by_model = self._sequential_backtesting(
             df,
             step_size=step_size,
             static_features=static_features,
         )
 
-        self.ncscore = np.vstack(residuals)
-        self.n = len(self.ncscore)
+        self.ncscores_ = {
+            model: np.vstack(res_list) for model, res_list in residuals_by_model.items()
+        }
+        first_model = next(iter(self.ncscores_))
+        self.n = len(self.ncscores_[first_model])
 
         self._invoke(
             self.learner.fit,
@@ -271,7 +282,34 @@ class ConformalDistributionTimeSeriesRegressor(
         ncscore_sliced = self.ncscore[:, :h]
         return preds[:, np.newaxis, :] + ncscore_sliced[np.newaxis, :, :]
 
-    def predict_interval(
+    def _compute_bounds(
+        self,
+        y_hat: np.ndarray,
+        model_name: str,
+        h: int,
+        n_series: int,
+        alpha: Optional[float] = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Calcula os limites inferior e superior conformais sobre vetores 1D
+        mantendo a eficiência de memória (eixo das janelas).
+        """
+        alpha = self._get_alpha(alpha)
+        low_q, high_q = self._sample_correction(alpha)
+        ncscore = self.ncscores_[model_name]
+        ncscore_sliced = ncscore[:, :h]
+        q_low_h = self._compute_qhat(ncscore_sliced, low_q, axis=0)
+        q_high_h = self._compute_qhat(ncscore_sliced, high_q, axis=0)
+
+        q_low_tiled = np.tile(q_low_h, n_series)
+        q_high_tiled = np.tile(q_high_h, n_series)
+
+        lower_bound = y_hat + q_low_tiled
+        upper_bound = y_hat + q_high_tiled
+
+        return lower_bound, upper_bound
+
+    def predict(
         self,
         h: Optional[int] = None,
         X_df: Optional[pd.DataFrame] = None,
@@ -284,12 +322,39 @@ class ConformalDistributionTimeSeriesRegressor(
         -------
         intervals : ndarray of shape (n_series, horizon, 2)
         """
-        alpha = self._get_alpha(alpha)
-        low_q, high_q = self._sample_correction(alpha)
+        h = h if h is not None else self.horizon
+        if h > self.horizon:
+            raise ValueError(
+                f"Requested forecast horizon h={h} exceeds fitted calibration horizon ({self.horizon})."
+            )
 
-        conformal_dist = self._get_conformal_distribution(h=h, X_df=X_df)
+        pred_df = (
+            self._invoke(
+                self.learner.predict,
+                h=h,
+                X_df=X_df,
+                new_df=X_df,
+            )
+            .sort_values(by=[self.id_col, self.time_col])
+            .reset_index(drop=True)
+        )
+        model_cols = self._infer_model_cols(pred_df)
 
-        lower_bound = self._compute_qhat(conformal_dist, low_q, axis=1)
-        upper_bound = self._compute_qhat(conformal_dist, high_q, axis=1)
+        for model in model_cols:
+            y_hat = pred_df[model].to_numpy()
+            n_series = pred_df[self.id_col].nunique()
 
-        return np.stack([lower_bound, upper_bound], axis=-1)
+            lower_bound, upper_bound = self._compute_bounds(
+                y_hat=y_hat,
+                model_name=model,
+                h=h,
+                n_series=n_series,
+                alpha=alpha,
+            )
+            eff_alpha = self._get_alpha(alpha)
+            level = int(round((1 - eff_alpha) * 100))
+
+            pred_df[f"{model}-lo-{level}"] = lower_bound
+            pred_df[f"{model}-hi-{level}"] = upper_bound
+
+        return pred_df
