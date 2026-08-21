@@ -552,14 +552,15 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
 
         for lo_col in lo_cols:
             model_name, level_str = lo_col.split("-lo-")
+
             hi_col = f"{model_name}-hi-{level_str}"
 
             lower = eval_df[lo_col].to_numpy()
             upper = eval_df[hi_col].to_numpy()
-            y_pred = eval_df[model_name].to_numpy()
-            mae = mean_absolute_error(y_true, y_pred)
-            mbe = np.mean(y_pred - y_true)
-            mse = np.mean((y_pred - y_true) ** 2)
+
+            if level_str.upper().endswith("-CQR"):
+                level_str = level_str[:-4]
+                model_name += "-CQR"
 
             records.append(
                 {
@@ -571,10 +572,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
                         self._interval_width_mean(lower, upper)
                     ),
                     "mwis": rounded(self._mwi_score(y_true, lower, upper, alpha)),
-                    "mae": rounded(mae),
-                    "mbe": rounded(mbe),
-                    "mse": rounded(mse),
                 }
             )
 
-        return pd.DataFrame(records)
+        return pd.DataFrame(records).sort_values(by=["model", "level"])

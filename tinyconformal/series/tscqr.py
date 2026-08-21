@@ -307,7 +307,7 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
                 pred_df[f"{model_name}-lo-{level}"] = lower_bound
                 pred_df[f"{model_name}-hi-{level}"] = upper_bound
             else:
-                pred_df[f"{low_col}-cqr"] = lower_bound
-                pred_df[f"{high_col}-cqr"] = upper_bound
+                pred_df[f"{low_col}-CQR"] = lower_bound
+                pred_df[f"{high_col}-CQR"] = upper_bound
 
         return pred_df
