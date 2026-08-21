@@ -24,7 +24,7 @@ class ConformalDistributionTimeSeriesRegressor(
         self,
         learner: BaseEstimator,
         horizon: int,
-        n_windows: int = 3,
+        n_windows: int = 10,
         alpha: float = 0.05,
         id_col: str = "unique_id",
         time_col: str = "ds",
@@ -39,7 +39,7 @@ class ConformalDistributionTimeSeriesRegressor(
             Unfitted base estimator adhering to the Nixtla interface (e.g., MLForecast or StatsForecast).
         horizon : int
             Forecast horizon H.
-        n_windows : int, default=3
+        n_windows : int, default=10
             Number of backtesting windows used to extract calibration residuals.
         alpha : float, default=0.05
             Significance level applied in the regressor (target coverage = 1 - alpha).
