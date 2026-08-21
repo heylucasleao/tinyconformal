@@ -2,12 +2,11 @@
 # TinyConformal - A small toolbox for conformal prediction
 # Licensed under the MIT License
 
-import copy
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin
 from .base import BaseTimeSeriesConformalRegressor
-from typing import Optional, Tuple, Dict, List
+from typing import Optional, Tuple
 
 
 class ConformalDistributionTimeSeriesRegressor(
