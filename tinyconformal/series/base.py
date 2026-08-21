@@ -78,7 +78,7 @@ class BaseTimeSeriesConformalRegressor(ABC):
         return np.quantile(ncscore, q_level, method="higher", axis=axis)
 
     def _infer_model_cols(self, df: pd.DataFrame) -> List[str]:
-        """Infere dinamicamente as colunas de previsão do estimador base."""
+        """Dynamically infers model prediction columns from the output DataFrame."""
         if self.model_col_ is not None:
             return (
                 [self.model_col_]
@@ -91,12 +91,12 @@ class BaseTimeSeriesConformalRegressor(ABC):
 
         if not model_cols:
             raise ValueError(
-                "Não foi possível inferir nenhuma coluna de modelo no DataFrame retornado."
+                "Could not infer any prediction model column from the returned DataFrame."
             )
         return model_cols
 
     def _get_alpha(self, alpha: Optional[float] = None) -> float:
-        """Helper to retrieve active alpha value."""
+        """Helper to retrieve the active significance level (alpha)."""
         return alpha if alpha is not None else self.alpha
 
     def _coverage_rate(self, y_true: np.ndarray, y_pred_intervals: np.ndarray) -> float:
@@ -112,8 +112,8 @@ class BaseTimeSeriesConformalRegressor(ABC):
 
     def _invoke(self, method, **kwargs):
         """
-        Executa um método (fit, predict, cross_validation) injetando apenas
-        os argumentos aceitos pela sua assinatura.
+        Executes a callable (fit, predict, cross_validation) injecting only
+        the parameters accepted by its signature.
         """
         sig = inspect.signature(method)
         has_var_kw = any(
@@ -157,7 +157,7 @@ class BaseTimeSeriesConformalRegressor(ABC):
 
     def _extract_predictions(self, fcst_df: pd.DataFrame) -> np.ndarray:
         """
-        Pivots Nixtla long-format DataFrame prediction into a 2D NumPy array.
+        Pivots Nixtla long-format DataFrame predictions into a 2D NumPy array.
         Ensures strict row and column alignment sorting.
         """
         if self.model_col_ is None:
@@ -208,7 +208,7 @@ class BaseTimeSeriesConformalRegressor(ABC):
         Returns
         -------
         Dict[str, Any]
-            Dictionary containing metrics (coverage_rate, interval_width_mean, mwis, mae, mbe, mse).
+            Dictionary containing evaluation metrics (coverage_rate, interval_width_mean, mwis, mae, mbe, mse).
         """
         alpha = self._get_alpha(alpha)
         y_true = self._extract_target(df_test)
