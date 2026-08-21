@@ -64,7 +64,7 @@ class BaseTimeSeriesConformalRegressor(ABC):
         pass
 
     @abstractmethod
-    def predict(self, *args, **kwargs) -> np.ndarray:
+    def predict_interval(self, *args, **kwargs) -> np.ndarray:
         """
         Generates prediction intervals for the input data.
         To be implemented by subclasses.
@@ -98,6 +98,15 @@ class BaseTimeSeriesConformalRegressor(ABC):
     def _get_alpha(self, alpha: Optional[float] = None) -> float:
         """Helper to retrieve the active significance level (alpha)."""
         return alpha if alpha is not None else self.alpha
+
+    def _get_horizon(self, h: Optional[float] = None) -> float:
+        """Helper to retrieve the horizon from prediction."""
+        h = h if h is not None else self.horizon
+        if h > self.horizon:
+            raise ValueError(
+                f"Requested forecast horizon h={h} exceeds fitted calibration horizon ({self.horizon})."
+            )
+        return h
 
     def _coverage_rate(self, y_true: np.ndarray, y_pred_intervals: np.ndarray) -> float:
         """Evaluates empirical interval coverage rate."""

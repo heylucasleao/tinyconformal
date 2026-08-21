@@ -260,7 +260,7 @@ class ConformalDistributionTimeSeriesRegressor(
         """
         Generates base model point predictions from Nixtla estimator into standard ndarray.
         """
-        h = h if h is not None else self.horizon
+        h = self._get_horizon(h)
 
         preds_df = self._invoke(
             self.learner.predict,
@@ -296,7 +296,7 @@ class ConformalDistributionTimeSeriesRegressor(
 
         return lower_bound, upper_bound
 
-    def predict(
+    def predict_interval(
         self,
         h: Optional[int] = None,
         X_df: Optional[pd.DataFrame] = None,
@@ -309,11 +309,7 @@ class ConformalDistributionTimeSeriesRegressor(
         -------
         intervals : ndarray of shape (n_series, horizon, 2)
         """
-        h = h if h is not None else self.horizon
-        if h > self.horizon:
-            raise ValueError(
-                f"Requested forecast horizon h={h} exceeds fitted calibration horizon ({self.horizon})."
-            )
+        h = self._get_horizon(h)
 
         pred_df = (
             self._invoke(
