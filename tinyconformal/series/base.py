@@ -14,8 +14,13 @@ import copy
 
 class BaseTimeSeriesConformalRegressor(ABC):
     """
+    BaseTimeSeriesConformalRegressor
+
     Base class for Time Series Conformal Prediction wrapping Nixtla estimators
     (StatsForecast / MLForecast) using Temporal Cross-Validation (Backtesting).
+
+    Time series conformal regressors provide valid prediction intervals for time series
+    forecasting models by estimating calibration residuals over rolling windows.
     """
 
     def __init__(
@@ -26,7 +31,9 @@ class BaseTimeSeriesConformalRegressor(ABC):
         alpha: float = 0.05,
     ):
         """
-        Parameters
+        Initializes the time series regressor with a learner, horizon, and backtesting configuration.
+
+        Parameters:
         ----------
         learner : BaseEstimator
             Unfitted or fitted Nixtla-compatible estimator (StatsForecast or MLForecast).
@@ -35,8 +42,32 @@ class BaseTimeSeriesConformalRegressor(ABC):
         n_windows : int, default=10
             Number of backtesting rolling windows used to extract calibration residuals.
         alpha : float, default=0.05
-            Significance level for conformal prediction.
+            Significance level applied in the regressor.
+
+        Attributes:
+        ----------
+        learner : BaseEstimator
+            The base learner employed in the regressor.
+        horizon : int
+            Forecast horizon step count.
+        n_windows : int
+            Number of rolling backtesting windows.
+        alpha : float
+            Significance level applied in the regressor.
+        residuals_ : array-like, default=None
+            Extracted nonconformity scores/residuals from backtesting windows.
+        n : int, default=None
+            Number of calibration samples.
+        target_col : str, default=None
+            Name of the target column in the input DataFrame.
+        time_col : str, default=None
+            Name of the timestamp/time column in the input DataFrame.
+        id_col : str, default=None
+            Name of the unique identifier column in the input DataFrame.
+        exog_cols_ : list of str, default=None
+            Exogenous feature columns present in the dataset.
         """
+
         self.learner = learner
         self.alpha = alpha
         self.horizon = horizon
@@ -54,32 +85,37 @@ class BaseTimeSeriesConformalRegressor(ABC):
         self, preds_val: np.ndarray, y_val_arr: np.ndarray
     ) -> np.ndarray:
         """
-        Computes nonconformity scores/residuals from predictions and true targets.
+        Computes nonconformity scores or residuals from predictions and true targets.
         To be implemented by subclasses.
         """
         pass
 
     @abstractmethod
     def fit(self, df: pd.DataFrame, *args, **kwargs):
-        """Fits the conformal model."""
+        """
+        Fits the conformal model to the time series dataset.
+        To be implemented by subclasses.
+        """
         pass
 
     @abstractmethod
     def predict_interval(self, *args, **kwargs) -> np.ndarray:
         """
-        Generates prediction intervals for the input data.
+        Generate prediction intervals for the input data.
         To be implemented by subclasses.
         """
         pass
 
     def _compute_qhat(self, ncscore: np.ndarray, q_level: float, axis: int = None):
         """
-        Computes the q-hat quantile value based on nonconformity scores and target level.
+        Compute the q-hat quantile value based on nonconformity scores and the quantile level.
         """
         return np.quantile(ncscore, q_level, method="higher", axis=axis)
 
     def _infer_model_cols(self, df: pd.DataFrame) -> List[str]:
-        """Dynamically infers model prediction columns from the output DataFrame."""
+        """
+        Dynamically infers model prediction columns from the output DataFrame.
+        """
         if self.model_col_ is not None:
             return (
                 [self.model_col_]
@@ -101,7 +137,7 @@ class BaseTimeSeriesConformalRegressor(ABC):
         return alpha if alpha is not None else self.alpha
 
     def _get_horizon(self, h: Optional[float] = None) -> float:
-        """Helper to retrieve the horizon from prediction."""
+        """Helper to retrieve and validate the forecast horizon."""
         h = h if h is not None else self.horizon
         if h > self.horizon:
             raise ValueError(
@@ -137,10 +173,20 @@ class BaseTimeSeriesConformalRegressor(ABC):
         """
         Executes sequential rolling-window backtesting across calibration windows.
 
-        Returns
+        Parameters:
+        ----------
+        df : pd.DataFrame
+            The calibration DataFrame containing time series values.
+        step_size : int, optional
+            Step size for window shift. Defaults to self.horizon if None.
+        static_features : list, optional
+            List of static feature column names.
+
+        Returns:
         -------
-        list of ndarray
-            List containing 2D residual matrices extracted from each backtesting window.
+        dict
+            Dictionary containing list of 2D residual matrices per model extracted
+            from backtesting windows.
         """
         residuals_by_model: Dict[List] = {}
 
@@ -207,12 +253,16 @@ class BaseTimeSeriesConformalRegressor(ABC):
     def _coverage_rate(
         self, y_true: np.ndarray, lower: np.ndarray, upper: np.ndarray
     ) -> float:
-        """Evaluates empirical interval coverage rate."""
+        """
+        Evaluate empirical coverage of prediction intervals.
+        """
         coverages = (y_true >= lower) & (y_true <= upper)
         return float(np.mean(coverages))
 
     def _interval_width_mean(self, lower: np.ndarray, upper: np.ndarray) -> float:
-        """Calculates mean interval width."""
+        """
+        Calculates the mean width of the prediction intervals.
+        """
         widths = upper - lower
         return float(np.mean(widths))
 
@@ -223,7 +273,31 @@ class BaseTimeSeriesConformalRegressor(ABC):
         upper: np.ndarray,
         alpha: float,
     ) -> float:
-        """Calculates the Mean Winkler Interval Score (MWIS) for prediction intervals."""
+        """
+        Calculate the Winkler interval score for prediction intervals.
+
+        If the observation falls outside the prediction interval, the score increases
+        with the distance from the interval bounds.
+
+        If the observation falls inside the prediction interval, the score depends on
+        the width of the interval (narrower intervals are better).
+
+        Parameters:
+        ----------
+        y_true : np.ndarray
+            True target values.
+        lower : np.ndarray
+            Lower bounds of prediction intervals.
+        upper : np.ndarray
+            Upper bounds of prediction intervals.
+        alpha : float
+            Significance level, where (1 - alpha) is the desired coverage.
+
+        Returns:
+        -------
+        float
+            The mean Winkler interval score.
+        """
         width = upper - lower
         penalty_lower = (2.0 / alpha) * (lower - y_true) * (y_true < lower)
         penalty_upper = (2.0 / alpha) * (y_true - upper) * (y_true > upper)
@@ -266,23 +340,32 @@ class BaseTimeSeriesConformalRegressor(ABC):
         df_test: pd.DataFrame,
         h: Optional[int] = None,
         alpha: Optional[float] = None,
-    ) -> Dict[str, Any]:
+    ) -> pd.DataFrame:
         """
-        Evaluates the regressor performance on the given dataset.
+        Evaluate the performance of the regressor on the given dataset.
 
-        Parameters
+        Parameters:
         ----------
         df_test : pd.DataFrame
             Evaluation dataset containing input features and target values.
         h : int, optional
-            Forecast horizon for multi-step predictions.
+            Forecast horizon step count. If None, the default fitted horizon is used.
         alpha : float, optional
-            Significance level for prediction intervals.
+            Significance level for prediction intervals. If None, default alpha is used.
 
-        Returns
+        Returns:
         -------
-        Dict[str, Any]
-            Dictionary containing evaluation metrics (coverage_rate, interval_width_mean, mwis, mae, mbe, mse).
+        pd.DataFrame
+            A DataFrame containing the evaluation metrics for each model and level:
+            - "model" (str): Name of the evaluated model.
+            - "level" (str): Coverage percentage string (e.g., '95%').
+            - "alpha" (float): The significance level used for evaluation.
+            - "coverage_rate" (float): The coverage rate of the prediction intervals.
+            - "interval_width_mean" (float): The mean width of the prediction intervals.
+            - "mwis" (float): The Mean Weighted Interval Score (MWIS).
+            - "mae" (float): The Mean Absolute Error (MAE) of the predictions.
+            - "mbe" (float): The Mean Bias Error (MBE) of the predictions.
+            - "mse" (float): The Mean Squared Error (MSE) of the predictions.
         """
         alpha = self._get_alpha(alpha)
 
