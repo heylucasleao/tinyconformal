@@ -2,34 +2,80 @@
 # TinyConformal - A small toolbox for conformal prediction
 # Licensed under the MIT License
 
+import re
 from typing import Dict, List, Optional, Tuple, Union
+
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
-import re
 
 
 class ConformalMetalogNewsvendor(BaseEstimator):
     """
-    Decisor do Novo-Jornaleiro via Metalog sobre Regressor Conformalizado Fitado.
+    Newsvendor Decision Maker via Metalog Distribution over a Fitted Conformal Regressor.
+
+    This class fits continuous probability curves (2-term or 3-term Metalog)
+    using calibrated prediction bounds from a conformal regressor. It then computes
+    the optimal order quantity (y_optimal) corresponding to the critical cost ratio
+    p_star = cu / (cu + co).
 
     Parameters
     ----------
     conformal_regressor : BaseEstimator
-        Instância do regressor conformal JÁ FITADA.
-    interval_pairs : Tuple[str, str] ou List[Tuple[str, str]]
-        Tupla (ou lista de tuplas) com os nomes das colunas dos quantis extremos (lower_col, upper_col).
+        An instance of a fitted conformal regressor capable of calling `predict_interval`.
+    interval_pairs : Tuple[str, str] or List[Tuple[str, str]]
+        Tuple or list of tuples containing the column names for lower and upper quantiles.
+        Must follow the pattern '(model)-(lo|hi)-(level)' (e.g., ("RF-lo-90", "RF-hi-90")).
     cu_col : str
-        Nome da coluna contendo o custo de falta no X_df.
+        Column name in `X_df` containing the shortage cost per unit (cost of underage, cu).
     co_col : str
-        Nome da coluna contendo o custo de sobra no X_df.
-    median_cols : str, List[str], optional
-        Nome da coluna (ou lista de colunas) da mediana/ponto central.
-        Se informada, ativa Metalog de 3 termos. Deve ter o mesmo comprimento de interval_pairs.
+        Column name in `X_df` containing the excess cost per unit (cost of overage, co).
+    median_cols : str, List[str], or None, default=None
+        Column name or list of column names for the central prediction/median.
+        If provided, enables 3-term Metalog reconstruction (skewness adjustment).
+        Must match the length of `interval_pairs`.
     level : float, default=90.0
-        Nível de cobertura nominal dos intervalos em porcentagem (ex: 90.0 para [P5, P95], 80.0 para [P10, P90]).
+        Nominal coverage level in percentage corresponding to the input interval bounds
+        (e.g., 90.0 for P5 and P95 quantiles; 80.0 for P10 and P90 quantiles).
     id_col : str, default="unique_id"
-        Coluna identificadora do SKU/Série.
+        Identifier column for time series / SKUs.
+
+    Attributes
+    ----------
+    interval_pairs_ : List[Tuple[str, str]]
+        Validated and normalized list of interval column pairs.
+    median_cols_ : List[Optional[str]]
+        Validated and normalized list of median column names.
+    pair_mappings_ : Dict[int, Dict[str, Optional[str]]]
+        Indexed mapping dictionary linking low, high, and median columns per pair.
+    p_low_ : float
+        Lower probability percentile derived from nominal coverage level (e.g., 0.05 for level=90.0).
+    p_high_ : float
+        Upper probability percentile derived from nominal coverage level (e.g., 0.95 for level=90.0).
+
+    Notes
+    -----
+    Quantile parameterization follows the SPT (Symmetric Percentile Triplet) Metalog formulation:
+
+    - 2-term Metalog (no median provided):
+      Estimates location (a1) and scale (a2) directly from the conformal interval spread [q_lo, q_hi].
+
+    - 3-term Metalog (median provided):
+      Preserves the baseline skewness ratio (p50_base - p_low_base) / (p_high_base - p_low_base)
+      to project an adjusted conformal median (p50_conformal_adj), estimating a shape parameter (a3).
+
+    Examples
+    --------
+    >>> from tinyconformal.decision import ConformalMetalogNewsvendor
+    >>> newsvendor = ConformalMetalogNewsvendor(
+    ...     conformal_regressor=cqr_model,
+    ...     interval_pairs=("RF-lo-90", "RF-hi-90"),
+    ...     cu_col="unit_margin",
+    ...     co_col="holding_cost",
+    ...     median_cols="RF-median",
+    ...     level=90.0
+    ... )
+    >>> df_optimal = newsvendor.predict_optimal_quantity(X_df=df_test)
     """
 
     def __init__(
@@ -47,6 +93,8 @@ class ConformalMetalogNewsvendor(BaseEstimator):
         self.co_col = co_col
         self.level = level
         self.id_col = id_col
+        self.interval_pairs = interval_pairs
+        self.median_cols = median_cols
 
         self.interval_pairs_ = self._validate_interval_pairs(interval_pairs)
         self.median_cols_ = self._validate_median_cols(
@@ -57,14 +105,14 @@ class ConformalMetalogNewsvendor(BaseEstimator):
         )
 
         if not (0.0 < self.level < 100.0):
-            raise ValueError("O nível (level) deve estar entre 0 e 100.")
+            raise ValueError("Parameter 'level' must be strictly between 0 and 100.")
 
         self.p_low_ = (100.0 - self.level) / 200.0
         self.p_high_ = 1.0 - self.p_low_
         self._logit_level = float(np.log(self.p_high_ / self.p_low_))
 
-    @staticmethod
     def _validate_interval_pairs(
+        self,
         interval_pairs: Union[Tuple[str, str], List[Tuple[str, str]]],
     ) -> List[Tuple[str, str]]:
         pattern = re.compile(r"^.+-(lo|hi)-\d+.*$")
@@ -86,44 +134,19 @@ class ConformalMetalogNewsvendor(BaseEstimator):
             pairs = [tuple(pair) for pair in interval_pairs]
         else:
             raise ValueError(
-                "interval_pairs deve ser uma tupla de 2 strings (low, high) ou uma lista dessas tuplas."
+                "interval_pairs must be a 2-tuple of strings (low, high) or a list of such tuples."
             )
 
         for low, high in pairs:
             if not pattern.match(low) or not pattern.match(high):
                 raise ValueError(
-                    f"As colunas do intervalo ('{low}', '{high}') devem seguir o padrão '<model>-(lo|hi)-<level>'."
+                    f"Interval columns ('{low}', '{high}') must follow the pattern '<model>-(lo|hi)-<level>'."
                 )
 
         return pairs
 
-    @staticmethod
-    def _validate_interval_pairs(
-        interval_pairs: Union[Tuple[str, str], List[Tuple[str, str]]],
-    ) -> List[Tuple[str, str]]:
-        if (
-            isinstance(interval_pairs, tuple)
-            and len(interval_pairs) == 2
-            and isinstance(interval_pairs[0], str)
-            and isinstance(interval_pairs[1], str)
-        ):
-            return [interval_pairs]
-        elif isinstance(interval_pairs, list) and all(
-            isinstance(pair, tuple)
-            and len(pair) == 2
-            and isinstance(pair[0], str)
-            and isinstance(pair[1], str)
-            for pair in interval_pairs
-        ):
-            return interval_pairs
-
-        raise ValueError(
-            "interval_pairs deve ser uma tupla de 2 strings (low, high) ou uma lista dessas tuplas."
-        )
-
-    @staticmethod
     def _validate_median_cols(
-        median_cols: Union[str, List[str], None], num_pairs: int
+        self, median_cols: Union[str, List[str], None], num_pairs: int
     ) -> List[Optional[str]]:
         if isinstance(median_cols, str):
             normalized_medians = [median_cols]
@@ -134,12 +157,12 @@ class ConformalMetalogNewsvendor(BaseEstimator):
         elif median_cols is None:
             normalized_medians = [None] * num_pairs
         else:
-            raise TypeError("median_cols deve ser str, lista de str ou None.")
+            raise TypeError("median_cols must be a string, list of strings, or None.")
 
         if len(normalized_medians) != num_pairs:
             raise ValueError(
-                f"O número de median_cols ({len(normalized_medians)}) deve ser igual "
-                f"ao número de interval_pairs ({num_pairs})."
+                f"Number of median_cols ({len(normalized_medians)}) must match "
+                f"the number of interval_pairs ({num_pairs})."
             )
 
         return normalized_medians
@@ -199,6 +222,30 @@ class ConformalMetalogNewsvendor(BaseEstimator):
         h: Optional[int] = None,
         alpha: Optional[float] = None,
     ) -> pd.DataFrame:
+        """
+        Compute the expected cost-minimizing order quantity (y_optimal) for each observation.
+
+        Parameters
+        ----------
+        X_df : pd.DataFrame
+            Input features DataFrame containing unit cost columns (`cu_col` and `co_col`).
+        h : int, optional
+            Forecast horizon passed directly to `conformal_regressor.predict_interval`.
+        alpha : float, optional
+            Custom significance level (1 - coverage) overriding default settings.
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame containing predicted conformal bounds alongside added decision columns:
+
+            - `p_star`: The critical service level computed as cu / (cu + co).
+            - `y_optimal`: The final decision variable representing the optimal inventory order
+              quantity clipped at zero (max(0, y_star)). If multiple interval pairs are provided,
+              columns are suffixed with `_0`, `_1`, etc.
+            - `p50_conformal_adj` (Optional): The conformalized 50th percentile adjusted for
+              baseline skewness. Only generated when 3-term Metalog is active (`median_cols` provided).
+        """
         df_pred = self.conformal_regressor.predict_interval(h=h, alpha=alpha, X_df=X_df)
 
         c_u = X_df[self.cu_col].to_numpy(dtype=float)
@@ -206,7 +253,7 @@ class ConformalMetalogNewsvendor(BaseEstimator):
 
         if np.any(c_u <= 0) or np.any(c_o <= 0):
             raise ValueError(
-                "Os valores de Cu e Co no X_df devem ser estritamente positivos."
+                "Unit costs 'cu' and 'co' in X_df must be strictly positive."
             )
 
         p_star = c_u / (c_u + c_o)
