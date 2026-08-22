@@ -25,10 +25,10 @@ class ConformalMetalogNewsvendor(BaseEstimator):
     median_cols : str, List[str], optional
         Nome da coluna (ou lista de colunas) da mediana/ponto central.
         Se informada, ativa Metalog de 3 termos. Deve ter o mesmo comprimento de quantile_pairs.
+    level : float, default=90.0
+        Nível de cobertura nominal dos intervalos em porcentagem (ex: 90.0 para [P5, P95], 80.0 para [P10, P90]).
     id_col : str, default="unique_id"
         Coluna identificadora do SKU/Série.
-    time_col : str, default="ds"
-        Coluna de data/tempo.
     """
 
     def __init__(
@@ -38,14 +38,14 @@ class ConformalMetalogNewsvendor(BaseEstimator):
         cu_col: str,
         co_col: str,
         median_cols: Union[str, List[str], None] = None,
+        level: float = 90.0,
         id_col: str = "unique_id",
-        time_col: str = "ds",
     ):
         self.conformal_regressor = conformal_regressor
         self.cu_col = cu_col
         self.co_col = co_col
+        self.level = level
         self.id_col = id_col
-        self.time_col = time_col
 
         self.quantile_pairs_ = self._validate_quantile_pairs(quantile_pairs)
         self.median_cols_ = self._validate_median_cols(
@@ -55,13 +55,17 @@ class ConformalMetalogNewsvendor(BaseEstimator):
             self.quantile_pairs_, self.median_cols_
         )
 
-        self._logit_95 = np.log(0.95 / 0.05)  # ~ 2.9444
+        if not (0.0 < self.level < 100.0):
+            raise ValueError("O nível (level) deve estar entre 0 e 100.")
+
+        self.p_low_ = (100.0 - self.level) / 200.0
+        self.p_high_ = 1.0 - self.p_low_
+        self._logit_level = float(np.log(self.p_high_ / self.p_low_))
 
     @staticmethod
     def _validate_quantile_pairs(
         quantile_pairs: Union[Tuple[str, str], List[Tuple[str, str]]],
     ) -> List[Tuple[str, str]]:
-        """Valida e normaliza o parâmetro quantile_pairs para uma lista de tuplas."""
         if (
             isinstance(quantile_pairs, tuple)
             and len(quantile_pairs) == 2
@@ -86,7 +90,6 @@ class ConformalMetalogNewsvendor(BaseEstimator):
     def _validate_median_cols(
         median_cols: Union[str, List[str], None], num_pairs: int
     ) -> List[Optional[str]]:
-        """Valida, normaliza e verifica a cardinalidade de median_cols."""
         if isinstance(median_cols, str):
             normalized_medians = [median_cols]
         elif isinstance(median_cols, list) and all(
@@ -110,7 +113,6 @@ class ConformalMetalogNewsvendor(BaseEstimator):
     def _build_pair_mappings(
         quantile_pairs: List[Tuple[str, str]], median_cols: List[Optional[str]]
     ) -> Dict[int, Dict[str, Optional[str]]]:
-        """Constrói o dicionário de mapeamento das colunas por índice."""
         return {
             idx: {
                 "low": q_pair[0],
@@ -123,34 +125,35 @@ class ConformalMetalogNewsvendor(BaseEstimator):
     def _eval_metalog_spt(
         self,
         p_star: np.ndarray,
-        p5_cqr: np.ndarray,
-        p95_cqr: np.ndarray,
-        p5_base: Optional[np.ndarray] = None,
-        p95_base: Optional[np.ndarray] = None,
+        p_low_cqr: np.ndarray,
+        p_high_cqr: np.ndarray,
+        p_low_base: Optional[np.ndarray] = None,
+        p_high_base: Optional[np.ndarray] = None,
         p50_base: Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
-        """Avalia o quantil Q(p_star) da Metalog de 2 ou 3 termos."""
         p_clipped = np.clip(p_star, 1e-5, 1.0 - 1e-5)
         logit_p = np.log(p_clipped / (1.0 - p_clipped))
 
         has_3_terms = (
-            p50_base is not None and p5_base is not None and p95_base is not None
+            p50_base is not None and p_low_base is not None and p_high_base is not None
         )
 
         if has_3_terms:
-            base_spread = np.maximum(p95_base - p5_base, 1e-6)
-            skew_ratio = np.clip((p50_base - p5_base) / base_spread, 0.01, 0.99)
-            p50_adj = p5_cqr + skew_ratio * (p95_cqr - p5_cqr)
+            base_spread = np.maximum(p_high_base - p_low_base, 1e-6)
+            skew_ratio = np.clip((p50_base - p_low_base) / base_spread, 0.01, 0.99)
+            p50_adj = p_low_cqr + skew_ratio * (p_high_cqr - p_low_cqr)
 
             a1 = p50_adj
-            a2 = (p95_cqr - p5_cqr) / (2.0 * self._logit_95)
-            a3 = (p95_cqr + p5_cqr - 2.0 * p50_adj) / (0.45 * self._logit_95)
+            a2 = (p_high_cqr - p_low_cqr) / (2.0 * self._logit_level)
+
+            a3_denom = (self.p_high_ - 0.5) * self._logit_level
+            a3 = (p_high_cqr + p_low_cqr - 2.0 * p50_adj) / a3_denom
 
             y_star = a1 + a2 * logit_p + a3 * (p_clipped - 0.5) * logit_p
             return y_star, p50_adj
         else:
-            a1 = 0.5 * (p5_cqr + p95_cqr)
-            a2 = (p95_cqr - p5_cqr) / (2.0 * self._logit_95)
+            a1 = 0.5 * (p_low_cqr + p_high_cqr)
+            a2 = (p_high_cqr - p_low_cqr) / (2.0 * self._logit_level)
 
             y_star = a1 + a2 * logit_p
             return y_star, None
@@ -161,7 +164,6 @@ class ConformalMetalogNewsvendor(BaseEstimator):
         h: Optional[int] = None,
         alpha: Optional[float] = None,
     ) -> pd.DataFrame:
-        """Calcula a quantidade ótima y* para cada conjunto de par configurado."""
         df_pred = self.conformal_regressor.predict_interval(h=h, alpha=alpha, X_df=X_df)
 
         c_u = X_df[self.cu_col].to_numpy(dtype=float)
@@ -180,22 +182,22 @@ class ConformalMetalogNewsvendor(BaseEstimator):
             high_col = mapping["high"]
             med_col = mapping["median"]
 
-            p5_cqr = df_pred[low_col].to_numpy(dtype=float)
-            p95_cqr = df_pred[high_col].to_numpy(dtype=float)
+            p_low_cqr = df_pred[low_col].to_numpy(dtype=float)
+            p_high_cqr = df_pred[high_col].to_numpy(dtype=float)
 
             if med_col is not None:
-                p5_base = p5_cqr
-                p95_base = p95_cqr
+                p_low_base = p_low_cqr
+                p_high_base = p_high_cqr
                 p50_base = df_pred[med_col].to_numpy(dtype=float)
             else:
-                p5_base = p95_base = p50_base = None
+                p_low_base = p_high_base = p50_base = None
 
             y_star, p50_adj = self._eval_metalog_spt(
                 p_star=p_star,
-                p5_cqr=p5_cqr,
-                p95_cqr=p95_cqr,
-                p5_base=p5_base,
-                p95_base=p95_base,
+                p_low_cqr=p_low_cqr,
+                p_high_cqr=p_high_cqr,
+                p_low_base=p_low_base,
+                p_high_base=p_high_base,
                 p50_base=p50_base,
             )
 
