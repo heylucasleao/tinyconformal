@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
+import re
 
 
 class ConformalMetalogNewsvendor(BaseEstimator):
@@ -16,7 +17,7 @@ class ConformalMetalogNewsvendor(BaseEstimator):
     ----------
     conformal_regressor : BaseEstimator
         Instância do regressor conformal JÁ FITADA.
-    quantile_pairs : Tuple[str, str] ou List[Tuple[str, str]]
+    interval_pairs : Tuple[str, str] ou List[Tuple[str, str]]
         Tupla (ou lista de tuplas) com os nomes das colunas dos quantis extremos (lower_col, upper_col).
     cu_col : str
         Nome da coluna contendo o custo de falta no X_df.
@@ -24,7 +25,7 @@ class ConformalMetalogNewsvendor(BaseEstimator):
         Nome da coluna contendo o custo de sobra no X_df.
     median_cols : str, List[str], optional
         Nome da coluna (ou lista de colunas) da mediana/ponto central.
-        Se informada, ativa Metalog de 3 termos. Deve ter o mesmo comprimento de quantile_pairs.
+        Se informada, ativa Metalog de 3 termos. Deve ter o mesmo comprimento de interval_pairs.
     level : float, default=90.0
         Nível de cobertura nominal dos intervalos em porcentagem (ex: 90.0 para [P5, P95], 80.0 para [P10, P90]).
     id_col : str, default="unique_id"
@@ -34,7 +35,7 @@ class ConformalMetalogNewsvendor(BaseEstimator):
     def __init__(
         self,
         conformal_regressor: BaseEstimator,
-        quantile_pairs: Union[Tuple[str, str], List[Tuple[str, str]]],
+        interval_pairs: Union[Tuple[str, str], List[Tuple[str, str]]],
         cu_col: str,
         co_col: str,
         median_cols: Union[str, List[str], None] = None,
@@ -47,12 +48,12 @@ class ConformalMetalogNewsvendor(BaseEstimator):
         self.level = level
         self.id_col = id_col
 
-        self.quantile_pairs_ = self._validate_quantile_pairs(quantile_pairs)
+        self.interval_pairs_ = self._validate_interval_pairs(interval_pairs)
         self.median_cols_ = self._validate_median_cols(
-            median_cols, num_pairs=len(self.quantile_pairs_)
+            median_cols, num_pairs=len(self.interval_pairs_)
         )
         self.pair_mappings_ = self._build_pair_mappings(
-            self.quantile_pairs_, self.median_cols_
+            self.interval_pairs_, self.median_cols_
         )
 
         if not (0.0 < self.level < 100.0):
@@ -63,27 +64,61 @@ class ConformalMetalogNewsvendor(BaseEstimator):
         self._logit_level = float(np.log(self.p_high_ / self.p_low_))
 
     @staticmethod
-    def _validate_quantile_pairs(
-        quantile_pairs: Union[Tuple[str, str], List[Tuple[str, str]]],
+    def _validate_interval_pairs(
+        interval_pairs: Union[Tuple[str, str], List[Tuple[str, str]]],
+    ) -> List[Tuple[str, str]]:
+        pattern = re.compile(r"^.+-(lo|hi)-\d+.*$")
+
+        if (
+            isinstance(interval_pairs, tuple)
+            and len(interval_pairs) == 2
+            and isinstance(interval_pairs[0], str)
+            and isinstance(interval_pairs[1], str)
+        ):
+            pairs = [interval_pairs]
+        elif isinstance(interval_pairs, list) and all(
+            isinstance(pair, (tuple, list))
+            and len(pair) == 2
+            and isinstance(pair[0], str)
+            and isinstance(pair[1], str)
+            for pair in interval_pairs
+        ):
+            pairs = [tuple(pair) for pair in interval_pairs]
+        else:
+            raise ValueError(
+                "interval_pairs deve ser uma tupla de 2 strings (low, high) ou uma lista dessas tuplas."
+            )
+
+        for low, high in pairs:
+            if not pattern.match(low) or not pattern.match(high):
+                raise ValueError(
+                    f"As colunas do intervalo ('{low}', '{high}') devem seguir o padrão '<model>-(lo|hi)-<level>'."
+                )
+
+        return pairs
+
+    @staticmethod
+    def _validate_interval_pairs(
+        interval_pairs: Union[Tuple[str, str], List[Tuple[str, str]]],
     ) -> List[Tuple[str, str]]:
         if (
-            isinstance(quantile_pairs, tuple)
-            and len(quantile_pairs) == 2
-            and isinstance(quantile_pairs[0], str)
-            and isinstance(quantile_pairs[1], str)
+            isinstance(interval_pairs, tuple)
+            and len(interval_pairs) == 2
+            and isinstance(interval_pairs[0], str)
+            and isinstance(interval_pairs[1], str)
         ):
-            return [quantile_pairs]
-        elif isinstance(quantile_pairs, list) and all(
+            return [interval_pairs]
+        elif isinstance(interval_pairs, list) and all(
             isinstance(pair, tuple)
             and len(pair) == 2
             and isinstance(pair[0], str)
             and isinstance(pair[1], str)
-            for pair in quantile_pairs
+            for pair in interval_pairs
         ):
-            return quantile_pairs
+            return interval_pairs
 
         raise ValueError(
-            "quantile_pairs deve ser uma tupla de 2 strings (low, high) ou uma lista dessas tuplas."
+            "interval_pairs deve ser uma tupla de 2 strings (low, high) ou uma lista dessas tuplas."
         )
 
     @staticmethod
@@ -104,14 +139,14 @@ class ConformalMetalogNewsvendor(BaseEstimator):
         if len(normalized_medians) != num_pairs:
             raise ValueError(
                 f"O número de median_cols ({len(normalized_medians)}) deve ser igual "
-                f"ao número de quantile_pairs ({num_pairs})."
+                f"ao número de interval_pairs ({num_pairs})."
             )
 
         return normalized_medians
 
     @staticmethod
     def _build_pair_mappings(
-        quantile_pairs: List[Tuple[str, str]], median_cols: List[Optional[str]]
+        interval_pairs: List[Tuple[str, str]], median_cols: List[Optional[str]]
     ) -> Dict[int, Dict[str, Optional[str]]]:
         return {
             idx: {
@@ -119,7 +154,7 @@ class ConformalMetalogNewsvendor(BaseEstimator):
                 "high": q_pair[1],
                 "median": med,
             }
-            for idx, (q_pair, med) in enumerate(zip(quantile_pairs, median_cols))
+            for idx, (q_pair, med) in enumerate(zip(interval_pairs, median_cols))
         }
 
     def _eval_metalog_spt(
