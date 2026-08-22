@@ -7,7 +7,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 from .base import BaseConformalTimeSeriesRegressor
 from typing import Optional, Tuple, List, Dict
-from tinyshift.utils.imports import requires_extra
+from tinyconformal.utils.imports import requires_extra
 import copy
 
 
