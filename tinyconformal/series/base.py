@@ -6,9 +6,9 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin
 from typing import Optional, Tuple, List, Dict
-from sklearn.metrics import mean_absolute_error
 from abc import abstractmethod
 import inspect
+import re
 
 
 class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
@@ -533,7 +533,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             - "mse" (float): The Mean Squared Error (MSE) of the predictions.
         """
         alpha = self._get_alpha(alpha)
-
         eval_df = self.predict_interval(X_df=df_test, h=h, alpha=alpha)
 
         eval_df = eval_df.merge(
@@ -542,25 +541,36 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             how="inner",
         )
         y_true = eval_df[self.target_col].to_numpy()
-        mask = lambda c: any(pattern in c for pattern in ("-lo-", "-hi-"))
-        bounds = [c for c in eval_df.columns if mask(c)]
-        lo_cols = [model for model in bounds if "-lo-" in model]
+
+        BOUND_PATTERN = re.compile(
+            r"^(?P<model>.+)-lo-(?P<level>\d+)(?P<cqr>-(?:cqr|CQR))?$"
+        )
+
         records = []
 
         def rounded(value):
             return np.round(value, 3)
 
-        for lo_col in lo_cols:
-            model_name, level_str = lo_col.split("-lo-")
+        for col in eval_df.columns:
+            match = BOUND_PATTERN.match(col)
 
-            hi_col = f"{model_name}-hi-{level_str}"
+            if not match:
+                continue
 
-            lower = eval_df[lo_col].to_numpy()
+            base_model = match.group("model")
+            level_str = match.group("level")
+            has_cqr = bool(match.group("cqr"))
+
+            cqr_suffix = match.group("cqr") if has_cqr else ""
+            hi_col = f"{base_model}-hi-{level_str}{cqr_suffix}"
+
+            if hi_col not in eval_df.columns:
+                continue
+
+            lower = eval_df[col].to_numpy()
             upper = eval_df[hi_col].to_numpy()
 
-            if level_str.upper().endswith("-CQR"):
-                level_str = level_str[:-4]
-                model_name += "-CQR"
+            model_name = f"{base_model}-cqr" if has_cqr else base_model
 
             records.append(
                 {
@@ -575,4 +585,8 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
                 }
             )
 
-        return pd.DataFrame(records).sort_values(by=["model", "level"])
+        return (
+            pd.DataFrame(records)
+            .sort_values(by=["model", "level"])
+            .reset_index(drop=True)
+        )
