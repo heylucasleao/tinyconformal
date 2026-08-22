@@ -137,7 +137,6 @@ class ConformalMetalogNewsvendor:
         co_col: str = "co",
         median_col: Optional[str] = None,
         level: float = 90.0,
-        suffix: str = "",
     ) -> pd.DataFrame:
         """
         Compute expected cost-minimizing order quantity (y_optimal) on a DataFrame
@@ -160,9 +159,6 @@ class ConformalMetalogNewsvendor:
         level : float, default=90.0
             Nominal coverage level in percentage corresponding to the input interval bounds
             (e.g., 90.0 for P5 and P95 quantiles; 80.0 for P10 and P90 quantiles).
-        suffix : str, default=""
-            Optional suffix to append to the target decision column (e.g., suffix="_rf"
-            results in `y_optimal_rf`).
 
         Returns
         -------
@@ -230,7 +226,7 @@ class ConformalMetalogNewsvendor:
             logit_level=logit_level,
         )
 
-        col_name = f"y_optimal{suffix}"
+        col_name = f"y_optimal"
         df_out[col_name] = np.maximum(0.0, y_star)
 
         return df_out
