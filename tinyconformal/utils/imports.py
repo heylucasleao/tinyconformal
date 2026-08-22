@@ -8,14 +8,11 @@ from typing import Dict, List, Callable, Any
 
 EXTRA_DEPENDENCIES: Dict[str, List[str]] = {
     "series": ["statsforecast", "mlforecast", "utilsforecast", "statsmodels"],
+    "notebook": ["nbformat", "ipykernel"],
 }
 
 EXTRA_DEPENDENCIES["all"] = list(
-    {
-        module
-        for extra in ["series", "plot", "notebook"]
-        for module in EXTRA_DEPENDENCIES[extra]
-    }
+    {module for extra in ["series", "notebook"] for module in EXTRA_DEPENDENCIES[extra]}
 )
 
 
@@ -26,7 +23,7 @@ def check_extra(extra_name: str) -> None:
     Parameters
     ----------
     extra_name : str
-        The name of the optional extra dependency group (e.g., 'series', 'plot').
+        The name of the optional extra dependency group (e.g., 'series').
 
     Raises
     ------
