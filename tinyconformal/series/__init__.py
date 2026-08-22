@@ -5,4 +5,4 @@
 
 from .mscp import ConformalDistributionTimeSeriesRegressor
 from .tscqr import ConformalQuantileTimeSeriesRegressor
-from .metalog import ConformalMetalogNewsvendor
+from .metalog import ConformalNewsvendor
