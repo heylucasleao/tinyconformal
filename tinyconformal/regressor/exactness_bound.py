@@ -124,7 +124,7 @@ class ExactnessBound:
                 f"The quantile probability 'p' must be in (0, 1), got {p}."
             )
         preds = cross_val_predict(learner, X_train, y_train, cv=cv)
-        cqr_residuals = np.maximum(preds[:, 0] - y_train, y_train - preds[:, 1])
+        cqr_residuals = np.maximum(preds[:, 0] - y_train, y_train - preds[:, -1])
 
         return float(np.quantile(cqr_residuals, p, method="higher")), round(
             float(1.0 - p), 3
