@@ -145,6 +145,38 @@ class ConformalizedQuantileRegressor(
 
         return self
 
+    def predict(
+        self,
+        X_test,
+        alpha=None,
+    ):
+        """
+        Generates skewness-adjusted median predictions (P50) for input samples.
+
+        This method retrieves the conformalized prediction interval alongside the
+        calibrated median, which incorporates the relative position (skew ratio)
+        of the base model's uncalibrated P50.
+
+        Parameters
+        ----------
+        X_test : array-like of shape (n_samples, n_features)
+            Test feature matrix.
+
+        Returns
+        -------
+        p50_adj : ndarray of shape (n_samples,)
+            1D array containing the adjusted median predictions.
+
+        Raises
+        ------
+        ValueError
+            If the base learner was not fitted with or cannot predict the 0.50 quantile.
+        """
+        alpha = self._get_alpha(alpha)
+        intervals = self.predict_interval(X_test, alpha, return_p50=True)
+
+        return intervals[:, 1]
+
     def predict_interval(self, X_test, alpha=None, return_p50=False):
         """
         Generates conformalized prediction intervals and optional skewness-adjusted P50 estimates.
