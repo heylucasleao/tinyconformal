@@ -106,8 +106,10 @@ class ConformalNewsvendor:
         ... )
         >>> # a1 = array([15.0]), a2 = array([1.6981])
         """
+        cqr_spread = np.maximum(p_high_cqr - p_low_cqr, 1e-6)
+
         a1 = 0.5 * (p_low_cqr + p_high_cqr)
-        a2 = (p_high_cqr - p_low_cqr) / (2.0 * logit_level)
+        a2 = cqr_spread / (2.0 * logit_level)
         return a1, a2
 
     @staticmethod
@@ -130,21 +132,21 @@ class ConformalNewsvendor:
 
         Mathematical Equations
         ----------------------
-        skew_ratio = (p50_base - p_low_base) / max(p_high_base - p_low_base, 1e-6)
+        skew_ratio = clip((p50_base - p_low_base) / max(p_high_base - p_low_base, 1e-6), 0.01, 0.99)
         p50_adj    = p_low_cqr + skew_ratio * (p_high_cqr - p_low_cqr)
 
         a1 (Adjusted Median) = p50_adj
         a2 (Scale/Spread)    = (p_high_cqr - p_low_cqr) / (2 * logit_level)
-        a3 (Skewness Shape)  = (p_high_cqr + p_low_cqr - 2 * p50_adj) / ((p_high - 0.5) * logit_level)
+        a3 (Skewness Shape)  = (p_high_cqr + p_low_cqr - 2 * p50_adj) / ((p_high_ - 0.5) * logit_level)
 
         Parameters
         ----------
         p_low_cqr : np.ndarray
-            1D array of lower conformal quantile predictions.
+            1D array of lower conformal quantile predictions (CQR).
         p_high_cqr : np.ndarray
-            1D array of upper conformal quantile predictions.
+            1D array of upper conformal quantile predictions (CQR).
         p_low_base : np.ndarray
-            1D array of base model lower bounds used to estimate baseline asymmetry ratio.
+            1D array of base model lower bounds used to isolate baseline skewness ratio.
         p_high_base : np.ndarray
             1D array of base model upper bounds.
         p50_base : np.ndarray
@@ -152,35 +154,74 @@ class ConformalNewsvendor:
         p_high_ : float
             Nominal probability corresponding to upper bound (e.g., 0.95 for level=90.0).
         logit_level : float
-            Pre-computed logit constant: log(p_high / (1 - p_high)).
+            Pre-computed logit constant: log(p_high_ / (1 - p_high_)).
 
         Returns
         -------
         a1 : np.ndarray
             Adjusted central median parameter preserving baseline relative skew.
         a2 : np.ndarray
-            Metalog scale parameter.
+            Metalog scale/spread parameter.
         a3 : np.ndarray
             Asymmetry (skewness) coefficient controlling tail shape.
 
+        Notes
+        -----
+        - Preserving base quantiles prevents the "asymmetry dilution effect" caused by
+          symmetric CQR delta expansion (eta) pushing the implied skew_ratio towards 0.5.
+        - The validity of the 3-term Metalog relies on Keelin (2016) monotonicity conditions:
+          |a3 / a2| <= 1.6671. If violated due to severe asymmetry, callers should fall
+          back to symmetric 2-term formulation (a3 = 0, a1 = (p_low_cqr + p_high_cqr) / 2)
+          to avoid PDF invalidity or non-monotonic CDFs.
+
         Examples
         --------
+        >>> import numpy as np
+        >>> p_low_cqr = np.array([10.0])
+        >>> p_high_cqr = np.array([30.0])
+        >>> p_low_base = np.array([10.0])
+        >>> p_high_base = np.array([30.0])
+        >>> p50_base = np.array([12.0])
+        >>> p_high_ = 0.95
+        >>> logit_level = 2.9444389791664403
         >>> a1, a2, a3 = ConformalNewsvendor._compute_3term_coefficients(
-        ...     p_low_cqr=np.array([10.0]), p_high_cqr=np.array([30.0]),
-        ...     p_low_base=np.array([10.0]), p_high_base=np.array([30.0]),
-        ...     p50_base=np.array([12.0]), p_high_=0.95, logit_level=2.9444
+        ...     p_low_cqr, p_high_cqr, p_low_base, p_high_base, p50_base, p_high_, logit_level
         ... )
-        >>> # a1 = array([14.0]), a2 = array([3.3962]), a3 = array([9.0567])
+        >>> a1, np.round(a2, 4), np.round(a3, 4)
+        (array([12.]), array([3.3962]), array([4.5282]))
         """
-        base_spread = np.maximum(p_high_base - p_low_base, 1e-6)
-        skew_ratio = np.clip((p50_base - p_low_base) / base_spread, 0.01, 0.99)
-        p50_adj = p_low_cqr + skew_ratio * (p_high_cqr - p_low_cqr)
+        base_spread = np.maximum(
+            p_high_base.astype(np.float64) - p_low_base.astype(np.float64), 1e-6
+        )
+        skew_ratio = np.clip(
+            (p50_base.astype(np.float64) - p_low_base.astype(np.float64)) / base_spread,
+            0.01,
+            0.99,
+        )
 
-        a1 = p50_adj
-        a2 = (p_high_cqr - p_low_cqr) / (2.0 * logit_level)
+        cqr_spread = np.maximum(
+            p_high_cqr.astype(np.float64) - p_low_cqr.astype(np.float64), 1e-6
+        )
+        p50_adj = p_low_cqr.astype(np.float64) + skew_ratio * cqr_spread
+
+        a1_raw = p50_adj
+        a2 = cqr_spread / (2.0 * logit_level)
 
         a3_denom = (p_high_ - 0.5) * logit_level
-        a3 = (p_high_cqr + p_low_cqr - 2.0 * p50_adj) / a3_denom
+        a3_raw = (
+            p_high_cqr.astype(np.float64) + p_low_cqr.astype(np.float64) - 2.0 * p50_adj
+        ) / a3_denom
+
+        # Keelin (2016) monotonicity check (|a3/a2| <= 1.6671)
+        a3_ratio = np.abs(a3_raw) / np.maximum(a2, 1e-8)
+        invalid_mask = a3_ratio > 1.6671
+
+        a1_midpoint = 0.5 * (
+            p_low_cqr.astype(np.float64) + p_high_cqr.astype(np.float64)
+        )
+
+        a1 = np.where(invalid_mask, a1_midpoint, a1_raw)
+        a3 = np.where(invalid_mask, 0.0, a3_raw)
 
         return a1, a2, a3
 
@@ -318,6 +359,7 @@ class ConformalNewsvendor:
         cu_col: str = "cu",
         co_col: str = "co",
         median_col: Optional[str] = None,
+        base_interval_pair: Optional[Tuple[str, str]] = None,
         level: float = 90.0,
         suffix: str = "",
     ) -> pd.DataFrame:
@@ -409,9 +451,20 @@ class ConformalNewsvendor:
         if median_col is not None:
             if median_col not in df_out.columns:
                 raise KeyError(f"Median column '{median_col}' not found in DataFrame.")
-            p_low_base = p_low_cqr
-            p_high_base = p_high_cqr
+
             p50_base = df_out[median_col].to_numpy(dtype=float)
+
+            if base_interval_pair is not None:
+                b_low, b_high = base_interval_pair
+                if b_low not in df_out.columns or b_high not in df.columns:
+                    raise KeyError(
+                        f"Base interval pair columns ('{b_low}', '{b_high}') not found in DataFrame."
+                    )
+                p_low_base = df_out[b_low].to_numpy(dtype=float)
+                p_high_base = df_out[b_high].to_numpy(dtype=float)
+            else:
+                p_low_base = p_low_cqr
+                p_high_base = p_high_cqr
         else:
             p_low_base = p_high_base = p50_base = None
 
