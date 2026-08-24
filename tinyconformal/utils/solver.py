@@ -72,7 +72,7 @@ def _enforce_monotonicity(
         np.maximum(q_lo, q_hi, out=q_hi)
 
 
-def _interpolate_linear_fast(
+def _interpolate_linear(
     q_star: np.ndarray,
     q_lo: np.ndarray,
     q_hi: np.ndarray,
@@ -255,7 +255,7 @@ class NewsvendorSolver:
 
         _enforce_monotonicity(q_lo=q_lo, q_hi=q_hi, q_med=q_med)
 
-        y_final = _interpolate_linear_fast(
+        y_final = _interpolate_linear(
             q_star=q_star,
             q_lo=q_lo,
             q_hi=q_hi,
