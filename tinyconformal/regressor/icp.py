@@ -108,6 +108,16 @@ class ConformalizedRegressor(RegressorMixin, BaseEstimator, BaseConformalRegress
 
         return self
 
+    def predict(self, X_test, alpha=None):
+        """
+        Generate prediction intervals for the given model and calibration data.
+        """
+
+        alpha = self._get_alpha(alpha)
+        y_pred = self.predict_interval(X_test, alpha)
+
+        return np.sum(y_pred, axis=1) / 2
+
     def predict_interval(self, X_test, alpha=None):
         """
         Generate prediction intervals for the given model and calibration data.

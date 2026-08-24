@@ -75,6 +75,14 @@ class BaseConformalRegressor(ABC):
         """
         pass
 
+    @abstractmethod
+    def predict(self, X):
+        """
+        Abstract method to retrieve point predictions (y_pred)
+        specific to the conformal strategy (ICP vs CQR).
+        """
+        pass
+
     def _compute_qhat(self, ncscore, q_level):
         """
         Compute the q-hat value based on the nonconformity scores and the quantile level.
@@ -176,15 +184,18 @@ class BaseConformalRegressor(ABC):
         # Return the mean Winkler interval score
         return np.mean(width + penalty_lower + penalty_upper)
 
-    def predict(self, X_test, alpha=None):
+    def _get_point_predictions(self, X, alpha=None):
         """
-        Generate prediction intervals for the given model and calibration data.
+        Internal helper for `evaluate()` to fetch point predictions safely.
         """
-
         alpha = self._get_alpha(alpha)
-        y_pred = self.predict_interval(X_test, alpha)
-
-        return np.sum(y_pred, axis=1) / 2
+        try:
+            return self.predict(X, alpha)
+        except Exception as e:
+            raise ValueError(
+                "The base learner must be fitted with the median (0.50 quantile) "
+                "to evaluate point-based metrics (MAE, MSE, MBE)."
+            ) from e
 
     def evaluate(self, X, y, alpha=None):
         """
@@ -210,26 +221,26 @@ class BaseConformalRegressor(ABC):
         """
 
         alpha = self._get_alpha(alpha)
-        y_pred = self.predict(X, alpha)
-        y_pred_intervals = self.predict_interval(X, alpha)
 
-        # Helper function for rounding
+        y_pred_intervals = self.predict_interval(X, alpha)
+        bounds = np.column_stack([y_pred_intervals[:, 0], y_pred_intervals[:, -1]])
+        y_pred = self._get_point_predictions(X, alpha)
+
         def rounded(value):
             return np.round(value, 3)
 
-        # Metrics calculation
         total = len(X)
-        coverage_rate = rounded(self._coverage_rate(y, y_pred_intervals))
-        interval_width_mean = rounded(self._interval_width_mean(y_pred_intervals))
-        mwi_score = rounded(self._mwi_score(y, y_pred_intervals, alpha))
+        coverage_rate = rounded(self._coverage_rate(y, bounds))
+        interval_width_mean = rounded(self._interval_width_mean(bounds))
+        mwi_score = rounded(self._mwi_score(y, bounds, alpha))
         mae = rounded(mean_absolute_error(y, y_pred))
         mbe = rounded(np.mean(y_pred - y))
         mse = rounded(np.mean((y_pred - y) ** 2))
 
-        results = {
+        return {
             "total": total,
             "alpha": alpha,
-            "beta": self.beta,
+            "beta": getattr(self, "beta", None),
             "coverage_rate": coverage_rate,
             "interval_width_mean": interval_width_mean,
             "mwis": mwi_score,
@@ -237,5 +248,3 @@ class BaseConformalRegressor(ABC):
             "mbe": mbe,
             "mse": mse,
         }
-
-        return results
