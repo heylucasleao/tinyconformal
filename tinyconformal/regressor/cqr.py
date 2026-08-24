@@ -80,6 +80,24 @@ class ConformalizedQuantileRegressor(
 
         return self
 
+    def _predict_quantiles(self, X, quantiles, oob_score=False):
+        """
+        Routes prediction calls directly to the learner interface.
+        """
+        if hasattr(self.learner, "predict"):
+            if oob_score:
+                return self.learner.predict(X, quantiles=quantiles, oob_score=True)
+            return self.learner.predict(X, quantiles=quantiles)
+
+        preds = self.learner.predict(X)
+        if isinstance(preds, np.ndarray) and preds.ndim == 2:
+            return preds
+
+        raise TypeError(
+            f"Learner of type '{type(self.learner).__name__}' cannot be parsed. "
+            "Ensure it supports `.predict(X, quantiles=[...])` or wrap it with `MultiQuantileRegressor`."
+        )
+
     def fit(self, X, y, oob=False):
         """
         Fit the conformalized regressor by calculating nonconformity scores.
@@ -103,38 +121,107 @@ class ConformalizedQuantileRegressor(
                 "Both training data (X) and true labels (y) must be provided."
             )
 
+        q_low = self.alpha / 2.0
+        q_high = 1.0 - (self.alpha / 2.0)
+
         if oob:
             if not hasattr(self.learner, "oob_prediction_"):
                 raise ValueError(
                     "OOB predictions are not available for the provided learner."
                 )
 
-            # Use out-of-bag predictions if available
-            self.decision_function_ = self.learner.predict(
-                X, quantiles=[self.alpha / 2, 1 - self.alpha / 2], oob_score=True
+            self.decision_function_ = self._predict_quantiles(
+                X, quantiles=[q_low, q_high], oob_score=True
             )
         else:
-            self.decision_function_ = self.learner.predict(
-                X, quantiles=[self.alpha / 2, 1 - self.alpha / 2]
+            self.decision_function_ = self._predict_quantiles(
+                X, quantiles=[q_low, q_high]
             )
 
         self.n = len(self.decision_function_)
         self.ncscore = np.maximum(
-            self.decision_function_[:, 0] - y, y - self.decision_function_[:, 1]
+            self.decision_function_[:, 0] - y, y - self.decision_function_[:, -1]
         )
 
         return self
 
-    def predict_interval(self, X_test, alpha=None):
+    def predict(
+        self,
+        X_test,
+        alpha=None,
+    ):
         """
-        Generate prediction intervals for the given model and calibration data.
-        """
+        Generates skewness-adjusted median predictions (P50) for input samples.
 
+        This method retrieves the conformalized prediction interval alongside the
+        calibrated median, which incorporates the relative position (skew ratio)
+        of the base model's uncalibrated P50.
+
+        Parameters
+        ----------
+        X_test : array-like of shape (n_samples, n_features)
+            Test feature matrix.
+
+        Returns
+        -------
+        p50_adj : ndarray of shape (n_samples,)
+            1D array containing the adjusted median predictions.
+
+        Raises
+        ------
+        ValueError
+            If the base learner was not fitted with or cannot predict the 0.50 quantile.
+        """
+        alpha = self._get_alpha(alpha)
+        intervals = self.predict_interval(X_test, alpha, return_p50=True)
+
+        return intervals[:, 1]
+
+    def predict_interval(self, X_test, alpha=None, return_p50=False):
+        """
+        Generates conformalized prediction intervals and optional skewness-adjusted P50 estimates.
+
+        Parameters
+        ----------
+        X_test : array-like of shape (n_samples, n_features)
+            Test feature matrix.
+        alpha : float or None, default=None
+            Significance level override.
+        return_p50 : bool, default=False
+            If True and the base learner provides 3 quantiles, returns a (n_samples, 3) matrix:
+            [lower_bound, p50_adjusted, upper_bound].
+            If False or if the base learner only returns 2 quantiles, returns (n_samples, 2):
+            [lower_bound, upper_bound].
+
+        Returns
+        -------
+        intervals : ndarray of shape (n_samples, 2) or (n_samples, 3)
+            Conformalized bounds and optional adjusted median.
+        """
         alpha = self._get_alpha(alpha)
         qhat = self.generate_conformal_quantile(alpha)
-        y_pred = self.learner.predict(X_test)
 
-        lower_bound = y_pred[:, 0] - qhat
-        upper_bound = y_pred[:, 1] + qhat
+        q_low = alpha / 2.0
+        q_high = 1.0 - (alpha / 2.0)
 
-        return np.array([lower_bound, upper_bound]).T
+        req_quantiles = [q_low, 0.5, q_high] if return_p50 else [q_low, q_high]
+        y_pred = self._predict_quantiles(X_test, quantiles=req_quantiles)
+
+        q_low_base = y_pred[:, 0]
+        q_high_base = y_pred[:, -1]
+
+        lower_bound = q_low_base - qhat
+        upper_bound = q_high_base + qhat
+
+        if not return_p50:
+            return np.column_stack([lower_bound, upper_bound])
+
+        p50_base = y_pred[:, 1]
+
+        base_spread = np.maximum(q_high_base - q_low_base, 1e-6)
+        skew_ratio = np.clip((p50_base - q_low_base) / base_spread, 0.01, 0.99)
+
+        cqr_spread = np.maximum(upper_bound - lower_bound, 1e-6)
+        p50_adj = lower_bound + skew_ratio * cqr_spread
+
+        return np.column_stack([lower_bound, p50_adj, upper_bound])

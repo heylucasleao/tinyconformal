@@ -8,7 +8,6 @@ It provides tools to build valid prediction sets and prediction intervals with a
 For more information on a previous project related to Out-of-Bag (OOB) solutions, visit [this link](https://github.com/HeyLucasLeao/cp-study).
 
 ## Recent updates
-- Added support for decision optimization under uncertainty with `ConformalNewsvendor` using continuous 2-term and 3-term Metalog distributions fitted over conformal prediction intervals.
 - Added support for exactness-bound-based calibration through `ExactnessBound` for ICP and CQR workflows.
 - Added `unlabeled_fit` support for conformal classifiers and regressors, enabling calibration without labeled calibration data when an exactness bound is available.
 - Classifiers can now be calibrated from unlabeled data using pseudo-labels derived from model predictions, while regressors can use a pre-estimated exactness bound to build the conformity scores.
@@ -258,30 +257,6 @@ Window 1:       [=== Initial Train ===]  [--- H=4 (t5 to t8) ---]
                |                      |                          v
 Window 2:       [============ Expanded Train ============] [--- H=4 (t11 to t14) --]
 ```
-
-### Prescriptive Analytics: Conformal Newsvendor Optimization
-To turn calibrated prediction intervals into decision policy, ConformalNewsvendor fits continuous Metalog distributions over discrete conformal bounds. It calculates the Critical Service Level ($p^* = \frac{c_u}{c_u + c_o}$) based on shortage ($c_u$) and excess ($c_o$) costs and evaluates the continuous Metalog quantile function to get optimal order quantities $y^*$:
-```python
-import pandas as pd
-from tinyconformal.series import ConformalNewsvendor
-
-# Forecast outputs containing costs and 90% conformal intervals
-df_forecasts = pd.DataFrame({
-    "cu": [12.0, 15.0],        # Cost of underage (shortage)
-    "co": [3.0, 5.0],          # Cost of overage (excess)
-    "LGBM-lo-90": [100.0, 210.0],
-    "LGBM-hi-90": [160.0, 290.0],
-    "LGBM-median": [125.0, 245.0],
-})
-
-# Optimize order quantity using 3-term asymmetric Metalog reconstruction
-df_decisions = ConformalNewsvendor.optimize_order_quantity(
-    df=df_forecasts,
-    interval_pair=("LGBM-lo-90", "LGBM-hi-90"),
-    median_col="LGBM-median",
-    level=90.0,
-    suffix="_lgbm",
-)
 
 # Returns df_decisions with 'p_star' and optimal order quantity 'y_optimal_lgbm'
 ```
