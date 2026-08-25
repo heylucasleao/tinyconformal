@@ -101,89 +101,122 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         """
         return y_hat - y_true
 
+    def _prepare_and_validate_steps(
+        self, df: pd.DataFrame, step_size: Optional[int]
+    ) -> Tuple[np.ndarray, int, int]:
+        """Prepares time steps, validates time series length, and returns initial metrics."""
+        df = df.sort_values(by=[self.id_col, self.time_col])
+        time_steps = np.sort(df[self.time_col].unique())
+        total_steps = len(time_steps)
+        n_series = df[self.id_col].nunique()
+
+        val_end_idx = total_steps - ((self.n_windows - 1) * step_size)
+        val_start_idx = val_end_idx - self.horizon
+
+        if val_start_idx <= 0:
+            raise ValueError(
+                f"Time series length is too short for the specified n_windows ({self.n_windows}) "
+                f"and horizon ({self.horizon})."
+            )
+
+        return time_steps, total_steps, n_series
+
+    def _split_train_val_window(
+        self,
+        df: pd.DataFrame,
+        time_steps: np.ndarray,
+        total_steps: int,
+        w: int,
+        step_size: int,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """Calculates cutoffs and splits the dataset for a specific backtesting window."""
+        val_end_idx = total_steps - (w * step_size)
+        val_start_idx = val_end_idx - self.horizon
+
+        train_cutoff = time_steps[val_start_idx - 1]
+        val_cutoff = time_steps[val_end_idx - 1]
+
+        train_df = df[df[self.time_col] <= train_cutoff].copy()
+        val_df = df[
+            (df[self.time_col] > train_cutoff) & (df[self.time_col] <= val_cutoff)
+        ].copy()
+
+        return train_df, val_df
+
+    def _fit_predict_window(
+        self,
+        train_df: pd.DataFrame,
+        val_df: pd.DataFrame,
+        static_features: Optional[list] = None,
+    ) -> pd.DataFrame:
+        """Fits a temporary model and predicts the validation horizon."""
+        temp_model = copy.deepcopy(self.learner)
+
+        self._invoke(
+            temp_model.fit,
+            df=train_df,
+            id_col=self.id_col,
+            time_col=self.time_col,
+            target_col=self.target_col,
+            static_features=static_features,
+        )
+
+        predict_cols = [self.id_col, self.time_col] + self.exog_cols_
+        X_val = val_df[predict_cols] if self.exog_cols_ else None
+
+        fcst = self._invoke(
+            temp_model.predict,
+            h=self.horizon,
+            X_df=X_val,
+        )
+
+        return fcst
+
+    def _compute_window_residuals(
+        self,
+        fcst: pd.DataFrame,
+        val_df: pd.DataFrame,
+        n_series: int,
+        residuals_by_model: Dict[str, list],
+    ) -> None:
+        """Computes residuals for the predictions and appends them to the tracking dictionary."""
+        model_cols = self._infer_model_cols(fcst)
+        y_true = self._extract_target(val_df)
+
+        for model in model_cols:
+            y_hat = fcst[model].to_numpy().reshape(n_series, self.horizon)
+            r = self._generate_residuals(y_hat, y_true)
+
+            if model not in residuals_by_model:
+                residuals_by_model[model] = []
+            residuals_by_model[model].append(r)
+
     def _sequential_backtesting(
         self,
         df: pd.DataFrame,
-        step_size: int = None,
-        static_features: list = None,
-    ) -> list:
+        step_size: Optional[int] = None,
+        static_features: Optional[list] = None,
+    ) -> dict:
         """
         Executes sequential rolling-window backtesting across calibration windows.
-
-        Parameters:
-        ----------
-        df : pd.DataFrame
-            The calibration DataFrame containing time series values.
-        step_size : int, optional
-            Step size for window shift. Defaults to self.horizon if None.
-        static_features : list, optional
-            List of static feature column names.
-
-        Returns:
-        -------
-        dict
-            Dictionary containing list of 2D residual matrices per model extracted
-            from backtesting windows.
         """
-        residuals_by_model: Dict[List] = {}
-
         if step_size is None:
             step_size = self.horizon
 
-        df = df.sort_values(by=[self.id_col, self.time_col]).reset_index(drop=True)
+        time_steps, total_steps, n_series = self._prepare_and_validate_steps(
+            df, step_size
+        )
 
-        unique_times = np.sort(df[self.time_col].unique())
-        total_times = len(unique_times)
+        residuals_by_model: Dict[str, list] = {}
 
         for w in reversed(range(self.n_windows)):
-            val_end_idx = total_times - (w * step_size)
-            val_start_idx = val_end_idx - self.horizon
-
-            if val_start_idx <= 0:
-                raise ValueError(
-                    f"Time series length is too short for the specified n_windows ({self.n_windows}) "
-                    f"and horizon ({self.horizon})."
-                )
-
-            train_cutoff = unique_times[val_start_idx - 1]
-            val_cutoff = unique_times[val_end_idx - 1]
-
-            train_df = df[df[self.time_col] <= train_cutoff].copy()
-            val_df = df[
-                (df[self.time_col] > train_cutoff) & (df[self.time_col] <= val_cutoff)
-            ].copy()
-
-            temp_model = copy.deepcopy(self.learner)
-
-            self._invoke(
-                temp_model.fit,
-                df=train_df,
-                id_col=self.id_col,
-                time_col=self.time_col,
-                target_col=self.target_col,
-                static_features=static_features,
+            train_df, val_df = self._split_train_val_window(
+                df, time_steps, total_steps, w, step_size
             )
 
-            predict_cols = [self.id_col, self.time_col] + self.exog_cols_
-            X_val = val_df[predict_cols] if self.exog_cols_ else None
+            fcst = self._fit_predict_window(train_df, val_df, static_features)
 
-            fcst = self._invoke(
-                temp_model.predict,
-                h=self.horizon,
-                X_df=X_val,
-            )
-
-            model_cols = self._infer_model_cols(fcst)
-            y_true = self._extract_target(val_df)
-            n_series = fcst[self.id_col].nunique()
-
-            for model in model_cols:
-                y_hat = fcst[model].to_numpy().reshape(n_series, self.horizon)
-                r = self._generate_residuals(y_hat, y_true)
-
-                if model not in residuals_by_model:
-                    residuals_by_model[model] = []
-                residuals_by_model[model].append(r)
+            self._compute_window_residuals(fcst, val_df, n_series, residuals_by_model)
 
         return residuals_by_model
 

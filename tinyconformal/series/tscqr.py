@@ -257,16 +257,10 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         """Computes CQR Nonconformity Scores: E_{i,t} = max(q_low - y, y - q_high)"""
         return np.maximum(q_low - y_true, y_true - q_high)
 
-    def _sequential_backtesting(
-        self,
-        df: pd.DataFrame,
-        step_size: Optional[int] = None,
-        static_features: Optional[list] = None,
-    ) -> dict:
-        """Executes sequential backtesting across n_windows to extract CQR nonconformity scores."""
-        step_size = step_size or self.horizon
-
-        df = df.sort_values(by=[self.id_col, self.time_col]).reset_index(drop=True)
+    def _prepare_and_validate_steps(
+        self, df: pd.DataFrame, step_size: int
+    ) -> Tuple[np.ndarray, int, int]:
+        """Validates if the time series has enough steps for the requested backtesting windows."""
         unique_ids = df[self.id_col].unique()
         n_series = len(unique_ids)
 
@@ -281,65 +275,117 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
                 f"requires at least {required_steps + 1} steps."
             )
 
+        return time_steps, total_steps, n_series
+
+    def _split_train_val_window(
+        self,
+        df: pd.DataFrame,
+        time_steps: np.ndarray,
+        total_steps: int,
+        w: int,
+        step_size: int,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """Slices the dataframe into training and validation sets for a specific window index."""
+        val_end_idx = total_steps - w * step_size
+        val_start_idx = val_end_idx - self.horizon
+
+        cutoff_time = time_steps[val_start_idx - 1]
+        val_times = time_steps[val_start_idx:val_end_idx]
+
+        train_mask = df[self.time_col] <= cutoff_time
+        val_mask = df[self.time_col].isin(val_times)
+
+        train_df = df[train_mask].reset_index(drop=True)
+        val_df = (
+            df[val_mask]
+            .sort_values(by=[self.id_col, self.time_col])
+            .reset_index(drop=True)
+        )
+
+        return train_df, val_df
+
+    def _fit_predict_window(
+        self,
+        train_df: pd.DataFrame,
+        val_df: pd.DataFrame,
+        static_features: Optional[list],
+    ) -> pd.DataFrame:
+        """Clones the learner, fits it on the training window, and predicts the validation window."""
+        learner_clone = self._invoke(
+            self.learner.fit,
+            df=train_df,
+            id_col=self.id_col,
+            time_col=self.time_col,
+            target_col=self.target_col,
+            static_features=static_features,
+        )
+
+        predict_cols = [self.id_col, self.time_col] + self.exog_cols_
+        X_val = val_df[predict_cols] if self.exog_cols_ else None
+
+        fcst = (
+            self._invoke(
+                learner_clone.predict,
+                h=self.horizon,
+                X_df=X_val,
+            )
+            .sort_values(by=[self.id_col, self.time_col])
+            .reset_index(drop=True)
+        )
+
+        return fcst
+
+    def _compute_window_residuals(
+        self,
+        fcst: pd.DataFrame,
+        val_df: pd.DataFrame,
+        n_series: int,
+        residuals_by_model: dict,
+    ) -> None:
+        """Calculates nonconformity scores for the predictions and updates the residuals dictionary."""
+        y_true = val_df[self.target_col].to_numpy().reshape(n_series, self.horizon)
+
+        for low_col, high_col in self.interval_pairs_:
+            if low_col not in fcst.columns or high_col not in fcst.columns:
+                raise KeyError(
+                    f"Columns {(low_col, high_col)} were not found in forecast output. "
+                    f"Available columns: {list(fcst.columns)}"
+                )
+
+            q_low = fcst[low_col].to_numpy().reshape(n_series, self.horizon)
+            q_high = fcst[high_col].to_numpy().reshape(n_series, self.horizon)
+
+            pair_key = f"{low_col}:{high_col}"
+            r = self._generate_residuals(q_low, q_high, y_true)
+
+            if pair_key not in residuals_by_model:
+                residuals_by_model[pair_key] = []
+            residuals_by_model[pair_key].append(r)
+
+    def _sequential_backtesting(
+        self,
+        df: pd.DataFrame,
+        step_size: Optional[int] = None,
+        static_features: Optional[list] = None,
+    ) -> dict:
+        """Executes sequential backtesting across n_windows to extract CQR nonconformity scores."""
+        step_size = step_size or self.horizon
+
+        df = df.sort_values(by=[self.id_col, self.time_col]).reset_index(drop=True)
+        time_steps, total_steps, n_series = self._prepare_and_validate_steps(
+            df, step_size
+        )
+
         residuals_by_model = {}
 
-        for w in range(self.n_windows):
-            val_end_idx = total_steps - w * step_size
-            val_start_idx = val_end_idx - self.horizon
-
-            cutoff_time = time_steps[val_start_idx - 1]
-            val_times = time_steps[val_start_idx:val_end_idx]
-
-            train_mask = df[self.time_col] <= cutoff_time
-            val_mask = df[self.time_col].isin(val_times)
-
-            train_df = df[train_mask].reset_index(drop=True)
-            val_df = (
-                df[val_mask]
-                .sort_values(by=[self.id_col, self.time_col])
-                .reset_index(drop=True)
+        for w in reversed(range(self.n_windows)):
+            train_df, val_df = self._split_train_val_window(
+                df, time_steps, total_steps, w, step_size
             )
 
-            learner_clone = self._invoke(
-                self.learner.fit,
-                df=train_df,
-                id_col=self.id_col,
-                time_col=self.time_col,
-                target_col=self.target_col,
-                static_features=static_features,
-            )
+            fcst = self._fit_predict_window(train_df, val_df, static_features)
 
-            predict_cols = [self.id_col, self.time_col] + self.exog_cols_
-            X_val = val_df[predict_cols] if self.exog_cols_ else None
-
-            fcst = (
-                self._invoke(
-                    learner_clone.predict,
-                    h=self.horizon,
-                    X_df=X_val,
-                )
-                .sort_values(by=[self.id_col, self.time_col])
-                .reset_index(drop=True)
-            )
-
-            y_true = val_df[self.target_col].to_numpy().reshape(n_series, self.horizon)
-
-            for low_col, high_col in self.interval_pairs_:
-                if low_col not in fcst.columns or high_col not in fcst.columns:
-                    raise KeyError(
-                        f"Columns {(low_col, high_col)} were not found in forecast output. "
-                        f"Available columns: {list(fcst.columns)}"
-                    )
-
-                q_low = fcst[low_col].to_numpy().reshape(n_series, self.horizon)
-                q_high = fcst[high_col].to_numpy().reshape(n_series, self.horizon)
-
-                pair_key = f"{low_col}:{high_col}"
-                r = self._generate_residuals(q_low, q_high, y_true)
-
-                if pair_key not in residuals_by_model:
-                    residuals_by_model[pair_key] = []
-                residuals_by_model[pair_key].append(r)
+            self._compute_window_residuals(fcst, val_df, n_series, residuals_by_model)
 
         return residuals_by_model
 
