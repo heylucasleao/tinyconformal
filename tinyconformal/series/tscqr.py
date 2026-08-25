@@ -378,7 +378,7 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
 
         residuals_by_model = {}
 
-        for w in range(self.n_windows):
+        for w in reversed(range(self.n_windows)):
             train_df, val_df = self._split_train_val_window(
                 df, time_steps, total_steps, w, step_size
             )
