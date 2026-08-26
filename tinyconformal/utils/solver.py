@@ -1,3 +1,7 @@
+# Copyright (c) 2024-2026 Lucas Leão
+# TinyConformal - A small toolbox for conformal prediction
+# Licensed under the MIT License
+
 from typing import Any, Dict, Tuple, Union
 import numpy as np
 import pandas as pd
@@ -155,8 +159,8 @@ class NewsvendorSolver:
     def optimize(
         df: pd.DataFrame,
         interval_pair: Tuple[str, str],
-        cu: Union[str, float, Dict[Union[str, Tuple[str, Any]], float]],
-        co: Union[str, float, Dict[Union[str, Tuple[str, Any]], float]],
+        cost_understock: Union[str, float, Dict[Union[str, Tuple[str, Any]], float]],
+        cost_overstock: Union[str, float, Dict[Union[str, Tuple[str, Any]], float]],
         level: int = 90,
         median_col: str | None = None,
         id_col: str = "unique_id",
@@ -174,11 +178,11 @@ class NewsvendorSolver:
             df (pd.DataFrame): Input DataFrame containing probabilistic forecasts.
             interval_pair (Tuple[str, str]): Column name tuple `(lower_col, upper_col)`
                 representing the prediction interval bounds (e.g., `("lo-90", "hi-90")`).
-            cu (Union[str, float, Dict]): Underage/shortage cost (c_u). Can be:
+            cost_understock (Union[str, float, Dict]): Underage/shortage cost (c_u). Can be:
                 - Scalar (`float`/`int`): Constant cost across the entire panel.
                 - `str`: Column name in `df` containing variable costs per row.
                 - `dict`: Cost mapping by ID `{id: cost}` or tuple `{(id, ds): cost}`.
-            co (Union[str, float, Dict]): Overage/holding cost (c_o). Accepts the
+            cost_overstock (Union[str, float, Dict]): Overage/holding cost (c_o). Accepts the
                 same input formats as `cu`.
             level (int, optional): Prediction interval level as a percentage (e.g., 90 for 90%).
                 Determines cumulative probabilities p_lo = (100 - level) / 200 and
@@ -241,8 +245,8 @@ class NewsvendorSolver:
         p_lo = (100.0 - level) / 200.0
         p_hi = 1.0 - p_lo
 
-        cu_arr = _extract_cost_array(df_res, cu, id_col, time_col, n_rows)
-        co_arr = _extract_cost_array(df_res, co, id_col, time_col, n_rows)
+        cu_arr = _extract_cost_array(df_res, cost_understock, id_col, time_col, n_rows)
+        co_arr = _extract_cost_array(df_res, cost_overstock, id_col, time_col, n_rows)
         q_star = _compute_critical_quantile(cu=cu_arr, co=co_arr)
 
         q_lo = df_res[lo_col].to_numpy(dtype=float, copy=False)
