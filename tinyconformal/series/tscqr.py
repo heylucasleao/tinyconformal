@@ -8,6 +8,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 from .base import BaseConformalTimeSeriesRegressor
 import re
+from joblib import Parallel, delayed
 
 
 class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
@@ -367,6 +368,7 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         df: pd.DataFrame,
         step_size: Optional[int] = None,
         static_features: Optional[list] = None,
+        n_jobs: int = -1,
     ) -> dict:
         """Executes sequential backtesting across n_windows to extract CQR nonconformity scores."""
         step_size = step_size or self.horizon
@@ -376,15 +378,22 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
             df, step_size
         )
 
-        residuals_by_model = {}
-
-        for w in reversed(range(self.n_windows)):
+        def process_window(w):
             train_df, val_df = self._split_train_val_window(
                 df, time_steps, total_steps, w, step_size
             )
 
             fcst = self._fit_predict_window(train_df, val_df, static_features)
+            return fcst, val_df
 
+        residuals_by_model = {}
+
+        results = Parallel(n_jobs=n_jobs)(
+            delayed(process_window)(w) for w in reversed(range(self.n_windows))
+        )
+
+        residuals_by_model = {}
+        for fcst, val_df in results:
             self._compute_window_residuals(fcst, val_df, n_series, residuals_by_model)
 
         return residuals_by_model
