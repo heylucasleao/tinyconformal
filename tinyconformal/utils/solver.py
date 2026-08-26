@@ -183,7 +183,7 @@ class NewsvendorSolver:
                 - `str`: Column name in `df` containing variable costs per row.
                 - `dict`: Cost mapping by ID `{id: cost}` or tuple `{(id, ds): cost}`.
             cost_overstock (Union[str, float, Dict]): Overage/holding cost (c_o). Accepts the
-                same input formats as `cu`.
+                same input formats as `cost_understock`.
             level (int, optional): Prediction interval level as a percentage (e.g., 90 for 90%).
                 Determines cumulative probabilities p_lo = (100 - level) / 200 and
                 p_hi = 1 - p_lo. Defaults to 90.
@@ -203,7 +203,7 @@ class NewsvendorSolver:
 
         Raises:
             ValueError: If `level` is not strictly between `(0, 100)` or if cost dictionaries are empty.
-            TypeError: If the cost input type for `cu` or `co` is unsupported.
+            TypeError: If the cost input type for `cost_understock` or `cost_overstock` is unsupported.
 
         Intentional Clips and Truncations:
             1. **Physical Non-negativity (`q_lo >= 0`, `q_hi >= 0`, `q_med >= 0`):**
@@ -219,8 +219,8 @@ class NewsvendorSolver:
                bounded within the prediction interval bounds.
 
         Attention Points:
-            - **Zero-Division Safety:** If `cu + co == 0` for any row, the critical quantile
-              defaults to `0.5` (median) to prevent zero-division runtime errors.
+            - **Zero-Division Safety:** If `cost_understock + cost_overstock == 0` for any row, the critical
+              quantile defaults to `0.5` (median) to prevent zero-division runtime errors.
             - **Piecewise Linear Stability:** Uses fully vectorized linear interpolation with
               branch masking, preventing memory bloat and eliminating wild polynomial tail behavior.
             - **Out-of-Bounds Quantiles (`q_star` outside `[p_lo, p_hi]`):** Critical quantiles
