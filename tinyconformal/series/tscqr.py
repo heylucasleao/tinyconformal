@@ -8,7 +8,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 from .base import BaseConformalTimeSeriesRegressor
 import re
-from joblib import Parallel, delayed
+from tinyconformal.utils.imports import requires_extra
 
 
 class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
@@ -387,6 +387,7 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
 
         return lower_bound, upper_bound
 
+    @requires_extra("series")
     def predict_interval(
         self,
         h: Optional[int] = None,

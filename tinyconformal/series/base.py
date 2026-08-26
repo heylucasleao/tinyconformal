@@ -301,17 +301,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         pivoted = pivoted.sort_index(axis=0).sort_index(axis=1)
         return pivoted.values
 
-    def _extract_target(self, target_df: pd.DataFrame) -> np.ndarray:
-        """
-        Pivots ground-truth DataFrames into a 2D NumPy array (n_series, horizon).
-        Ensures strict row and column alignment sorting matching predictions.
-        """
-        pivoted = target_df.pivot(
-            index=self.id_col, columns=self.time_col, values=self.target_col
-        )
-        pivoted = pivoted.sort_index(axis=0).sort_index(axis=1)
-        return pivoted.values
-
     def _validate_columns(self, df: pd.DataFrame):
         """
         Validates presence of required structural columns in input DataFrames.
@@ -322,13 +311,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             raise ValueError(
                 f"The following required columns are missing from the DataFrame: {missing}"
             )
-
-    def _generate_residuals(self, y_hat: np.ndarray, y_true: np.ndarray) -> np.ndarray:
-        """
-        Computes nonconformity scores (signed residuals) via conformal distribution:
-            residual = y_hat - y_true
-        """
-        return y_hat - y_true
 
     def _sequential_backtesting(
         self,
@@ -432,15 +414,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
 
         return self
 
-    def _sample_correction(self, alpha: float):
-        """
-        Computes finite-sample quantile adjustment for exact coverage bounds.
-        """
-        n = self.n
-        low_q = max(0.0, alpha / 2.0 - 1.0 / (2.0 * n))
-        high_q = min(1.0, 1.0 - alpha / 2.0 + 1.0 / (2.0 * n))
-        return low_q, high_q
-
     def _predict_raw(
         self,
         h: Optional[int] = None,
@@ -458,127 +431,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         )
         return self._extract_predictions(preds_df)
 
-    def _compute_bounds(
-        self,
-        y_hat: np.ndarray,
-        model_name: str,
-        h: int,
-        n_series: int,
-        alpha: Optional[float] = None,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Computes lower and upper conformal prediction bounds over 1D prediction vectors.
-
-        Parameters:
-        ----------
-        y_hat : np.ndarray
-            Flattened array of point predictions for a single forecasting model.
-        model_name : str
-            Identifier name of the model being processed.
-        h : int
-            Forecast horizon step count.
-        n_series : int
-            Total number of distinct time series being forecast.
-        alpha : float, optional
-            Significance level for prediction intervals. If None, default alpha is used.
-
-        Returns:
-        -------
-        lower_bound : np.ndarray
-            Flattened array containing the lower conformal prediction bounds.
-        upper_bound : np.ndarray
-            Flattened array containing the upper conformal prediction bounds.
-
-        Notes:
-        ------
-        Calculation Logic and Step-by-Step Bounds Generation:
-        1. Quantile Adjustment: Given significance level alpha and calibration count n,
-           finite-sample adjusted quantiles low_q and high_q are computed as:\n
-               low_q = max(0.0, alpha / 2.0 - 1.0 / (2.0 * n))\n
-               high_q = min(1.0, 1.0 - alpha / 2.0 + 1.0 / (2.0 * n))
-
-        2. Empirical Residual Quantiles: Nonconformity scores (residuals = y_hat - y_true)
-           sliced to horizon h yield per-step empirical residual thresholds q_low_h and q_high_h
-           along axis 0.
-
-        3. Array Tiling: Since point predictions y_hat are flattened across series, threshold
-           vectors of size h are repeated n_series times using `np.tile(q_threshold, n_series)`.
-
-        4. Inversion Formula: The prediction bounds invert the nonconformity definition:\n
-               lower_bound = y_hat - q_high_tiled\n
-               upper_bound = y_hat - q_low_tiled
-        """
-        alpha = self._get_alpha(alpha)
-        low_q, high_q = self._sample_correction(alpha)
-        ncscore = self.ncscores_[model_name]
-        ncscore_sliced = ncscore[:, :h]
-        q_low_h = self._compute_qhat(ncscore_sliced, low_q, axis=0)
-        q_high_h = self._compute_qhat(ncscore_sliced, high_q, axis=0)
-
-        q_low_tiled = np.tile(q_low_h, n_series)
-        q_high_tiled = np.tile(q_high_h, n_series)
-
-        lower_bound = y_hat - q_high_tiled
-        upper_bound = y_hat - q_low_tiled
-
-        return lower_bound, upper_bound
-
-    def predict_interval(
-        self,
-        h: Optional[int] = None,
-        X_df: Optional[pd.DataFrame] = None,
-        alpha: float = None,
-    ) -> pd.DataFrame:
-        """
-        Generates prediction intervals [lower, upper] appended directly to Nixtla prediction DataFrames.
-
-        Parameters:
-        ----------
-        h : int, optional
-            Forecast horizon step count. If None, defaults to `self.horizon`.
-        X_df : pd.DataFrame, optional
-            Exogenous features DataFrame for future steps (required if exogenous columns were fitted).
-        alpha : float, optional
-            Significance level for prediction intervals. If None, defaults to `self.alpha`.
-
-        Returns:
-        -------
-        pred_df : pd.DataFrame
-            Long-format DataFrame containing point predictions along with generated lower
-            and upper bound columns named `<model>-lo-<level>` and `<model>-hi-<level>`.
-        """
-        h = self._get_horizon(h)
-
-        pred_df = (
-            self._invoke(
-                self.learner.predict,
-                h=h,
-                X_df=X_df,
-            )
-            .sort_values(by=[self.id_col, self.time_col])
-            .reset_index(drop=True)
-        )
-        model_cols = self._infer_model_cols(pred_df)
-
-        for model in model_cols:
-            y_hat = pred_df[model].to_numpy()
-            n_series = pred_df[self.id_col].nunique()
-
-            lower_bound, upper_bound = self._compute_bounds(
-                y_hat=y_hat,
-                model_name=model,
-                h=h,
-                n_series=n_series,
-                alpha=alpha,
-            )
-            eff_alpha = self._get_alpha(alpha)
-            level = int(round((1 - eff_alpha) * 100))
-
-            pred_df[f"{model}-lo-{level}"] = lower_bound
-            pred_df[f"{model}-hi-{level}"] = upper_bound
-
-        return pred_df
-
+    @requires_extra("series")
     def evaluate(
         self,
         df_test: pd.DataFrame,

@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
 from .base import BaseConformalTimeSeriesRegressor
-from typing import Optional, Tuple, List, Dict
+from typing import Optional, Tuple, Dict
 from tinyconformal.utils.imports import requires_extra
 import copy
 
@@ -84,15 +84,6 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             time_col=time_col,
             target_col=target_col,
         )
-
-    def _validate_columns(self, df: pd.DataFrame):
-        """Validates presence of required structural columns in input DataFrames."""
-        required_cols = [self.id_col, self.time_col, self.target_col]
-        missing = [col for col in required_cols if col not in df.columns]
-        if missing:
-            raise ValueError(
-                f"The following required columns are missing from the DataFrame: {missing}"
-            )
 
     def _generate_residuals(self, y_hat: np.ndarray, y_true: np.ndarray) -> np.ndarray:
         """
@@ -172,6 +163,17 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
 
         return fcst
 
+    def _extract_target(self, target_df: pd.DataFrame) -> np.ndarray:
+        """
+        Pivots ground-truth DataFrames into a 2D NumPy array (n_series, horizon).
+        Ensures strict row and column alignment sorting matching predictions.
+        """
+        pivoted = target_df.pivot(
+            index=self.id_col, columns=self.time_col, values=self.target_col
+        )
+        pivoted = pivoted.sort_index(axis=0).sort_index(axis=1)
+        return pivoted.values
+
     def _compute_window_residuals(
         self,
         fcst: pd.DataFrame,
@@ -197,23 +199,6 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         low_q = max(0.0, alpha / 2.0 - 1.0 / (2.0 * n))
         high_q = min(1.0, 1.0 - alpha / 2.0 + 1.0 / (2.0 * n))
         return low_q, high_q
-
-    def _predict_raw(
-        self,
-        h: Optional[int] = None,
-        X_df: Optional[pd.DataFrame] = None,
-    ) -> np.ndarray:
-        """
-        Generates base model point predictions from Nixtla estimator into standard ndarray.
-        """
-        h = self._get_horizon(h)
-
-        preds_df = self._invoke(
-            self.learner.predict,
-            h=h,
-            X_df=X_df,
-        )
-        return self._extract_predictions(preds_df)
 
     def _compute_bounds(
         self,
