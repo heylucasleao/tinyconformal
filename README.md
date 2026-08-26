@@ -258,8 +258,8 @@ Window 1:       [=== Initial Train ===]  [--- H=4 (t5 to t8) ---]
 Window 2:       [============ Expanded Train ============] [--- H=4 (t11 to t14) --]
 ```
 
-# Returns df_decisions with 'p_star' and optimal order quantity 'y_optimal_lgbm'
-```
+ Returns df_decisions with 'p_star' and optimal order quantity 'y_optimal_lgbm'
+
 
 ## Classes
 
