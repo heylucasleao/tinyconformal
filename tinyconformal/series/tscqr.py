@@ -363,41 +363,6 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
                 residuals_by_model[pair_key] = []
             residuals_by_model[pair_key].append(r)
 
-    def _sequential_backtesting(
-        self,
-        df: pd.DataFrame,
-        step_size: Optional[int] = None,
-        static_features: Optional[list] = None,
-        n_jobs: int = -1,
-    ) -> dict:
-        """Executes sequential backtesting across n_windows to extract CQR nonconformity scores."""
-        step_size = step_size or self.horizon
-
-        df = df.sort_values(by=[self.id_col, self.time_col]).reset_index(drop=True)
-        time_steps, total_steps, n_series = self._prepare_and_validate_steps(
-            df, step_size
-        )
-
-        def process_window(w):
-            train_df, val_df = self._split_train_val_window(
-                df, time_steps, total_steps, w, step_size
-            )
-
-            fcst = self._fit_predict_window(train_df, val_df, static_features)
-            return fcst, val_df
-
-        residuals_by_model = {}
-
-        results = Parallel(n_jobs=n_jobs)(
-            delayed(process_window)(w) for w in reversed(range(self.n_windows))
-        )
-
-        residuals_by_model = {}
-        for fcst, val_df in results:
-            self._compute_window_residuals(fcst, val_df, n_series, residuals_by_model)
-
-        return residuals_by_model
-
     def _compute_bounds(
         self,
         q_low: np.ndarray,

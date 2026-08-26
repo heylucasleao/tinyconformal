@@ -9,6 +9,8 @@ from typing import Optional, Tuple, List, Dict
 from abc import abstractmethod
 import inspect
 import re
+from joblib import Parallel, delayed
+from tinyconformal.utils.imports import requires_extra
 
 
 class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
@@ -112,6 +114,43 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         Computes nonconformity scores or residuals from predictions and true targets.
         To be implemented by subclasses.
         """
+        pass
+
+    @abstractmethod
+    def _prepare_and_validate_steps(
+        self, df: pd.DataFrame, *args, **kwargs
+    ) -> Tuple[np.ndarray, int, int]:
+        """Prepares time steps, validates time series length, and returns initial metrics."""
+        pass
+
+    @abstractmethod
+    def _split_train_val_window(
+        self,
+        df: pd.DataFrame,
+        *args,
+        **kwargs,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """Slices the dataframe into training and validation sets for a specific window index."""
+        pass
+
+    @abstractmethod
+    def _fit_predict_window(
+        self,
+        df: pd.DataFrame,
+        *args,
+        **kwargs,
+    ) -> pd.DataFrame:
+        """Clones the learner, fits it on the training window, and predicts the validation window."""
+        pass
+
+    @abstractmethod
+    def _compute_window_residuals(
+        self,
+        df: pd.DataFrame,
+        *args,
+        **kwargs,
+    ) -> None:
+        """Calculates nonconformity scores for the predictions and updates the residuals dictionary."""
         pass
 
     @abstractmethod
@@ -291,11 +330,47 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         """
         return y_hat - y_true
 
+    def _sequential_backtesting(
+        self,
+        df: pd.DataFrame,
+        step_size: Optional[int] = None,
+        static_features: Optional[list] = None,
+        n_jobs: int = -1,
+    ) -> dict:
+        """Executes sequential backtesting across n_windows to extract CQR nonconformity scores."""
+        step_size = step_size or self.horizon
+
+        time_steps, total_steps, n_series = self._prepare_and_validate_steps(
+            df, step_size
+        )
+
+        def process_window(w):
+            train_df, val_df = self._split_train_val_window(
+                df, time_steps, total_steps, w, step_size
+            )
+
+            fcst = self._fit_predict_window(train_df, val_df, static_features)
+            return fcst, val_df
+
+        residuals_by_model = {}
+
+        results = Parallel(n_jobs=n_jobs)(
+            delayed(process_window)(w) for w in reversed(range(self.n_windows))
+        )
+
+        residuals_by_model = {}
+        for fcst, val_df in results:
+            self._compute_window_residuals(fcst, val_df, n_series, residuals_by_model)
+
+        return residuals_by_model
+
+    @requires_extra("series")
     def fit(
         self,
         df: pd.DataFrame,
         step_size: int = None,
         static_features: list = None,
+        n_jobs: int = -1,
     ):
         """
         Fits the conformal regressor by extracting nonconformity scores across backtest
@@ -315,6 +390,9 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         self : ConformalDistributionTimeSeriesRegressor
             Fitted instance of the conformal regressor.
         """
+
+        df = df.sort_values(by=[self.id_col, self.time_col]).reset_index(drop=True)
+
         self._validate_columns(df)
 
         self.exog_cols_ = [
@@ -327,6 +405,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             df,
             step_size=step_size,
             static_features=static_features,
+            n_jobs=n_jobs,
         )
 
         self.ncscores_ = {
