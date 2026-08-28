@@ -165,6 +165,7 @@ class NewsvendorSolver:
         median_col: str | None = None,
         id_col: str = "unique_id",
         time_col: str = "ds",
+        ratio_col: str = "critical_ratio",
         output_col: str = "y_optimal",
         assume_sorted: bool = True,
     ) -> pd.DataFrame:
@@ -194,6 +195,8 @@ class NewsvendorSolver:
             time_col (str, optional): Timestamp/date column. Defaults to `"ds"`.
             output_col (str, optional): Name of the output column for optimized quantities
                 in the returned DataFrame. Defaults to `"y_optimal"`.
+            ratio_col : str, default="critical_ratio"
+                Column name to store the computed critical ratio/fractile values.
             assume_sorted (bool, optional): If `True`, assumes the input DataFrame is already
                 sorted by `[id_col, time_col]` (standard in Nixtla workflows), skipping
                 redundant sorting operations to maximize performance. Defaults to `True`.
@@ -268,6 +271,6 @@ class NewsvendorSolver:
             q_med=q_med,
             p_med=0.50,
         )
-
+        df_res[ratio_col] = q_star
         df_res[output_col] = np.clip(y_final, q_lo, q_hi)
         return df_res
