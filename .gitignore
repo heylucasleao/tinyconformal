@@ -1,3 +1,4 @@
 *.pyc
 uv.lock
 *.txt
+PKG-INFO
