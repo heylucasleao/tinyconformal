@@ -154,14 +154,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         pass
 
     @abstractmethod
-    def fit(self, df: pd.DataFrame, *args, **kwargs):
-        """
-        Fits the conformal model to the time series dataset.
-        To be implemented by subclasses.
-        """
-        pass
-
-    @abstractmethod
     def predict_interval(self, *args, **kwargs) -> np.ndarray:
         """
         Generate prediction intervals for the input data.
