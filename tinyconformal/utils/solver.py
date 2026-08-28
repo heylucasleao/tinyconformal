@@ -159,8 +159,8 @@ class NewsvendorSolver:
     def optimize(
         df: pd.DataFrame,
         interval_pair: Tuple[str, str],
-        cost_understock: Union[str, float, Dict[Union[str, Tuple[str, Any]], float]],
-        cost_overstock: Union[str, float, Dict[Union[str, Tuple[str, Any]], float]],
+        underage_cost: Union[str, float, Dict[Union[str, Tuple[str, Any]], float]],
+        overage_cost: Union[str, float, Dict[Union[str, Tuple[str, Any]], float]],
         level: int = 90,
         median_col: str | None = None,
         id_col: str = "unique_id",
@@ -178,12 +178,12 @@ class NewsvendorSolver:
             df (pd.DataFrame): Input DataFrame containing probabilistic forecasts.
             interval_pair (Tuple[str, str]): Column name tuple `(lower_col, upper_col)`
                 representing the prediction interval bounds (e.g., `("lo-90", "hi-90")`).
-            cost_understock (Union[str, float, Dict]): Underage/shortage cost (c_u). Can be:
+            underage_cost (Union[str, float, Dict]): Underage/shortage cost (c_u). Can be:
                 - Scalar (`float`/`int`): Constant cost across the entire panel.
                 - `str`: Column name in `df` containing variable costs per row.
                 - `dict`: Cost mapping by ID `{id: cost}` or tuple `{(id, ds): cost}`.
-            cost_overstock (Union[str, float, Dict]): Overage/holding cost (c_o). Accepts the
-                same input formats as `cost_understock`.
+            overage_cost (Union[str, float, Dict]): Overage/holding cost (c_o). Accepts the
+                same input formats as `underage_cost`.
             level (int, optional): Prediction interval level as a percentage (e.g., 90 for 90%).
                 Determines cumulative probabilities p_lo = (100 - level) / 200 and
                 p_hi = 1 - p_lo. Defaults to 90.
@@ -203,7 +203,7 @@ class NewsvendorSolver:
 
         Raises:
             ValueError: If `level` is not strictly between `(0, 100)` or if cost dictionaries are empty.
-            TypeError: If the cost input type for `cost_understock` or `cost_overstock` is unsupported.
+            TypeError: If the cost input type for `underage_cost` or `overage_cost` is unsupported.
 
         Intentional Clips and Truncations:
             1. **Physical Non-negativity (`q_lo >= 0`, `q_hi >= 0`, `q_med >= 0`):**
@@ -219,7 +219,7 @@ class NewsvendorSolver:
                bounded within the prediction interval bounds.
 
         Attention Points:
-            - **Zero-Division Safety:** If `cost_understock + cost_overstock == 0` for any row, the critical
+            - **Zero-Division Safety:** If `underage_cost + overage_cost == 0` for any row, the critical
               quantile defaults to `0.5` (median) to prevent zero-division runtime errors.
             - **Piecewise Linear Stability:** Uses fully vectorized linear interpolation with
               branch masking, preventing memory bloat and eliminating wild polynomial tail behavior.
@@ -245,8 +245,8 @@ class NewsvendorSolver:
         p_lo = (100.0 - level) / 200.0
         p_hi = 1.0 - p_lo
 
-        cu_arr = _extract_cost_array(df_res, cost_understock, id_col, time_col, n_rows)
-        co_arr = _extract_cost_array(df_res, cost_overstock, id_col, time_col, n_rows)
+        cu_arr = _extract_cost_array(df_res, underage_cost, id_col, time_col, n_rows)
+        co_arr = _extract_cost_array(df_res, overage_cost, id_col, time_col, n_rows)
         q_star = _compute_critical_quantile(cu=cu_arr, co=co_arr)
 
         q_lo = df_res[lo_col].to_numpy(dtype=float, copy=False)
