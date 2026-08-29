@@ -123,11 +123,11 @@ def test_sample_correction_finite_bounds(mock_point_learner):
     cdr.n = 20
     alpha = 0.10
 
-    # low_q = max(0.0, 0.05 - 1 / 40) = 0.025
-    # high_q = min(1.0, 1.0 - 0.05 + 1 / 40) = 0.975
+    # The conformal ranks are floor(1.05) = 1 and ceil(19.95) = 20.
+    # With method="higher", ranks map to (rank - 1) / (n - 1).
     low_q, high_q = cdr._sample_correction(alpha)
-    assert pytest.approx(low_q, abs=1e-4) == 0.025
-    assert pytest.approx(high_q, abs=1e-4) == 0.975
+    assert pytest.approx(low_q, abs=1e-4) == 0.0
+    assert pytest.approx(high_q, abs=1e-4) == 1.0
 
 
 # --- Full MSCP Pipeline Tests ---
@@ -375,9 +375,7 @@ def test_fit_rejects_invalid_calibration_parameters(
     mock_point_learner, sample_distribution_data, parameter, value, message
 ):
     kwargs = {"horizon": 2, "n_windows": 2, "alpha": 0.05, parameter: value}
-    cdr = ConformalDistributionTimeSeriesRegressor(
-        learner=mock_point_learner, **kwargs
-    )
+    cdr = ConformalDistributionTimeSeriesRegressor(learner=mock_point_learner, **kwargs)
 
     with pytest.raises(ValueError, match=message):
         cdr.fit(sample_distribution_data)
@@ -569,3 +567,26 @@ def test_evaluate_inner_join_behavior(mock_point_learner, sample_distribution_da
     eval_df = cdr.evaluate(df_test=test_df, h=3)
     assert not eval_df.empty
     assert "coverage_rate" in eval_df.columns
+    assert "X_df" not in mock_point_learner.predict.call_args.kwargs
+
+
+def test_predict_rejects_inconsistent_forecast_time_grids(
+    mock_point_learner, sample_distribution_data
+):
+    cdr = ConformalDistributionTimeSeriesRegressor(
+        learner=mock_point_learner, horizon=2, n_windows=2
+    )
+    cdr.fit(sample_distribution_data)
+    mock_point_learner.predict.side_effect = None
+    mock_point_learner.predict.return_value = pd.DataFrame(
+        {
+            "unique_id": ["id_1", "id_1", "id_2", "id_2"],
+            "ds": pd.to_datetime(
+                ["2024-01-26", "2024-01-27", "2024-01-26", "2024-01-28"]
+            ),
+            "LGBMRegressor": [20.0] * 4,
+        }
+    )
+
+    with pytest.raises(ValueError, match="same horizon timestamps"):
+        cdr.predict_interval(h=2)

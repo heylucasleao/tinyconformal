@@ -118,9 +118,7 @@ def test_normalize_intervals_invalid_raises_error(
     mock_quantile_learner_single, invalid_cols
 ):
     """Ensure ValueError is raised when invalid intervals formats are passed."""
-    with pytest.raises(
-        ValueError, match="intervals must be a tuple of 2 column names"
-    ):
+    with pytest.raises(ValueError, match="intervals must be a tuple of 2 column names"):
         ConformalQuantileTimeSeriesRegressor(
             learner=mock_quantile_learner_single, horizon=5, intervals=invalid_cols
         )
@@ -164,7 +162,8 @@ def test_sample_correction(mock_quantile_learner_single):
     )
     cqr.n = 100
     q_level = cqr._sample_correction(alpha=0.05)
-    assert pytest.approx(q_level, abs=1e-4) == 0.96
+    # rank = ceil(101 * 0.95) = 96, mapped exactly for method="higher".
+    assert pytest.approx(q_level, abs=1e-4) == 95 / 99
 
 
 # --- Validation and Backtesting Tests ---
@@ -199,8 +198,8 @@ def test_sequential_backtesting_missing_quantile_column(
         n_windows=2,
         intervals=("LGBM-lo-90", "LGBM-hi-90"),
     )
-    mock_quantile_learner_single.predict.side_effect = (
-        lambda h, X_df=None: pd.DataFrame(
+    mock_quantile_learner_single.predict.side_effect = lambda h, X_df=None: (
+        pd.DataFrame(
             {
                 "unique_id": ["series_1"] * h,
                 "ds": pd.date_range("2024-01-31", periods=h),
@@ -339,6 +338,7 @@ def test_evaluate_output_structure_and_metrics(
             "unique_id": ["series_1"] * 3 + ["series_2"] * 3,
             "ds": list(test_dates) * 2,
             "y": [15.0, 15.0, 15.0, 15.0, 15.0, 15.0],
+            "exog_feat": [0.0] * 6,
         }
     )
 
@@ -359,6 +359,57 @@ def test_evaluate_output_structure_and_metrics(
     assert set(eval_df["level"]) == {"90%", "50%"}
     assert np.allclose(eval_df.loc[eval_df["level"] == "90%", "alpha"], 0.10)
     assert np.allclose(eval_df.loc[eval_df["level"] == "50%", "alpha"], 0.50)
+    prediction_input = mock_quantile_learner_multi.predict.call_args.kwargs["X_df"]
+    assert list(prediction_input.columns) == ["unique_id", "ds", "exog_feat"]
+    assert "y" not in prediction_input
+
+
+def test_predict_rejects_unbalanced_forecast_panel(
+    mock_quantile_learner_single, sample_time_series_data
+):
+    cqr = ConformalQuantileTimeSeriesRegressor(
+        learner=mock_quantile_learner_single,
+        horizon=2,
+        n_windows=2,
+        intervals=("LGBM-lo-90", "LGBM-hi-90"),
+    )
+    cqr.fit(sample_time_series_data)
+    mock_quantile_learner_single.predict.side_effect = None
+    mock_quantile_learner_single.predict.return_value = pd.DataFrame(
+        {
+            "unique_id": ["series_1", "series_1", "series_2"],
+            "ds": pd.to_datetime(["2024-01-31", "2024-02-01", "2024-01-31"]),
+            "LGBM-lo-90": [10.0] * 3,
+            "LGBM-hi-90": [20.0] * 3,
+        }
+    )
+
+    with pytest.raises(ValueError, match="exactly 2 rows for every series"):
+        cqr.predict_interval(h=2)
+
+
+def test_predict_rejects_crossing_quantiles(
+    mock_quantile_learner_single, sample_time_series_data
+):
+    cqr = ConformalQuantileTimeSeriesRegressor(
+        learner=mock_quantile_learner_single,
+        horizon=1,
+        n_windows=2,
+        intervals=("LGBM-lo-90", "LGBM-hi-90"),
+    )
+    cqr.fit(sample_time_series_data)
+    mock_quantile_learner_single.predict.side_effect = None
+    mock_quantile_learner_single.predict.return_value = pd.DataFrame(
+        {
+            "unique_id": ["series_1", "series_2"],
+            "ds": pd.to_datetime(["2024-01-31", "2024-01-31"]),
+            "LGBM-lo-90": [21.0, 10.0],
+            "LGBM-hi-90": [20.0, 20.0],
+        }
+    )
+
+    with pytest.raises(ValueError, match="Crossing quantiles detected"):
+        cqr.predict_interval(h=1)
 
 
 def test_evaluate_metric_values_correctness(mock_quantile_learner_single):

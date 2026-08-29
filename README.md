@@ -182,11 +182,10 @@ conformal_ts = ConformalDistributionTimeSeriesRegressor(
     learner=mlf,
     horizon=7,
     n_windows=5,
-    step_size=7,  # Window displacement stride
     alpha=0.10,
 )
 
-conformal_ts.fit(df)
+conformal_ts.fit(df, step_size=7)  # Window displacement stride
 intervals_df = conformal_ts.predict_interval(h=7)
 ```
 
@@ -208,11 +207,10 @@ conformal_cqr_ts = ConformalQuantileTimeSeriesRegressor(
     learner=mlf,
     horizon=7,
     n_windows=5,
-    step_size=7,
     intervals=("LGBM-lo-90", "LGBM-hi-90"),
 )
 
-conformal_cqr_ts.fit(df)
+conformal_cqr_ts.fit(df, step_size=7)
 intervals_df = conformal_cqr_ts.predict_interval(h=7)
 ```
 
@@ -297,17 +295,20 @@ Window 2:       [============ Expanded Train ============] [--- H=4 (t11 to t14)
 
 Training & Residual extraction via backtesting: `fit(df, step_size=...)`
 
-The significance level is inferred per interval from its coverage suffix
-(`-90` means `alpha=0.10`, `-50` means `alpha=0.50`).
+The significance level is configured globally with `alpha` and may be overridden
+when predicting: `predict_interval(h=..., alpha=...)`.
 
-Multi-step interval forecasting: `predict_interval(h=...)`
+Multi-step interval forecasting: `predict_interval(h=..., alpha=...)`
 
 ### ConformalQuantileTimeSeriesRegressor
 `ConformalQuantileTimeSeriesRegressor` is a multi-step time series conformal quantile regressor (CQR) compatible with Nixtla interface estimators that output quantile predictions.
 
 Training & Nonconformity score calculation via backtesting:` fit(df, step_size=...)`
 
-Multi-step interval forecasting: `predict_interval(h=..., alpha=...)`
+The significance level is inferred independently for each interval from its
+coverage suffix (`-90` means `alpha=0.10`, `-50` means `alpha=0.50`).
+
+Multi-step interval forecasting: `predict_interval(h=...)`
 
 ### ExactnessBound
 

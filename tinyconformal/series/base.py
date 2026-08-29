@@ -2,14 +2,14 @@
 # TinyConformal - A small toolbox for conformal prediction
 # Licensed under the MIT License
 
+import inspect
+from abc import abstractmethod
+
 import numpy as np
 import pandas as pd
-from sklearn.base import BaseEstimator, RegressorMixin
-from typing import Optional, Tuple, List, Dict
-from abc import abstractmethod
-import inspect
-import re
 from joblib import Parallel, delayed
+from sklearn.base import BaseEstimator, RegressorMixin
+
 from tinyconformal.utils.imports import requires_extra
 
 
@@ -42,7 +42,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         learner: BaseEstimator,
         horizon: int,
         n_windows: int = 10,
-        alpha: float = 0.05,
         id_col: str = "unique_id",
         time_col: str = "ds",
         target_col: str = "y",
@@ -58,8 +57,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             Forecast horizon step count (H).
         n_windows : int, default=10
             Number of backtesting windows used to extract calibration residuals.
-        alpha : float, default=0.05
-            Significance level applied in the regressor (target coverage = 1 - alpha).
         id_col : str, default="unique_id"
             Column name representing the unique identifier for each time series.
         time_col : str, default="ds"
@@ -75,8 +72,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             Forecast horizon step count (H).
         n_windows : int
             Number of backtesting windows.
-        alpha : float
-            Significance level applied in the regressor.
         id_col : str
             Identifier column name.
         time_col : str
@@ -96,7 +91,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         self.h = horizon
         self.n_windows = n_windows
         self.id_col = id_col
-        self.alpha = alpha
         self.time_col = time_col
         self.target_col = target_col
         self.horizon = horizon
@@ -114,14 +108,12 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         Computes nonconformity scores or residuals from predictions and true targets.
         To be implemented by subclasses.
         """
-        pass
 
     @abstractmethod
     def _prepare_and_validate_steps(
         self, df: pd.DataFrame, *args, **kwargs
-    ) -> Tuple[np.ndarray, int, int]:
+    ) -> tuple[np.ndarray, int, int]:
         """Prepares time steps, validates time series length, and returns initial metrics."""
-        pass
 
     @abstractmethod
     def _split_train_val_window(
@@ -129,9 +121,8 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         df: pd.DataFrame,
         *args,
         **kwargs,
-    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Slices the dataframe into training and validation sets for a specific window index."""
-        pass
 
     @abstractmethod
     def _fit_predict_window(
@@ -141,7 +132,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         **kwargs,
     ) -> pd.DataFrame:
         """Clones the learner, fits it on the training window, and predicts the validation window."""
-        pass
 
     @abstractmethod
     def _compute_window_residuals(
@@ -151,7 +141,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         **kwargs,
     ) -> None:
         """Calculates nonconformity scores for the predictions and updates the residuals dictionary."""
-        pass
 
     @abstractmethod
     def predict_interval(self, *args, **kwargs) -> np.ndarray:
@@ -159,15 +148,20 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         Generate prediction intervals for the input data.
         To be implemented by subclasses.
         """
-        pass
 
-    def _compute_qhat(self, ncscore: np.ndarray, q_level: float, axis: int = None):
+    @abstractmethod
+    def evaluate(self, *args, **kwargs) -> pd.DataFrame:
+        """Evaluate predictions according to the subclass interval semantics."""
+
+    def _compute_qhat(
+        self, ncscore: np.ndarray, q_level: float, axis: int | None = None
+    ):
         """
         Compute the q-hat quantile value based on nonconformity scores and the quantile level.
         """
         return np.quantile(ncscore, q_level, method="higher", axis=axis)
 
-    def _infer_model_cols(self, df: pd.DataFrame) -> List[str]:
+    def _infer_model_cols(self, df: pd.DataFrame) -> list[str]:
         """
         Dynamically infers model prediction columns from the output DataFrame.
         """
@@ -187,16 +181,19 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             )
         return model_cols
 
-    def _get_alpha(self, alpha: Optional[float] = None) -> float:
-        """Helper to retrieve the active significance level (alpha)."""
-        alpha = alpha if alpha is not None else self.alpha
+    @staticmethod
+    def _validate_alpha(alpha: float) -> float:
+        """Validate and normalize a concrete significance level."""
         if not isinstance(alpha, (int, float, np.integer, np.floating)) or not (
             0.0 < alpha < 1.0
         ):
             raise ValueError("alpha must be a number strictly between 0 and 1.")
         return float(alpha)
 
-    def _get_horizon(self, h: Optional[int] = None) -> int:
+    def _validate_fit_configuration(self) -> None:
+        """Validate subclass-specific calibration configuration before fitting."""
+
+    def _get_horizon(self, h: int | None = None) -> int:
         """Helper to retrieve and validate the forecast horizon."""
         h = h if h is not None else self.horizon
         if not isinstance(h, (int, np.integer)) or isinstance(h, bool) or h <= 0:
@@ -210,7 +207,49 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
     def _check_is_fitted(self) -> None:
         """Raise a clear error when prediction is attempted before calibration."""
         if not self.ncscores_ or self.n <= 0:
-            raise RuntimeError("This conformal regressor must be fitted before prediction.")
+            raise RuntimeError(
+                "This conformal regressor must be fitted before prediction."
+            )
+
+    def _prediction_features(self, df: pd.DataFrame) -> pd.DataFrame | None:
+        """Return only the columns accepted as future exogenous input."""
+        if not self.exog_cols_:
+            return None
+        required = [self.id_col, self.time_col, *self.exog_cols_]
+        missing = [column for column in required if column not in df.columns]
+        if missing:
+            raise ValueError(
+                f"The following future feature columns are missing: {missing}"
+            )
+        return df[required].copy()
+
+    def _validate_prediction_panel(self, pred_df: pd.DataFrame, h: int) -> int:
+        """Validate that forecasts form a balanced series-by-horizon panel."""
+        required = [self.id_col, self.time_col]
+        missing = [column for column in required if column not in pred_df.columns]
+        if missing:
+            raise ValueError(
+                f"The forecast output is missing structural columns: {missing}"
+            )
+        if pred_df.duplicated(required).any():
+            raise ValueError(
+                "Forecast output must contain exactly one row per identifier and time."
+            )
+
+        counts = pred_df.groupby(self.id_col, sort=False)[self.time_col].size()
+        if counts.empty or not counts.eq(h).all():
+            raise ValueError(
+                f"Forecast output must contain exactly {h} rows for every series."
+            )
+
+        time_grids = pred_df.groupby(self.id_col, sort=False)[self.time_col].apply(
+            lambda values: tuple(sorted(values))
+        )
+        if time_grids.nunique() != 1:
+            raise ValueError(
+                "Forecast output must use the same horizon timestamps for every series."
+            )
+        return len(counts)
 
     def _invoke(self, method, **kwargs):
         """
@@ -319,8 +358,8 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
     def _sequential_backtesting(
         self,
         df: pd.DataFrame,
-        step_size: Optional[int] = None,
-        static_features: Optional[list] = None,
+        step_size: int | None = None,
+        static_features: list | None = None,
         n_jobs: int = -1,
     ) -> dict:
         """Executes sequential backtesting across n_windows to extract CQR nonconformity scores."""
@@ -344,8 +383,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             fcst = self._fit_predict_window(train_df, val_df, static_features)
             return fcst, val_df
 
-        residuals_by_model = {}
-
         results = Parallel(n_jobs=n_jobs)(
             delayed(process_window)(w) for w in reversed(range(self.n_windows))
         )
@@ -360,8 +397,8 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
     def fit(
         self,
         df: pd.DataFrame,
-        step_size: int = None,
-        static_features: list = None,
+        step_size: int | None = None,
+        static_features: list | None = None,
         n_jobs: int = -1,
     ):
         """
@@ -387,7 +424,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
 
         self._validate_columns(df)
         self._get_horizon()
-        self._get_alpha()
+        self._validate_fit_configuration()
         if (
             not isinstance(self.n_windows, (int, np.integer))
             or isinstance(self.n_windows, bool)
@@ -434,8 +471,8 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
 
     def _predict_raw(
         self,
-        h: Optional[int] = None,
-        X_df: Optional[pd.DataFrame] = None,
+        h: int | None = None,
+        X_df: pd.DataFrame | None = None,
     ) -> np.ndarray:
         """
         Generates base model point predictions from Nixtla estimator into standard ndarray.
@@ -449,99 +486,3 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             X_df=X_df,
         )
         return self._extract_predictions(preds_df)
-
-    @requires_extra("series")
-    def evaluate(
-        self,
-        df_test: pd.DataFrame,
-        h: Optional[int] = None,
-        alpha: Optional[float] = None,
-    ) -> pd.DataFrame:
-        """
-        Evaluate the performance of the regressor on the given dataset.
-
-        Parameters:
-        ----------
-        df_test : pd.DataFrame
-            Evaluation dataset containing input features and target values.
-        h : int, optional
-            Forecast horizon step count. If None, the default fitted horizon is used.
-        alpha : float, optional
-            Significance level for prediction intervals. If None, default alpha is used.
-
-        Returns:
-        -------
-        pd.DataFrame
-            A DataFrame containing the evaluation metrics for each model and level:
-            - "model" (str): Name of the evaluated model.
-            - "level" (str): Coverage percentage string (e.g., '95%').
-            - "alpha" (float): The significance level used for evaluation.
-            - "coverage_rate" (float): The coverage rate of the prediction intervals.
-            - "interval_width_mean" (float): The mean width of the prediction intervals.
-            - "mwis" (float): The Mean Weighted Interval Score (MWIS).
-            - "mae" (float): The Mean Absolute Error (MAE) of the predictions.
-            - "mbe" (float): The Mean Bias Error (MBE) of the predictions.
-            - "mse" (float): The Mean Squared Error (MSE) of the predictions.
-        """
-        alpha = self._get_alpha(alpha)
-        eval_df = self.predict_interval(X_df=df_test, h=h, alpha=alpha)
-
-        eval_df = eval_df.merge(
-            df_test[[self.id_col, self.time_col, self.target_col]],
-            on=[self.id_col, self.time_col],
-            how="inner",
-        )
-        if eval_df.empty:
-            raise ValueError(
-                "No prediction rows matched df_test on the identifier and time columns."
-            )
-        y_true = eval_df[self.target_col].to_numpy()
-
-        BOUND_PATTERN = re.compile(
-            r"^(?P<model>.+)-lo-(?P<level>\d+)(?P<cqr>-(?:cqr|CQR))?$"
-        )
-
-        records = []
-
-        def rounded(value):
-            return np.round(value, 3)
-
-        for col in eval_df.columns:
-            match = BOUND_PATTERN.match(col)
-
-            if not match:
-                continue
-
-            base_model = match.group("model")
-            level_str = match.group("level")
-            has_cqr = bool(match.group("cqr"))
-
-            cqr_suffix = match.group("cqr") if has_cqr else ""
-            hi_col = f"{base_model}-hi-{level_str}{cqr_suffix}"
-
-            if hi_col not in eval_df.columns:
-                continue
-
-            lower = eval_df[col].to_numpy()
-            upper = eval_df[hi_col].to_numpy()
-
-            model_name = f"{base_model}-cqr" if has_cqr else base_model
-
-            records.append(
-                {
-                    "model": model_name,
-                    "level": f"{level_str}%",
-                    "alpha": alpha,
-                    "coverage_rate": rounded(self._coverage_rate(y_true, lower, upper)),
-                    "interval_width_mean": rounded(
-                        self._interval_width_mean(lower, upper)
-                    ),
-                    "mwis": rounded(self._mwi_score(y_true, lower, upper, alpha)),
-                }
-            )
-
-        return (
-            pd.DataFrame(records)
-            .sort_values(by=["model", "level"])
-            .reset_index(drop=True)
-        )

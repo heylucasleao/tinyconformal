@@ -2,13 +2,17 @@
 # TinyConformal - A small toolbox for conformal prediction
 # Licensed under the MIT License
 
+import copy
+import re
+import warnings
+
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
-from .base import BaseConformalTimeSeriesRegressor
-from typing import Optional, Tuple, Dict
+
 from tinyconformal.utils.imports import requires_extra
-import copy
+
+from .base import BaseConformalTimeSeriesRegressor
 
 
 class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
@@ -79,11 +83,19 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             learner=learner,
             horizon=horizon,
             n_windows=n_windows,
-            alpha=alpha,
             id_col=id_col,
             time_col=time_col,
             target_col=target_col,
         )
+        self.alpha = alpha
+
+    def _get_alpha(self, alpha: float | None = None) -> float:
+        """Resolve an optional override against the MSCP global alpha."""
+        return self._validate_alpha(self.alpha if alpha is None else alpha)
+
+    def _validate_fit_configuration(self) -> None:
+        """Validate the global MSCP significance level before calibration."""
+        self._get_alpha()
 
     def _generate_residuals(self, y_hat: np.ndarray, y_true: np.ndarray) -> np.ndarray:
         """
@@ -93,8 +105,8 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         return y_hat - y_true
 
     def _prepare_and_validate_steps(
-        self, df: pd.DataFrame, step_size: Optional[int]
-    ) -> Tuple[np.ndarray, int, int]:
+        self, df: pd.DataFrame, step_size: int | None
+    ) -> tuple[np.ndarray, int, int]:
         """Prepares time steps, validates time series length, and returns initial metrics."""
         df = df.sort_values(by=[self.id_col, self.time_col])
         time_steps = np.sort(df[self.time_col].unique())
@@ -119,7 +131,7 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         total_steps: int,
         w: int,
         step_size: int,
-    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Calculates cutoffs and splits the dataset for a specific backtesting window."""
         val_end_idx = total_steps - (w * step_size)
         val_start_idx = val_end_idx - self.horizon
@@ -138,7 +150,7 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         self,
         train_df: pd.DataFrame,
         val_df: pd.DataFrame,
-        static_features: Optional[list] = None,
+        static_features: list | None = None,
     ) -> pd.DataFrame:
         """Fits a temporary model and predicts the validation horizon."""
         temp_model = copy.deepcopy(self.learner)
@@ -179,7 +191,7 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         fcst: pd.DataFrame,
         val_df: pd.DataFrame,
         n_series: int,
-        residuals_by_model: Dict[str, list],
+        residuals_by_model: dict[str, list],
     ) -> None:
         """Computes residuals for the predictions and appends them to the tracking dictionary."""
         model_cols = self._infer_model_cols(fcst)
@@ -198,9 +210,11 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
                 .sort_index(axis=0)
                 .sort_index(axis=1)
             )
-            forecast_pivot = fcst.pivot(
-                index=self.id_col, columns=self.time_col, values=model
-            ).sort_index(axis=0).sort_index(axis=1)
+            forecast_pivot = (
+                fcst.pivot(index=self.id_col, columns=self.time_col, values=model)
+                .sort_index(axis=0)
+                .sort_index(axis=1)
+            )
             y_hat = forecast_pivot.to_numpy()
             if (
                 not forecast_pivot.index.equals(target_pivot.index)
@@ -218,11 +232,30 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             residuals_by_model[model].append(r)
 
     def _sample_correction(self, alpha: float):
-        """Computes finite-sample quantile adjustment for exact coverage bounds."""
+        """Compute equal-tailed finite-sample conformal quantile levels."""
         n = self.n
-        low_q = max(0.0, alpha / 2.0 - 1.0 / (2.0 * n))
-        high_q = min(1.0, 1.0 - alpha / 2.0 + 1.0 / (2.0 * n))
-        return low_q, high_q
+        if n <= 0:
+            raise RuntimeError(
+                "Calibration scores are required before computing bounds."
+            )
+        if alpha < 2.0 / (n + 1):
+            warnings.warn(
+                "The requested two-sided coverage is not attainable with the "
+                f"available calibration sample (n={n}); empirical quantile levels "
+                "will be clipped to the observed residual range.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        low_rank = int(np.floor((n + 1) * alpha / 2.0))
+        high_rank = int(np.ceil((n + 1) * (1.0 - alpha / 2.0)))
+        low_rank = int(np.clip(low_rank, 1, n))
+        high_rank = int(np.clip(high_rank, 1, n))
+        if n == 1:
+            return 0.0, 0.0
+
+        # ``method="higher"`` selects zero-based index ``ceil(q * (n - 1))``.
+        # Mapping ranks this way therefore selects the exact conformal order statistic.
+        return (low_rank - 1) / (n - 1), (high_rank - 1) / (n - 1)
 
     def _compute_bounds(
         self,
@@ -230,8 +263,8 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         model_name: str,
         h: int,
         n_series: int,
-        alpha: Optional[float] = None,
-    ) -> Tuple[np.ndarray, np.ndarray]:
+        alpha: float | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Computes the lower and upper conformal bounds over 1D vectors while
         preserving memory efficiency along the calibration-window axis.
@@ -254,10 +287,10 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
     @requires_extra("series")
     def predict_interval(
         self,
-        h: Optional[int] = None,
-        X_df: Optional[pd.DataFrame] = None,
-        alpha: float = None,
-    ) -> np.ndarray:
+        h: int | None = None,
+        X_df: pd.DataFrame | None = None,
+        alpha: float | None = None,
+    ) -> pd.DataFrame:
         """
         Generates prediction intervals [lower, upper] for Nixtla inputs.
 
@@ -278,10 +311,10 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             .reset_index(drop=True)
         )
         model_cols = self._infer_model_cols(pred_df)
+        n_series = self._validate_prediction_panel(pred_df, h)
 
         for model in model_cols:
             y_hat = pred_df[model].to_numpy()
-            n_series = pred_df[self.id_col].nunique()
 
             lower_bound, upper_bound = self._compute_bounds(
                 y_hat=y_hat,
@@ -291,9 +324,68 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
                 alpha=alpha,
             )
             eff_alpha = self._get_alpha(alpha)
-            level = int(round((1 - eff_alpha) * 100))
+            level = round((1 - eff_alpha) * 100)
 
             pred_df[f"{model}-lo-{level}"] = lower_bound
             pred_df[f"{model}-hi-{level}"] = upper_bound
 
         return pred_df
+
+    @requires_extra("series")
+    def evaluate(
+        self,
+        df_test: pd.DataFrame,
+        h: int | None = None,
+        alpha: float | None = None,
+    ) -> pd.DataFrame:
+        """Evaluate MSCP intervals using one global or overridden alpha."""
+        alpha = self._get_alpha(alpha)
+        eval_df = self.predict_interval(
+            X_df=self._prediction_features(df_test), h=h, alpha=alpha
+        )
+        eval_df = eval_df.merge(
+            df_test[[self.id_col, self.time_col, self.target_col]],
+            on=[self.id_col, self.time_col],
+            how="inner",
+        )
+        if eval_df.empty:
+            raise ValueError(
+                "No prediction rows matched df_test on the identifier and time columns."
+            )
+
+        y_true = eval_df[self.target_col].to_numpy()
+        bound_pattern = re.compile(r"^(?P<model>.+)-lo-(?P<level>\d+)$")
+        records = []
+        for col in eval_df.columns:
+            match = bound_pattern.match(col)
+            if not match:
+                continue
+
+            model = match.group("model")
+            level = match.group("level")
+            high_col = f"{model}-hi-{level}"
+            if high_col not in eval_df.columns:
+                continue
+
+            lower = eval_df[col].to_numpy()
+            upper = eval_df[high_col].to_numpy()
+            records.append(
+                {
+                    "model": model,
+                    "level": f"{level}%",
+                    "alpha": alpha,
+                    "coverage_rate": np.round(
+                        self._coverage_rate(y_true, lower, upper), 3
+                    ),
+                    "interval_width_mean": np.round(
+                        self._interval_width_mean(lower, upper), 3
+                    ),
+                    "mwis": np.round(self._mwi_score(y_true, lower, upper, alpha), 3),
+                }
+            )
+
+        return (
+            pd.DataFrame(records)
+            .sort_values(by=["model", "level"])
+            .reset_index(drop=True)
+        )
