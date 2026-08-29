@@ -6,6 +6,7 @@
 import pytest
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.datasets import make_classification
 from tinyconformal.classifier.marginal import BinaryMarginalConformalClassifier
@@ -198,3 +199,56 @@ def test_fit_oob_rejects_X(classifier_cls, learner, dataset):
 
     with pytest.raises(ValueError, match="should not be provided"):
         classifier.fit(dataset["X_calib"], y=dataset["y_train"], oob=True)
+
+
+@pytest.mark.parametrize(
+    "classifier_cls",
+    [BinaryMarginalConformalClassifier, BinaryClassConditionalConformalClassifier],
+)
+def test_classifier_accepts_learner_without_n_classes_attribute(
+    classifier_cls, dataset
+):
+    learner = LogisticRegression().fit(dataset["X_train"], dataset["y_train"])
+
+    classifier = classifier_cls(learner)
+
+    assert np.array_equal(classifier.classes, learner.classes_)
+
+
+@pytest.mark.parametrize(
+    "classifier_cls",
+    [BinaryMarginalConformalClassifier, BinaryClassConditionalConformalClassifier],
+)
+def test_labeled_fit_resets_unlabeled_state(classifier_cls, learner, dataset):
+    classifier = classifier_cls(learner)
+    classifier.unlabeled_fit(dataset["X_calib"], beta=0.1)
+
+    classifier.fit(dataset["X_calib"], dataset["y_calib"])
+
+    assert classifier.is_unlabeled is False
+    assert classifier.beta is None
+    classifier.calibrate(dataset["X_test"], dataset["y_test"])
+
+
+def test_class_conditional_fit_requires_both_classes(learner, dataset):
+    classifier = BinaryClassConditionalConformalClassifier(learner)
+    y_single_class = np.zeros_like(dataset["y_calib"])
+
+    with pytest.raises(ValueError, match="samples from both classes"):
+        classifier.fit(dataset["X_calib"], y_single_class)
+
+
+def test_class_conditional_unlabeled_fit_requires_both_pseudo_classes(
+    learner, dataset, monkeypatch
+):
+    classifier = BinaryClassConditionalConformalClassifier(learner)
+    probabilities = np.column_stack(
+        [
+            np.zeros(len(dataset["X_calib"])),
+            np.ones(len(dataset["X_calib"])),
+        ]
+    )
+    monkeypatch.setattr(learner, "predict_proba", lambda X: probabilities)
+
+    with pytest.raises(ValueError, match="pseudo-labels from both classes"):
+        classifier.unlabeled_fit(dataset["X_calib"], beta=0.1)

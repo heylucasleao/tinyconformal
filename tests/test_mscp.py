@@ -166,7 +166,14 @@ def test_mscp_evaluate_dataframe(mock_point_learner, sample_distribution_data):
     )
     cdr.fit(sample_distribution_data)
 
-    test_df = sample_distribution_data.tail(6).copy()
+    test_dates = pd.date_range("2024-01-26", periods=3, freq="D")
+    test_df = pd.DataFrame(
+        {
+            "unique_id": ["id_1"] * 3 + ["id_2"] * 3,
+            "ds": list(test_dates) * 2,
+            "y": [20.0] * 6,
+        }
+    )
     eval_df = cdr.evaluate(df_test=test_df, h=3)
 
     expected_cols = [
@@ -316,6 +323,75 @@ def test_mscp_compute_bounds_direct(mock_point_learner):
 
     np.testing.assert_array_equal(lower, np.array([8.0, 17.0]))
     np.testing.assert_array_equal(upper, np.array([12.0, 21.0]))
+
+
+def test_window_residuals_align_shuffled_forecasts_by_keys(mock_point_learner):
+    """Forecast row order must not change residual-to-horizon alignment."""
+    cdr = ConformalDistributionTimeSeriesRegressor(
+        learner=mock_point_learner, horizon=2
+    )
+    val_df = pd.DataFrame(
+        {
+            "unique_id": ["id_1", "id_1", "id_2", "id_2"],
+            "ds": [1, 2, 1, 2],
+            "y": [10.0, 20.0, 30.0, 40.0],
+        }
+    )
+    fcst = pd.DataFrame(
+        {
+            "unique_id": ["id_2", "id_1", "id_2", "id_1"],
+            "ds": [2, 1, 1, 2],
+            "model": [44.0, 11.0, 33.0, 22.0],
+        }
+    )
+    residuals = {}
+
+    cdr._compute_window_residuals(fcst, val_df, 2, residuals)
+
+    np.testing.assert_array_equal(
+        residuals["model"][0], np.array([[1.0, 2.0], [3.0, 4.0]])
+    )
+
+
+def test_predict_before_fit_raises_clear_error(mock_point_learner):
+    cdr = ConformalDistributionTimeSeriesRegressor(
+        learner=mock_point_learner, horizon=2
+    )
+
+    with pytest.raises(RuntimeError, match="must be fitted before prediction"):
+        cdr.predict_interval(h=2)
+
+
+@pytest.mark.parametrize(
+    ("parameter", "value", "message"),
+    [
+        ("alpha", 0.0, "alpha must be"),
+        ("alpha", 1.0, "alpha must be"),
+        ("horizon", 0, "positive integer"),
+        ("n_windows", 0, "n_windows must be"),
+    ],
+)
+def test_fit_rejects_invalid_calibration_parameters(
+    mock_point_learner, sample_distribution_data, parameter, value, message
+):
+    kwargs = {"horizon": 2, "n_windows": 2, "alpha": 0.05, parameter: value}
+    cdr = ConformalDistributionTimeSeriesRegressor(
+        learner=mock_point_learner, **kwargs
+    )
+
+    with pytest.raises(ValueError, match=message):
+        cdr.fit(sample_distribution_data)
+
+
+def test_fit_rejects_non_positive_step_size(
+    mock_point_learner, sample_distribution_data
+):
+    cdr = ConformalDistributionTimeSeriesRegressor(
+        learner=mock_point_learner, horizon=2, n_windows=2
+    )
+
+    with pytest.raises(ValueError, match="step_size must be a positive integer"):
+        cdr.fit(sample_distribution_data, step_size=0)
 
 
 def test_sequential_backtesting_short_series_raises_value_error(mock_point_learner):
@@ -479,8 +555,15 @@ def test_evaluate_inner_join_behavior(mock_point_learner, sample_distribution_da
     )
     cdr.fit(sample_distribution_data)
 
-    # test_df with matching keys but additional unneeded columns
-    test_df = sample_distribution_data.tail(6).copy()
+    # test_df with matching future keys but an additional unneeded column
+    test_dates = pd.date_range("2024-01-26", periods=3, freq="D")
+    test_df = pd.DataFrame(
+        {
+            "unique_id": ["id_1"] * 3 + ["id_2"] * 3,
+            "ds": list(test_dates) * 2,
+            "y": [20.0] * 6,
+        }
+    )
     test_df["extra_junk"] = 999
 
     eval_df = cdr.evaluate(df_test=test_df, h=3)

@@ -65,11 +65,18 @@ class ConformalizedQuantileRegressor(
         if X is None:
             raise ValueError("Unlabeled calibration data (X) must be provided.")
 
+        if tilde_beta is None:
+            raise ValueError(
+                "The error bound 'tilde_beta' (e.g., a quantile residual bound) "
+                "must be provided. Consider using "
+                "`tilde_beta, beta = ExactnessBound.estimate_cqr_bound(...)`."
+            )
+
         if beta is None:
             raise ValueError(
                 "The parameter 'beta' must be provided. "
                 "Without 'beta', the actual lower coverage bound (1 - alpha - beta) cannot be determined. "
-                "Consider using `tilde_beta, beta = ExactnessBound.estimate_icp_bound(...)`."
+                "Consider using `tilde_beta, beta = ExactnessBound.estimate_cqr_bound(...)`."
             )
 
         self.beta = beta
