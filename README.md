@@ -209,8 +209,7 @@ conformal_cqr_ts = ConformalQuantileTimeSeriesRegressor(
     horizon=7,
     n_windows=5,
     step_size=7,
-    quantile_cols=("LGBM-lo-90", "LGBM-hi-90"),
-    alpha=0.10,
+    intervals=("LGBM-lo-90", "LGBM-hi-90"),
 )
 
 conformal_cqr_ts.fit(df)
@@ -298,7 +297,10 @@ Window 2:       [============ Expanded Train ============] [--- H=4 (t11 to t14)
 
 Training & Residual extraction via backtesting: `fit(df, step_size=...)`
 
-Multi-step interval forecasting: `predict_interval(h=..., alpha=...)`
+The significance level is inferred per interval from its coverage suffix
+(`-90` means `alpha=0.10`, `-50` means `alpha=0.50`).
+
+Multi-step interval forecasting: `predict_interval(h=...)`
 
 ### ConformalQuantileTimeSeriesRegressor
 `ConformalQuantileTimeSeriesRegressor` is a multi-step time series conformal quantile regressor (CQR) compatible with Nixtla interface estimators that output quantile predictions.

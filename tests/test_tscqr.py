@@ -88,23 +88,23 @@ def mock_quantile_learner_multi():
 # --- Column Normalization & Renaming Tests ---
 
 
-def test_normalize_interval_pairs_single_tuple(mock_quantile_learner_single):
-    """Verify single tuple input converts to a list of tuples using interval_pairs."""
+def test_normalize_intervals_single_tuple(mock_quantile_learner_single):
+    """Verify single tuple input converts to a list of tuples using intervals."""
     cqr = ConformalQuantileTimeSeriesRegressor(
         learner=mock_quantile_learner_single,
         horizon=5,
-        interval_pairs=("LGBM-lo-90", "LGBM-hi-90"),
+        intervals=("LGBM-lo-90", "LGBM-hi-90"),
     )
-    assert cqr.interval_pairs_ == [("LGBM-lo-90", "LGBM-hi-90")]
+    assert cqr.intervals_ == [("LGBM-lo-90", "LGBM-hi-90")]
 
 
-def test_normalize_interval_pairs_list_of_tuples(mock_quantile_learner_multi):
-    """Verify normalization when given a list of tuples/lists via interval_pairs."""
+def test_normalize_intervals_list_of_tuples(mock_quantile_learner_multi):
+    """Verify normalization when given a list of tuples/lists via intervals."""
     pairs = [("LGBM-lo-90", "LGBM-hi-90"), ["LGBM-lo-50", "LGBM-hi-50"]]
     cqr = ConformalQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_multi, horizon=5, interval_pairs=pairs
+        learner=mock_quantile_learner_multi, horizon=5, intervals=pairs
     )
-    assert cqr.interval_pairs_ == [
+    assert cqr.intervals_ == [
         ("LGBM-lo-90", "LGBM-hi-90"),
         ("LGBM-lo-50", "LGBM-hi-50"),
     ]
@@ -114,15 +114,15 @@ def test_normalize_interval_pairs_list_of_tuples(mock_quantile_learner_multi):
     "invalid_cols",
     ["invalid_string", ("only_one_col",), [("low", "high", "extra")], 12345],
 )
-def test_normalize_interval_pairs_invalid_raises_error(
+def test_normalize_intervals_invalid_raises_error(
     mock_quantile_learner_single, invalid_cols
 ):
-    """Ensure ValueError is raised when invalid interval_pairs formats are passed."""
+    """Ensure ValueError is raised when invalid intervals formats are passed."""
     with pytest.raises(
-        ValueError, match="interval_pairs must be a tuple of 2 column names"
+        ValueError, match="intervals must be a tuple of 2 column names"
     ):
         ConformalQuantileTimeSeriesRegressor(
-            learner=mock_quantile_learner_single, horizon=5, interval_pairs=invalid_cols
+            learner=mock_quantile_learner_single, horizon=5, intervals=invalid_cols
         )
 
 
@@ -132,7 +132,7 @@ def test_invalid_interval_col_pattern_raises_error(mock_quantile_learner_single)
         ConformalQuantileTimeSeriesRegressor(
             learner=mock_quantile_learner_single,
             horizon=5,
-            interval_pairs=("invalid_lo_format", "LGBM-hi-90"),
+            intervals=("invalid_lo_format", "LGBM-hi-90"),
         )
 
 
@@ -144,7 +144,7 @@ def test_generate_residuals(mock_quantile_learner_single):
     cqr = ConformalQuantileTimeSeriesRegressor(
         learner=mock_quantile_learner_single,
         horizon=3,
-        interval_pairs=("LGBM-lo-90", "LGBM-hi-90"),
+        intervals=("LGBM-lo-90", "LGBM-hi-90"),
     )
     q_low = np.array([10.0, 10.0, 10.0])
     q_high = np.array([20.0, 20.0, 20.0])
@@ -160,7 +160,7 @@ def test_sample_correction(mock_quantile_learner_single):
     cqr = ConformalQuantileTimeSeriesRegressor(
         learner=mock_quantile_learner_single,
         horizon=5,
-        interval_pairs=("LGBM-lo-90", "LGBM-hi-90"),
+        intervals=("LGBM-lo-90", "LGBM-hi-90"),
     )
     cqr.n = 100
     q_level = cqr._sample_correction(alpha=0.05)
@@ -176,7 +176,7 @@ def test_sequential_backtesting_insufficient_time_steps(mock_quantile_learner_si
         learner=mock_quantile_learner_single,
         horizon=10,
         n_windows=5,
-        interval_pairs=("LGBM-lo-90", "LGBM-hi-90"),
+        intervals=("LGBM-lo-90", "LGBM-hi-90"),
     )
     short_df = pd.DataFrame(
         {
@@ -197,7 +197,7 @@ def test_sequential_backtesting_missing_quantile_column(
         learner=mock_quantile_learner_single,
         horizon=3,
         n_windows=2,
-        interval_pairs=("LGBM-lo-90", "LGBM-hi-90"),
+        intervals=("LGBM-lo-90", "LGBM-hi-90"),
     )
     mock_quantile_learner_single.predict.side_effect = (
         lambda h, X_df=None: pd.DataFrame(
@@ -219,7 +219,7 @@ def test_window_residuals_align_shuffled_forecasts_by_keys(
     cqr = ConformalQuantileTimeSeriesRegressor(
         learner=mock_quantile_learner_single,
         horizon=2,
-        interval_pairs=("LGBM-lo-90", "LGBM-hi-90"),
+        intervals=("LGBM-lo-90", "LGBM-hi-90"),
     )
     val_df = pd.DataFrame(
         {
@@ -254,7 +254,7 @@ def test_backtesting_does_not_fit_original_learner_per_window(
         learner=mock_quantile_learner_single,
         horizon=3,
         n_windows=2,
-        interval_pairs=("LGBM-lo-90", "LGBM-hi-90"),
+        intervals=("LGBM-lo-90", "LGBM-hi-90"),
     )
 
     cqr.fit(sample_time_series_data, n_jobs=1)
@@ -273,7 +273,7 @@ def test_fit_and_ncscores_structure(
         learner=mock_quantile_learner_single,
         horizon=3,
         n_windows=2,
-        interval_pairs=("LGBM-lo-90", "LGBM-hi-90"),
+        intervals=("LGBM-lo-90", "LGBM-hi-90"),
     )
     cqr.fit(sample_time_series_data)
 
@@ -291,8 +291,7 @@ def test_predict_interval_single_pair_formatting(
         learner=mock_quantile_learner_single,
         horizon=3,
         n_windows=2,
-        alpha=0.10,
-        interval_pairs=("LGBM-lo-90", "LGBM-hi-90"),
+        intervals=("LGBM-lo-90", "LGBM-hi-90"),
     )
     cqr.fit(sample_time_series_data)
     pred_df = cqr.predict_interval(h=3)
@@ -310,7 +309,7 @@ def test_predict_interval_multi_pair_formatting(
         learner=mock_quantile_learner_multi,
         horizon=3,
         n_windows=2,
-        interval_pairs=pairs,
+        intervals=pairs,
     )
     cqr.fit(sample_time_series_data)
     pred_df = cqr.predict_interval(h=3)
@@ -330,7 +329,7 @@ def test_evaluate_output_structure_and_metrics(
         learner=mock_quantile_learner_multi,
         horizon=3,
         n_windows=2,
-        interval_pairs=pairs,
+        intervals=pairs,
     )
     cqr.fit(sample_time_series_data)
 
@@ -358,6 +357,8 @@ def test_evaluate_output_structure_and_metrics(
     assert len(eval_df) == 4
     assert set(eval_df["model"]) == {"LGBM", "LGBM-cqr"}
     assert set(eval_df["level"]) == {"90%", "50%"}
+    assert np.allclose(eval_df.loc[eval_df["level"] == "90%", "alpha"], 0.10)
+    assert np.allclose(eval_df.loc[eval_df["level"] == "50%", "alpha"], 0.50)
 
 
 def test_evaluate_metric_values_correctness(mock_quantile_learner_single):
@@ -365,7 +366,7 @@ def test_evaluate_metric_values_correctness(mock_quantile_learner_single):
     cqr = ConformalQuantileTimeSeriesRegressor(
         learner=mock_quantile_learner_single,
         horizon=2,
-        interval_pairs=("LGBM-lo-90", "LGBM-hi-90"),
+        intervals=("LGBM-lo-90", "LGBM-hi-90"),
     )
 
     # Mock do predict_interval contendo tanto os limites não-corrigidos quanto os corrigidos por CQR
@@ -391,7 +392,7 @@ def test_evaluate_metric_values_correctness(mock_quantile_learner_single):
         }
     )
 
-    eval_df = cqr.evaluate(df_test=df_test, h=2, alpha=0.10)
+    eval_df = cqr.evaluate(df_test=df_test, h=2)
 
     # Filtra apenas a métrica do CQR para asserção determinística
     cqr_eval = eval_df[eval_df["model"] == "LGBM-cqr"].iloc[0]
@@ -413,7 +414,7 @@ def test_tscqr_predict_raw(mock_quantile_learner_single, sample_time_series_data
         learner=mock_quantile_learner_single,
         horizon=3,
         n_windows=2,
-        interval_pairs=("LGBM-lo-90", "LGBM-hi-90"),
+        intervals=("LGBM-lo-90", "LGBM-hi-90"),
     )
     cqr.fit(sample_time_series_data)
     preds_raw = cqr._predict_raw(h=3)
@@ -426,61 +427,63 @@ def test_tscqr_predict_raw(mock_quantile_learner_single, sample_time_series_data
     assert not np.isinf(preds_raw).any()
 
 
-# --- Median Columns & Interpolation Tests ---
+# --- Interval Median Mapping & Interpolation Tests ---
 
 
-def test_normalize_median_cols_formats(mock_quantile_learner_single):
-    """Verify median_cols handles None, str, and List[str] inputs correctly."""
-    # Scenario 1: None -> []
-    cqr_none = ConformalQuantileTimeSeriesRegressor(
+def test_normalize_interval_pair_medians(mock_quantile_learner_multi):
+    """Associate a median with one pair while allowing another pair without one."""
+    cqr = ConformalQuantileTimeSeriesRegressor(
+        learner=mock_quantile_learner_multi,
+        horizon=3,
+        intervals={
+            ("LGBM-lo-90", "LGBM-hi-90"): "LGBM",
+            ("LGBM-lo-50", "LGBM-hi-50"): None,
+        },
+    )
+    assert cqr.intervals_ == [
+        ("LGBM-lo-90", "LGBM-hi-90"),
+        ("LGBM-lo-50", "LGBM-hi-50"),
+    ]
+    assert cqr.interval_medians_ == {
+        ("LGBM-lo-90", "LGBM-hi-90"): "LGBM",
+        ("LGBM-lo-50", "LGBM-hi-50"): None,
+    }
+    assert cqr.interval_alphas_ == {
+        ("LGBM-lo-90", "LGBM-hi-90"): pytest.approx(0.10),
+        ("LGBM-lo-50", "LGBM-hi-50"): pytest.approx(0.50),
+    }
+
+
+def test_legacy_intervals_have_no_medians(mock_quantile_learner_single):
+    """Tuple/list inputs remain valid and normalize to intervals without medians."""
+    cqr = ConformalQuantileTimeSeriesRegressor(
         learner=mock_quantile_learner_single,
         horizon=3,
-        interval_pairs=("LGBM-lo-90", "LGBM-hi-90"),
-        median_cols=None,
+        intervals=("LGBM-lo-90", "LGBM-hi-90"),
     )
-    assert cqr_none.median_cols_ == []
-
-    # Scenario 2: Single String -> ["LGBM"]
-    cqr_str = ConformalQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single,
-        horizon=3,
-        interval_pairs=("LGBM-lo-90", "LGBM-hi-90"),
-        median_cols="LGBM",
-    )
-    assert cqr_str.median_cols_ == ["LGBM"]
-
-    # Scenario 3: List[str] -> ["LGBM", "LGBM-med"]
-    cqr_list = ConformalQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single,
-        horizon=3,
-        interval_pairs=("LGBM-lo-90", "LGBM-hi-90"),
-        median_cols=["LGBM", "LGBM-med"],
-    )
-    assert cqr_list.median_cols_ == ["LGBM", "LGBM-med"]
+    assert cqr.interval_medians_ == {("LGBM-lo-90", "LGBM-hi-90"): None}
 
 
-def test_normalize_median_cols_invalid_raises_error(mock_quantile_learner_single):
-    """Ensure ValueError is raised when median_cols is given invalid types."""
-    with pytest.raises(ValueError, match="median_cols must be a single column name"):
+def test_interval_pair_median_invalid_raises_error(mock_quantile_learner_single):
+    """Reject dictionary values other than a median column name or None."""
+    with pytest.raises(ValueError, match="values must be a median column name"):
         ConformalQuantileTimeSeriesRegressor(
             learner=mock_quantile_learner_single,
             horizon=3,
-            interval_pairs=("LGBM-lo-90", "LGBM-hi-90"),
-            median_cols=12345,
+            intervals={("LGBM-lo-90", "LGBM-hi-90"): 12345},
         )
 
 
-def test_median_cols_reject_multiple_interval_pairs(mock_quantile_learner_multi):
-    """Avoid silently deriving one median from whichever interval pair runs last."""
-    with pytest.raises(ValueError, match="median_cols requires exactly one interval pair"):
+def test_repeated_median_rejects_multiple_intervals(mock_quantile_learner_multi):
+    """Avoid overwriting the same conformalized median from multiple pairs."""
+    with pytest.raises(ValueError, match="associated with only one interval pair"):
         ConformalQuantileTimeSeriesRegressor(
             learner=mock_quantile_learner_multi,
             horizon=3,
-            interval_pairs=[
-                ("LGBM-lo-90", "LGBM-hi-90"),
-                ("LGBM-lo-50", "LGBM-hi-50"),
-            ],
-            median_cols="LGBM",
+            intervals={
+                ("LGBM-lo-90", "LGBM-hi-90"): "LGBM",
+                ("LGBM-lo-50", "LGBM-hi-50"): "LGBM",
+            },
         )
 
 
@@ -492,8 +495,7 @@ def test_predict_interval_median_interpolation_correctness(
         learner=mock_quantile_learner_single,
         horizon=2,
         n_windows=2,
-        interval_pairs=("LGBM-lo-90", "LGBM-hi-90"),
-        median_cols="LGBM",
+        intervals={("LGBM-lo-90", "LGBM-hi-90"): "LGBM"},
     )
     cqr.fit(sample_time_series_data)
 
@@ -533,7 +535,7 @@ def test_quantile_pair_mismatch_model_raises_error(mock_quantile_learner_single)
         ConformalQuantileTimeSeriesRegressor(
             learner=mock_quantile_learner_single,
             horizon=3,
-            interval_pairs=("LGBM-lo-90", "XGB-hi-90"),
+            intervals=("LGBM-lo-90", "XGB-hi-90"),
         )
 
 
@@ -545,7 +547,7 @@ def test_quantile_pair_mismatch_level_raises_error(mock_quantile_learner_single)
         ConformalQuantileTimeSeriesRegressor(
             learner=mock_quantile_learner_single,
             horizon=3,
-            interval_pairs=("LGBM-lo-90", "LGBM-hi-50"),
+            intervals=("LGBM-lo-90", "LGBM-hi-50"),
         )
 
 
@@ -557,5 +559,5 @@ def test_quantile_pair_invalid_bound_indicator_raises_error(
         ConformalQuantileTimeSeriesRegressor(
             learner=mock_quantile_learner_single,
             horizon=3,
-            interval_pairs=("LGBM-mid-90", "LGBM-hi-90"),
+            intervals=("LGBM-mid-90", "LGBM-hi-90"),
         )
