@@ -3,9 +3,13 @@
 # Licensed under the MIT License
 
 
-from sklearn.base import ClassifierMixin, BaseEstimator
-import numpy as np
 import warnings
+
+import numpy as np
+from sklearn.base import BaseEstimator, ClassifierMixin
+
+from tinyconformal.utils.quantiles import conformal_quantile_level
+
 from .base import BaseConformalClassifier
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="venn_abers")
@@ -158,7 +162,6 @@ class BinaryClassConditionalConformalClassifier(
             # Use OOB predictions
             self.decision_function_ = self.learner.oob_decision_function_
         else:
-
             if X is None:
                 raise ValueError(
                     "Training data (X) must be provided if OOB is not used."
@@ -185,7 +188,12 @@ class BinaryClassConditionalConformalClassifier(
         alpha = self._get_alpha(alpha)
         q_level = np.zeros(len(self.classes))
         for c in self.classes:
-            q_level[c] = np.ceil((n[c] + 1) * (1 - alpha)) / n[c]
+            q_level[c] = conformal_quantile_level(
+                n[c],
+                alpha,
+                warning_registry=self._quantile_warning_registry,
+                context=f"{self.__class__.__name__} class {c!r}",
+            )
         return q_level
 
     def _compute_qhat(self, ncscore, q_level):
