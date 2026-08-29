@@ -3,11 +3,14 @@
 # Licensed under the MIT License
 
 
-from sklearn.utils.validation import check_is_fitted
-from sklearn.base import BaseEstimator
-import numpy as np
 from abc import ABC, abstractmethod
+
+import numpy as np
+from sklearn.base import BaseEstimator
 from sklearn.metrics import mean_absolute_error
+from sklearn.utils.validation import check_is_fitted
+
+from tinyconformal.utils.quantiles import conformal_quantile_level, validate_alpha
 
 
 class BaseConformalRegressor(ABC):
@@ -56,6 +59,7 @@ class BaseConformalRegressor(ABC):
         self.ncscore = None
         self.n = None
         self.beta = None
+        self._quantile_warning_registry = set()
 
         # Ensure the learner is fitted
         check_is_fitted(learner)
@@ -65,7 +69,6 @@ class BaseConformalRegressor(ABC):
         """
         Fits the classifier to the training data.
         """
-        pass
 
     @abstractmethod
     def predict_interval(self, X, alpha=None):
@@ -73,7 +76,6 @@ class BaseConformalRegressor(ABC):
         Generate prediction intervals for the input data.
         To be implemented by subclasses.
         """
-        pass
 
     @abstractmethod
     def predict(self, X):
@@ -81,7 +83,6 @@ class BaseConformalRegressor(ABC):
         Abstract method to retrieve point predictions (y_pred)
         specific to the conformal strategy (ICP vs CQR).
         """
-        pass
 
     def _compute_qhat(self, ncscore, q_level):
         """
@@ -92,7 +93,7 @@ class BaseConformalRegressor(ABC):
 
     def _get_alpha(self, alpha):
         """Helper to retrieve the alpha value."""
-        return alpha or self.alpha
+        return validate_alpha(self.alpha if alpha is None else alpha)
 
     def generate_conformal_quantile(self, alpha=None):
         """
@@ -115,15 +116,20 @@ class BaseConformalRegressor(ABC):
 
         Notes:
         ------
-        - The quantile is computed as ceil((n + 1) * (1 - alpha)) / n, where n is the
-          number of calibration samples.
+        - The order statistic has rank ceil((n + 1) * (1 - alpha)), clipped to
+          the observed score range when the requested coverage is unattainable.
         - This method relies on the self.ncscore attribute, which should contain the
           nonconformity scores of the calibration samples.
         """
 
         alpha = self._get_alpha(alpha)
 
-        q_level = np.ceil((self.n + 1) * (1 - alpha)) / self.n
+        q_level = conformal_quantile_level(
+            self.n,
+            alpha,
+            warning_registry=self._quantile_warning_registry,
+            context=self.__class__.__name__,
+        )
 
         return self._compute_qhat(self.ncscore, q_level)
 

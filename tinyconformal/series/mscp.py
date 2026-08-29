@@ -4,13 +4,13 @@
 
 import copy
 import re
-import warnings
 
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
 
 from tinyconformal.utils.imports import requires_extra
+from tinyconformal.utils.quantiles import central_conformal_quantile_levels
 
 from .base import BaseConformalTimeSeriesRegressor
 
@@ -233,29 +233,12 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
 
     def _sample_correction(self, alpha: float):
         """Compute equal-tailed finite-sample conformal quantile levels."""
-        n = self.n
-        if n <= 0:
-            raise RuntimeError(
-                "Calibration scores are required before computing bounds."
-            )
-        if alpha < 2.0 / (n + 1):
-            warnings.warn(
-                "The requested two-sided coverage is not attainable with the "
-                f"available calibration sample (n={n}); empirical quantile levels "
-                "will be clipped to the observed residual range.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-        low_rank = int(np.floor((n + 1) * alpha / 2.0))
-        high_rank = int(np.ceil((n + 1) * (1.0 - alpha / 2.0)))
-        low_rank = int(np.clip(low_rank, 1, n))
-        high_rank = int(np.clip(high_rank, 1, n))
-        if n == 1:
-            return 0.0, 0.0
-
-        # ``method="higher"`` selects zero-based index ``ceil(q * (n - 1))``.
-        # Mapping ranks this way therefore selects the exact conformal order statistic.
-        return (low_rank - 1) / (n - 1), (high_rank - 1) / (n - 1)
+        return central_conformal_quantile_levels(
+            self.n,
+            alpha,
+            warning_registry=self._quantile_warning_registry,
+            context=self.__class__.__name__,
+        )
 
     def _compute_bounds(
         self,

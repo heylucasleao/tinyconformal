@@ -11,6 +11,7 @@ from joblib import Parallel, delayed
 from sklearn.base import BaseEstimator, RegressorMixin
 
 from tinyconformal.utils.imports import requires_extra
+from tinyconformal.utils.quantiles import validate_alpha
 
 
 class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
@@ -99,6 +100,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         self.exog_cols_ = []
         self.ncscores_ = None
         self.n = 0
+        self._quantile_warning_registry = set()
 
     @abstractmethod
     def _generate_residuals(
@@ -184,11 +186,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
     @staticmethod
     def _validate_alpha(alpha: float) -> float:
         """Validate and normalize a concrete significance level."""
-        if not isinstance(alpha, (int, float, np.integer, np.floating)) or not (
-            0.0 < alpha < 1.0
-        ):
-            raise ValueError("alpha must be a number strictly between 0 and 1.")
-        return float(alpha)
+        return validate_alpha(alpha)
 
     def _validate_fit_configuration(self) -> None:
         """Validate subclass-specific calibration configuration before fitting."""

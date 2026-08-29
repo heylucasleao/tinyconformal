@@ -4,7 +4,6 @@
 
 import copy
 import re
-import warnings
 from collections.abc import Mapping
 
 import numpy as np
@@ -12,6 +11,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 
 from tinyconformal.utils.imports import requires_extra
+from tinyconformal.utils.quantiles import conformal_quantile_level
 
 from .base import BaseConformalTimeSeriesRegressor
 
@@ -103,7 +103,8 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
     Notes
     -----
     - Nonconformity scores are computed via $E_{i,t} = \max(q_{\text{low}} - y, y - q_{\text{high}})$.
-    - Finite-sample quantile adjustment uses level $\lceil (n+1)(1-\alpha) \rceil / n$.
+    - Finite-sample correction uses order-statistic rank
+      $\lceil (n+1)(1-\alpha) \rceil$, mapped exactly to NumPy's ``higher`` quantile.
 
     Examples
     --------
@@ -291,25 +292,12 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
 
     def _sample_correction(self, alpha: float) -> float:
         """Computes finite-sample quantile adjustment level."""
-        if self.n <= 0:
-            raise RuntimeError(
-                "Calibration scores are required before computing bounds."
-            )
-        if alpha < 1.0 / (self.n + 1):
-            warnings.warn(
-                "The requested coverage is not attainable with the available "
-                f"calibration sample (n={self.n}); the empirical quantile level "
-                "will be clipped to the largest observed score.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-        rank = int(np.ceil((self.n + 1) * (1.0 - alpha)))
-        rank = int(np.clip(rank, 1, self.n))
-        if self.n == 1:
-            return 0.0
-
-        # ``method="higher"`` selects zero-based index ``ceil(q * (n - 1))``.
-        return (rank - 1) / (self.n - 1)
+        return conformal_quantile_level(
+            self.n,
+            alpha,
+            warning_registry=self._quantile_warning_registry,
+            context=self.__class__.__name__,
+        )
 
     def _generate_residuals(
         self, q_low: np.ndarray, q_high: np.ndarray, y_true: np.ndarray

@@ -3,9 +3,13 @@
 # Licensed under the MIT License
 
 
-from sklearn.base import ClassifierMixin, BaseEstimator
-import numpy as np
 import warnings
+
+import numpy as np
+from sklearn.base import BaseEstimator, ClassifierMixin
+
+from tinyconformal.utils.quantiles import conformal_quantile_level
+
 from .base import BaseConformalClassifier
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="venn_abers")
@@ -143,7 +147,6 @@ class BinaryMarginalConformalClassifier(
             # Use OOB predictions
             self.decision_function_ = self.learner.oob_decision_function_
         else:
-
             if X is None:
                 raise ValueError(
                     "Training data (X) must be provided if OOB is not used."
@@ -174,7 +177,12 @@ class BinaryMarginalConformalClassifier(
         Compute the quantile level based on the number of samples and significance level.
         """
         alpha = self._get_alpha(alpha)
-        return np.ceil((n + 1) * (1 - alpha)) / n
+        return conformal_quantile_level(
+            n,
+            alpha,
+            warning_registry=self._quantile_warning_registry,
+            context=self.__class__.__name__,
+        )
 
     def _compute_set(self, ncscore, qhat):
         """
