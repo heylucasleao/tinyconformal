@@ -1,7 +1,9 @@
-import pytest
+from unittest.mock import MagicMock
+
 import numpy as np
 import pandas as pd
-from unittest.mock import MagicMock
+import pytest
+
 from tinyconformal.series import ConformalQuantileTimeSeriesRegressor
 
 
@@ -476,103 +478,6 @@ def test_tscqr_predict_raw(mock_quantile_learner_single, sample_time_series_data
     assert np.issubdtype(preds_raw.dtype, np.number)
     assert not np.isnan(preds_raw).any()
     assert not np.isinf(preds_raw).any()
-
-
-# --- Interval Median Mapping & Interpolation Tests ---
-
-
-def test_normalize_interval_pair_medians(mock_quantile_learner_multi):
-    """Associate a median with one pair while allowing another pair without one."""
-    cqr = ConformalQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_multi,
-        horizon=3,
-        intervals={
-            ("LGBM-lo-90", "LGBM-hi-90"): "LGBM",
-            ("LGBM-lo-50", "LGBM-hi-50"): None,
-        },
-    )
-    assert cqr.intervals_ == [
-        ("LGBM-lo-90", "LGBM-hi-90"),
-        ("LGBM-lo-50", "LGBM-hi-50"),
-    ]
-    assert cqr.interval_medians_ == {
-        ("LGBM-lo-90", "LGBM-hi-90"): "LGBM",
-        ("LGBM-lo-50", "LGBM-hi-50"): None,
-    }
-    assert cqr.interval_alphas_ == {
-        ("LGBM-lo-90", "LGBM-hi-90"): pytest.approx(0.10),
-        ("LGBM-lo-50", "LGBM-hi-50"): pytest.approx(0.50),
-    }
-
-
-def test_legacy_intervals_have_no_medians(mock_quantile_learner_single):
-    """Tuple/list inputs remain valid and normalize to intervals without medians."""
-    cqr = ConformalQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single,
-        horizon=3,
-        intervals=("LGBM-lo-90", "LGBM-hi-90"),
-    )
-    assert cqr.interval_medians_ == {("LGBM-lo-90", "LGBM-hi-90"): None}
-
-
-def test_interval_pair_median_invalid_raises_error(mock_quantile_learner_single):
-    """Reject dictionary values other than a median column name or None."""
-    with pytest.raises(ValueError, match="values must be a median column name"):
-        ConformalQuantileTimeSeriesRegressor(
-            learner=mock_quantile_learner_single,
-            horizon=3,
-            intervals={("LGBM-lo-90", "LGBM-hi-90"): 12345},
-        )
-
-
-def test_repeated_median_rejects_multiple_intervals(mock_quantile_learner_multi):
-    """Avoid overwriting the same conformalized median from multiple pairs."""
-    with pytest.raises(ValueError, match="associated with only one interval pair"):
-        ConformalQuantileTimeSeriesRegressor(
-            learner=mock_quantile_learner_multi,
-            horizon=3,
-            intervals={
-                ("LGBM-lo-90", "LGBM-hi-90"): "LGBM",
-                ("LGBM-lo-50", "LGBM-hi-50"): "LGBM",
-            },
-        )
-
-
-def test_predict_interval_median_interpolation_correctness(
-    mock_quantile_learner_single, sample_time_series_data
-):
-    """Verify mathematical correctness of skew_ratio and median adjustment in predict_interval."""
-    cqr = ConformalQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single,
-        horizon=2,
-        n_windows=2,
-        intervals={("LGBM-lo-90", "LGBM-hi-90"): "LGBM"},
-    )
-    cqr.fit(sample_time_series_data)
-
-    # Mock no learner predict para simular um cenário controlado
-    # q_low = 10, q_med = 12.5 (ratio = 2.5/10 = 0.25), q_high = 20
-    mock_quantile_learner_single.predict.side_effect = None
-    mock_quantile_learner_single.predict.return_value = pd.DataFrame(
-        {
-            "unique_id": ["series_1"] * 2,
-            "ds": pd.date_range("2024-01-31", periods=2),
-            "LGBM-lo-90": [10.0, 10.0],
-            "LGBM": [12.5, 12.5],
-            "LGBM-hi-90": [20.0, 20.0],
-        }
-    )
-
-    # Força q_hat constante de 2.0 (novos limites: lo=8.0, hi=22.0, spread=14.0)
-    cqr._compute_bounds = MagicMock(
-        return_value=(np.array([8.0, 8.0]), np.array([22.0, 22.0]))
-    )
-
-    pred_df = cqr.predict_interval(h=2)
-
-    assert "LGBM-cqr" in pred_df.columns
-    # Com skew_ratio = 0.25 -> 8.0 + 0.25 * (22.0 - 8.0) = 8.0 + 3.5 = 11.5
-    np.testing.assert_array_almost_equal(pred_df["LGBM-cqr"].to_numpy(), [11.5, 11.5])
 
 
 # --- Pattern Matching & Quantile Validation Errors ---

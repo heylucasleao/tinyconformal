@@ -180,11 +180,7 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         Pivots ground-truth DataFrames into a 2D NumPy array (n_series, horizon).
         Ensures strict row and column alignment sorting matching predictions.
         """
-        pivoted = target_df.pivot(
-            index=self.id_col, columns=self.time_col, values=self.target_col
-        )
-        pivoted = pivoted.sort_index(axis=0).sort_index(axis=1)
-        return pivoted.values
+        return self._pivot_panel(target_df, self.target_col).to_numpy()
 
     def _compute_window_residuals(
         self,
@@ -195,41 +191,17 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
     ) -> None:
         """Computes residuals for the predictions and appends them to the tracking dictionary."""
         model_cols = self._infer_model_cols(fcst)
-        y_true = self._extract_target(val_df)
-        if y_true.shape != (n_series, self.horizon) or np.isnan(y_true).any():
-            raise ValueError(
-                "Each series must contain exactly one target value for every "
-                "calibration horizon step."
-            )
+        target_pivot, y_true = self._extract_target_panel(val_df, n_series)
 
         for model in model_cols:
-            target_pivot = (
-                val_df.pivot(
-                    index=self.id_col, columns=self.time_col, values=self.target_col
-                )
-                .sort_index(axis=0)
-                .sort_index(axis=1)
-            )
-            forecast_pivot = (
-                fcst.pivot(index=self.id_col, columns=self.time_col, values=model)
-                .sort_index(axis=0)
-                .sort_index(axis=1)
-            )
+            forecast_pivot = self._pivot_panel(fcst, model)
             y_hat = forecast_pivot.to_numpy()
-            if (
-                not forecast_pivot.index.equals(target_pivot.index)
-                or y_hat.shape != y_true.shape
-                or np.isnan(y_hat).any()
-            ):
-                raise ValueError(
-                    "Forecast and target rows are not aligned for every series and "
-                    "calibration horizon step."
-                )
-            r = self._generate_residuals(y_hat, y_true)
-
-            if model not in residuals_by_model:
-                residuals_by_model[model] = []
-            residuals_by_model[model].append(r)
+            self._validate_calibration_forecasts(
+                forecast_pivot.index, target_pivot, y_hat
+            )
+            residuals_by_model.setdefault(model, []).append(
+                self._generate_residuals(y_hat, y_true)
+            )
 
     def _sample_correction(self, alpha: float):
         """Compute equal-tailed finite-sample conformal quantile levels."""

@@ -249,6 +249,54 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             )
         return len(counts)
 
+    def _pivot_panel(self, df: pd.DataFrame, values: str | list[str]) -> pd.DataFrame:
+        """Pivot a long-format panel and deterministically order both axes."""
+        return (
+            df.pivot(index=self.id_col, columns=self.time_col, values=values)
+            .sort_index(axis=0)
+            .sort_index(axis=1)
+        )
+
+    def _extract_target_panel(
+        self, val_df: pd.DataFrame, n_series: int
+    ) -> tuple[pd.DataFrame, np.ndarray]:
+        """Build and validate the target panel for one calibration window."""
+        target_pivot = self._pivot_panel(val_df, self.target_col)
+        y_true = target_pivot.to_numpy()
+        if y_true.shape != (n_series, self.horizon) or np.isnan(y_true).any():
+            raise ValueError(
+                "Each series must contain exactly one target value for every "
+                "calibration horizon step."
+            )
+        return target_pivot, y_true
+
+    @staticmethod
+    def _validate_calibration_forecasts(
+        forecast_index: pd.Index,
+        target_pivot: pd.DataFrame,
+        *forecast_arrays: np.ndarray,
+    ) -> None:
+        """Validate forecast arrays against the target calibration panel."""
+        if (
+            not forecast_index.equals(target_pivot.index)
+            or any(array.shape != target_pivot.shape for array in forecast_arrays)
+            or any(np.isnan(array).any() for array in forecast_arrays)
+        ):
+            raise ValueError(
+                "Forecast and target rows are not aligned for every series and "
+                "calibration horizon step."
+            )
+
+    @staticmethod
+    def _require_forecast_columns(fcst: pd.DataFrame, columns: tuple[str, ...]) -> None:
+        """Raise a descriptive error when configured forecast columns are absent."""
+        missing = [column for column in columns if column not in fcst.columns]
+        if missing:
+            raise KeyError(
+                f"Columns {tuple(missing)} were not found in forecast output. "
+                f"Available columns: {list(fcst.columns)}"
+            )
+
     def _invoke(self, method, **kwargs):
         """
         Executes a callable (fit, predict, cross_validation) injecting only
