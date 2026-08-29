@@ -98,6 +98,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
 
         self.model_col_ = None
         self.exog_cols_ = []
+        self.static_features_ = []
         self.ncscores_ = None
         self.n = 0
         self._quantile_warning_registry = set()
@@ -220,6 +221,22 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
                 f"The following future feature columns are missing: {missing}"
             )
         return df[required].copy()
+
+    def _validate_prediction_features(
+        self, X_df: pd.DataFrame | None, h: int
+    ) -> pd.DataFrame | None:
+        """Validate and normalize explicitly supplied future dynamic features."""
+        if X_df is None:
+            return None
+
+        required = [self.id_col, self.time_col, *self.exog_cols_]
+        missing = [column for column in required if column not in X_df.columns]
+        if missing:
+            raise ValueError(
+                f"The following future feature columns are missing: {missing}"
+            )
+        self._validate_prediction_panel(X_df, h)
+        return X_df[required].copy()
 
     def _merge_predictions_with_targets(
         self, pred_df: pd.DataFrame, target_df: pd.DataFrame
@@ -428,6 +445,25 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
                 f"The following required columns are missing from the DataFrame: {missing}"
             )
 
+    def _validate_static_features(
+        self, df: pd.DataFrame, static_features: list | None
+    ) -> list:
+        """Normalize and validate static feature column names."""
+        static_features = [] if static_features is None else list(static_features)
+        missing = [column for column in static_features if column not in df.columns]
+        if missing:
+            raise ValueError(
+                f"The following static feature columns are missing: {missing}"
+            )
+
+        structural = {self.id_col, self.time_col, self.target_col}
+        invalid = [column for column in static_features if column in structural]
+        if invalid:
+            raise ValueError(
+                "Structural and target columns cannot be static features: " f"{invalid}"
+            )
+        return static_features
+
     def _sequential_backtesting(
         self,
         df: pd.DataFrame,
@@ -485,7 +521,19 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         step_size : int, optional
             Step size between calibration windows. If None, defaults to `self.horizon`.
         static_features : list, optional
-            List of static feature column names passed directly to the base learner.
+            Columns that identify time-invariant properties of each series. They are
+            passed to the base learner during fitting and excluded from future
+            dynamic exogenous inputs. Every other non-structural column is treated
+            as a dynamic exogenous feature.
+        n_jobs : int, default=-1
+            Number of parallel jobs used to process calibration windows.
+
+        Notes
+        -----
+        Prediction horizons must not exceed the horizon calibrated here. If the
+        requested coverage is unattainable for the finite calibration sample, the
+        conformal rank is clipped to the observed scores and a ``RuntimeWarning``
+        is emitted.
 
         Returns:
         -------
@@ -505,16 +553,24 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         ):
             raise ValueError("n_windows must be a positive integer.")
 
+        self.static_features_ = self._validate_static_features(df, static_features)
+
         self.exog_cols_ = [
             col
             for col in df.columns
-            if col not in (self.id_col, self.time_col, self.target_col)
+            if col
+            not in (
+                self.id_col,
+                self.time_col,
+                self.target_col,
+                *self.static_features_,
+            )
         ]
 
         residuals_by_model = self._sequential_backtesting(
             df,
             step_size=step_size,
-            static_features=static_features,
+            static_features=self.static_features_ or None,
             n_jobs=n_jobs,
         )
 
@@ -537,7 +593,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             id_col=self.id_col,
             time_col=self.time_col,
             target_col=self.target_col,
-            static_features=static_features,
+            static_features=self.static_features_ or None,
         )
 
         return self

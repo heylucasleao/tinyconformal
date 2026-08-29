@@ -217,6 +217,42 @@ conformal_cqr_ts.fit(df, step_size=7)
 intervals_df = conformal_cqr_ts.predict_interval(h=7)
 ```
 
+#### Future features and evaluation data
+
+Columns passed through `static_features` belong to each series and are supplied to
+the learner only during fitting. All other non-structural columns in the training
+data are treated as dynamic exogenous features and must be available for future
+timestamps through `X_df`:
+
+```python
+conformal_ts.fit(
+    train_df,
+    static_features=["region"],
+)
+intervals_df = conformal_ts.predict_interval(
+    h=7,
+    X_df=future_df[["unique_id", "ds", "temperature"]],
+)
+```
+
+An explicit `X_df` must contain the identifier, time, and every dynamic exogenous
+column used during fitting. It must also contain exactly `h` unique timestamps per
+series, using the same timestamp grid for every series. The prediction horizon must
+be positive and cannot exceed the `horizon` used for calibration.
+
+`evaluate(df_test, h=...)` uses dynamic features from `df_test` and requires exactly
+one non-missing target for every predicted identifier/timestamp pair. Duplicate or
+missing targets raise an error instead of being silently omitted from the metrics.
+
+MSCP supports fractional coverage levels. For example, `alpha=0.055` produces
+columns such as `Model-lo-94.5` and `Model-hi-94.5`.
+
+Finite-sample conformal correction uses discrete order statistics. When the
+requested coverage cannot be attained with the available calibration sample, a
+`RuntimeWarning` is emitted and the rank is clipped to the observed score range.
+Increasing the number of calibration trajectories, usually through more windows or
+series, permits more extreme coverage levels.
+
 ### Time Series Mechanics: Horizon vs. Step Size
 
 When calibrating over time series, nonconformity scores are extracted by performing sequential backtesting across multiple calibration windows. The calibration movement is controlled by two parameters:

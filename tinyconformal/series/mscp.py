@@ -239,6 +239,12 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
 
         return lower_bound, upper_bound
 
+    @staticmethod
+    def _coverage_label(alpha: float) -> str:
+        """Format percentage coverage without discarding fractional levels."""
+        coverage = (1.0 - alpha) * 100.0
+        return np.format_float_positional(coverage, precision=12, trim="-")
+
     @requires_extra("series")
     def predict_interval(
         self,
@@ -249,6 +255,20 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         """
         Generates prediction intervals [lower, upper] for Nixtla inputs.
 
+        Parameters
+        ----------
+        h : int, optional
+            Forecast horizon. Defaults to the calibrated horizon and cannot exceed
+            it.
+        X_df : pd.DataFrame, optional
+            Future dynamic features. When provided, it must include the identifier,
+            time, and all dynamic exogenous columns, with exactly ``h`` rows per
+            series and a common timestamp grid.
+        alpha : float, optional
+            Significance level overriding the value configured at initialization.
+            Fractional coverage percentages are preserved in output column names;
+            for example, ``alpha=0.055`` produces a ``-94.5`` suffix.
+
         Returns
         -------
         pd.DataFrame
@@ -256,6 +276,7 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         """
         h = self._get_horizon(h)
         self._check_is_fitted()
+        X_df = self._validate_prediction_features(X_df, h)
 
         pred_df = (
             self._invoke(
@@ -285,7 +306,7 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
                 alpha=alpha,
             )
             eff_alpha = self._get_alpha(alpha)
-            level = round((1 - eff_alpha) * 100)
+            level = self._coverage_label(eff_alpha)
 
             pred_df[f"{model}-lo-{level}"] = lower_bound
             pred_df[f"{model}-hi-{level}"] = upper_bound
@@ -299,7 +320,11 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         h: int | None = None,
         alpha: float | None = None,
     ) -> pd.DataFrame:
-        """Evaluate MSCP intervals using one global or overridden alpha."""
+        """Evaluate MSCP intervals using one global or overridden alpha.
+
+        ``df_test`` must provide exactly one non-missing target for every predicted
+        identifier and timestamp. Duplicate or missing matches raise ``ValueError``.
+        """
         alpha = self._get_alpha(alpha)
         eval_df = self.predict_interval(
             X_df=self._prediction_features(df_test), h=h, alpha=alpha
@@ -307,7 +332,9 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         eval_df = self._merge_predictions_with_targets(eval_df, df_test)
 
         y_true = eval_df[self.target_col].to_numpy()
-        bound_pattern = re.compile(r"^(?P<model>.+)-lo-(?P<level>\d+)$")
+        bound_pattern = re.compile(
+            r"^(?P<model>.+)-lo-(?P<level>\d+(?:\.\d+)?)$"
+        )
         records = []
         for col in eval_df.columns:
             match = bound_pattern.match(col)

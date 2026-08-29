@@ -394,9 +394,12 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         Parameters
         ----------
         h : Optional[int], default=None
-            Forecast horizon. If None, uses the default horizon from the underlying learner.
+            Forecast horizon. If None, uses the calibrated horizon. It cannot exceed
+            the horizon used during fitting.
         X_df : Optional[pd.DataFrame], default=None
-            Exogenous features DataFrame for the forecast horizon.
+            Future dynamic features. When provided, it must include the identifier,
+            time, and all dynamic exogenous columns, with exactly ``h`` rows per
+            series and a common timestamp grid.
 
         Returns
         -------
@@ -406,6 +409,7 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         """
         h = self._get_horizon(h)
         self._check_is_fitted()
+        X_df = self._validate_prediction_features(X_df, h)
 
         pred_df = (
             self._invoke(
@@ -450,7 +454,11 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         df_test: pd.DataFrame,
         h: int | None = None,
     ) -> pd.DataFrame:
-        """Evaluate every configured raw and conformalized interval at its own alpha."""
+        """Evaluate every configured raw and conformalized interval at its own alpha.
+
+        ``df_test`` must provide exactly one non-missing target for every predicted
+        identifier and timestamp. Duplicate or missing matches raise ``ValueError``.
+        """
         eval_df = self.predict_interval(X_df=self._prediction_features(df_test), h=h)
         eval_df = self._merge_predictions_with_targets(eval_df, df_test)
 

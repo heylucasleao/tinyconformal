@@ -649,3 +649,66 @@ def test_evaluate_requires_target_for_every_prediction(
 
     with pytest.raises(ValueError, match="target for every prediction row"):
         cdr.evaluate(test_df, h=2)
+
+
+def test_fit_separates_static_and_dynamic_features(
+    mock_point_learner, sample_distribution_data
+):
+    df = sample_distribution_data.assign(
+        region=lambda frame: frame["unique_id"].map({"id_1": "north", "id_2": "south"}),
+        temperature=np.arange(len(sample_distribution_data)),
+    )
+    cdr = ConformalDistributionTimeSeriesRegressor(
+        learner=mock_point_learner, horizon=2, n_windows=2
+    ).fit(df, static_features=["region"], n_jobs=1)
+
+    assert cdr.static_features_ == ["region"]
+    assert cdr.exog_cols_ == ["temperature"]
+    for call in mock_point_learner.fit.call_args_list:
+        assert call.kwargs["static_features"] == ["region"]
+    for call in mock_point_learner.predict.call_args_list[:-1]:
+        assert "region" not in call.kwargs["X_df"].columns
+        assert "temperature" in call.kwargs["X_df"].columns
+
+
+def test_predict_validates_explicit_future_features(
+    mock_point_learner, sample_distribution_data
+):
+    df = sample_distribution_data.assign(temperature=1.0)
+    cdr = ConformalDistributionTimeSeriesRegressor(
+        learner=mock_point_learner, horizon=2, n_windows=2
+    ).fit(df)
+    invalid_future = pd.DataFrame(
+        {
+            "unique_id": ["id_1"] * 2 + ["id_2"] * 2,
+            "ds": list(pd.date_range("2024-01-26", periods=2)) * 2,
+        }
+    )
+
+    with pytest.raises(ValueError, match="temperature"):
+        cdr.predict_interval(h=2, X_df=invalid_future)
+
+
+def test_mscp_preserves_fractional_coverage_in_column_names(
+    mock_point_learner, sample_distribution_data
+):
+    cdr = ConformalDistributionTimeSeriesRegressor(
+        learner=mock_point_learner, horizon=2, n_windows=2, alpha=0.055
+    ).fit(sample_distribution_data)
+
+    pred_df = cdr.predict_interval(h=2)
+
+    assert "LGBMRegressor-lo-94.5" in pred_df
+    assert "LGBMRegressor-hi-94.5" in pred_df
+
+    test_dates = pd.date_range("2024-01-26", periods=2)
+    test_df = pd.DataFrame(
+        {
+            "unique_id": ["id_1"] * 2 + ["id_2"] * 2,
+            "ds": list(test_dates) * 2,
+            "y": [20.0] * 4,
+        }
+    )
+    eval_df = cdr.evaluate(test_df, h=2)
+    assert eval_df.loc[0, "level"] == "94.5%"
+    assert eval_df.loc[0, "alpha"] == pytest.approx(0.055)
