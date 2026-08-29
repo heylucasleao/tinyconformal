@@ -157,11 +157,16 @@ def test_cqr_fit_predict_evaluate(regression_dataset, cqr_learner):
     _assert_interval_outputs(reg, regression_dataset)
 
 
-def test_cqr_unlabeled_fit_requires_X_and_beta(cqr_learner, regression_dataset):
+def test_cqr_unlabeled_fit_requires_inputs(cqr_learner, regression_dataset):
     reg = ConformalizedQuantileRegressor(cqr_learner, alpha=0.05)
 
     with pytest.raises(ValueError, match="Unlabeled calibration data"):
         reg.unlabeled_fit(X=None, tilde_beta=1.5, beta=0.1)
+
+    with pytest.raises(ValueError, match="tilde_beta"):
+        reg.unlabeled_fit(
+            X=regression_dataset["X_calib"], tilde_beta=None, beta=0.1
+        )
 
     with pytest.raises(ValueError, match="beta"):
         reg.unlabeled_fit(X=regression_dataset["X_calib"], tilde_beta=1.5, beta=None)
