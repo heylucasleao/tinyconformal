@@ -2,8 +2,11 @@
 # TinyConformal - A small toolbox for conformal prediction
 # Licensed under the MIT License
 
+from itertools import pairwise
+
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone
+from sklearn.utils.validation import check_is_fitted
 
 
 class MultiQuantileRegressor(BaseEstimator, RegressorMixin):
@@ -24,7 +27,6 @@ class MultiQuantileRegressor(BaseEstimator, RegressorMixin):
     def __init__(self, base_estimator: BaseEstimator, quantiles=(0.025, 0.5, 0.975)):
         self.base_estimator = base_estimator
         self.quantiles = tuple(quantiles)
-        self.models_ = {}
 
         self._validate_quantiles(self.quantiles)
 
@@ -39,6 +41,14 @@ class MultiQuantileRegressor(BaseEstimator, RegressorMixin):
                 f"If 3 quantiles are provided, 0.5 (median) must be included. "
                 f"Got quantiles: {quantiles}."
             )
+        if not all(
+            isinstance(q, (int, float, np.integer, np.floating)) for q in quantiles
+        ):
+            raise TypeError("Quantiles must be numeric values.")
+        if not all(0.0 < float(q) < 1.0 for q in quantiles):
+            raise ValueError("Quantiles must be strictly between 0 and 1.")
+        if any(left >= right for left, right in pairwise(quantiles)):
+            raise ValueError("Quantiles must be unique and in strictly increasing order.")
 
     def _set_quantile_param(self, model: BaseEstimator, q: float) -> BaseEstimator:
         """
@@ -94,8 +104,7 @@ class MultiQuantileRegressor(BaseEstimator, RegressorMixin):
         y_pred : ndarray of shape (n_samples, len(quantiles))
             Stacked quantile predictions.
         """
-        if not self.models_:
-            raise ValueError("This MultiQuantileRegressor instance is not fitted yet.")
+        check_is_fitted(self, "models_")
 
         if quantiles is None:
             quantiles = self.quantiles
