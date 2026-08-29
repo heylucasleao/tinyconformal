@@ -411,7 +411,10 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         n_series: int,
         alpha: Optional[float] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Computes lower and upper conformalized quantile bounds: [q_low - q_hat, q_high + q_hat]"""
+        """Computes lower and upper conformalized quantile bounds.
+
+        The returned bounds are ``q_low - q_hat`` and ``q_high + q_hat``.
+        """
         eff_alpha = self._get_alpha(alpha)
         q_level = self._sample_correction(eff_alpha)
 

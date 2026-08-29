@@ -233,8 +233,8 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         alpha: Optional[float] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Calcula os limites inferior e superior conformais sobre vetores 1D
-        mantendo a eficiência de memória (eixo das janelas).
+        Computes the lower and upper conformal bounds over 1D vectors while
+        preserving memory efficiency along the calibration-window axis.
         """
         alpha = self._get_alpha(alpha)
         low_q, high_q = self._sample_correction(alpha)
