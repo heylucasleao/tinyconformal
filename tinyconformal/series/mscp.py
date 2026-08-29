@@ -332,9 +332,7 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         eval_df = self._merge_predictions_with_targets(eval_df, df_test)
 
         y_true = eval_df[self.target_col].to_numpy()
-        bound_pattern = re.compile(
-            r"^(?P<model>.+)-lo-(?P<level>\d+(?:\.\d+)?)$"
-        )
+        bound_pattern = re.compile(r"^(?P<model>.+)-lo-(?P<level>\d+(?:\.\d+)?)$")
         records = []
         for col in eval_df.columns:
             match = bound_pattern.match(col)
