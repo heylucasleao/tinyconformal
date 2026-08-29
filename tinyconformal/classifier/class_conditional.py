@@ -100,6 +100,11 @@ class BinaryClassConditionalConformalClassifier(
         self.hinge = [ncscore[idx_max == c] for c in self.classes]
         self.n = [np.sum(idx_max == c) for c in self.classes]
 
+        if any(n_c == 0 for n_c in self.n):
+            raise ValueError(
+                "Class-conditional calibration requires pseudo-labels from both classes."
+            )
+
         return self
 
     def fit(self, X=None, y=None, oob=False):
@@ -128,6 +133,14 @@ class BinaryClassConditionalConformalClassifier(
         """
         if y is None:
             raise ValueError("The true labels (y) must be provided.")
+
+        if any(not np.any(y == c) for c in self.classes):
+            raise ValueError(
+                "Class-conditional calibration requires samples from both classes."
+            )
+
+        self.is_unlabeled = False
+        self.beta = None
 
         if oob:
             if (

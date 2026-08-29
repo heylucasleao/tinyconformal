@@ -124,6 +124,9 @@ class BinaryMarginalConformalClassifier(
         if y is None:
             raise ValueError("The true labels (y) must be provided.")
 
+        self.is_unlabeled = False
+        self.beta = None
+
         if oob:
             if (
                 not hasattr(self.learner, "oob_decision_function_")
