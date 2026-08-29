@@ -9,10 +9,11 @@ from sklearn.base import BaseEstimator
 from .base import BaseConformalTimeSeriesRegressor
 import re
 from tinyconformal.utils.imports import requires_extra
+import copy
 
 
 class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
-    """
+    r"""
     Multi-Step Conformal Quantile Regressor for Time Series (TSCQR).
 
     Applies Conformalized Quantile Regression (CQR) over multi-step horizons for
@@ -162,6 +163,11 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         )
         self.median_cols = median_cols
         self.median_cols_: List[str] = self._normalize_median_cols(median_cols)
+        if self.median_cols_ and len(self.interval_pairs_) != 1:
+            raise ValueError(
+                "median_cols requires exactly one interval pair because a single "
+                "conformalized median cannot be derived unambiguously from multiple pairs."
+            )
 
     def _parse_quantile_pair(self, low_col: str, high_col: str) -> Dict[str, str]:
         """
@@ -312,8 +318,9 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         static_features: Optional[list],
     ) -> pd.DataFrame:
         """Clones the learner, fits it on the training window, and predicts the validation window."""
-        learner_clone = self._invoke(
-            self.learner.fit,
+        learner_clone = copy.deepcopy(self.learner)
+        self._invoke(
+            learner_clone.fit,
             df=train_df,
             id_col=self.id_col,
             time_col=self.time_col,
@@ -344,7 +351,19 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         residuals_by_model: dict,
     ) -> None:
         """Calculates nonconformity scores for the predictions and updates the residuals dictionary."""
-        y_true = val_df[self.target_col].to_numpy().reshape(n_series, self.horizon)
+        target_pivot = (
+            val_df.pivot(
+                index=self.id_col, columns=self.time_col, values=self.target_col
+            )
+            .sort_index(axis=0)
+            .sort_index(axis=1)
+        )
+        y_true = target_pivot.to_numpy()
+        if y_true.shape != (n_series, self.horizon) or np.isnan(y_true).any():
+            raise ValueError(
+                "Each series must contain exactly one target value for every "
+                "calibration horizon step."
+            )
 
         for low_col, high_col in self.interval_pairs_:
             if low_col not in fcst.columns or high_col not in fcst.columns:
@@ -353,8 +372,28 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
                     f"Available columns: {list(fcst.columns)}"
                 )
 
-            q_low = fcst[low_col].to_numpy().reshape(n_series, self.horizon)
-            q_high = fcst[high_col].to_numpy().reshape(n_series, self.horizon)
+            quantiles = (
+                fcst.pivot(
+                    index=self.id_col,
+                    columns=self.time_col,
+                    values=[low_col, high_col],
+                )
+                .sort_index(axis=0)
+                .sort_index(axis=1, level=1)
+            )
+            q_low = quantiles[low_col].to_numpy()
+            q_high = quantiles[high_col].to_numpy()
+            if (
+                not quantiles.index.equals(target_pivot.index)
+                or q_low.shape != y_true.shape
+                or q_high.shape != y_true.shape
+                or np.isnan(q_low).any()
+                or np.isnan(q_high).any()
+            ):
+                raise ValueError(
+                    "Forecast and target rows are not aligned for every series and "
+                    "calibration horizon step."
+                )
 
             pair_key = f"{low_col}:{high_col}"
             r = self._generate_residuals(q_low, q_high, y_true)
@@ -418,6 +457,7 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         """
         alpha = self._get_alpha(alpha)
         h = self._get_horizon(h)
+        self._check_is_fitted()
 
         pred_df = (
             self._invoke(
