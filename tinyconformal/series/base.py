@@ -145,7 +145,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         """Calculates nonconformity scores for the predictions and updates the residuals dictionary."""
 
     @abstractmethod
-    def predict_interval(self, *args, **kwargs) -> np.ndarray:
+    def predict_interval(self, *args, **kwargs) -> pd.DataFrame:
         """
         Generate prediction intervals for the input data.
         To be implemented by subclasses.
@@ -220,6 +220,33 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
                 f"The following future feature columns are missing: {missing}"
             )
         return df[required].copy()
+
+    def _merge_predictions_with_targets(
+        self, pred_df: pd.DataFrame, target_df: pd.DataFrame
+    ) -> pd.DataFrame:
+        """Attach targets while preserving exactly one match per prediction row."""
+        keys = [self.id_col, self.time_col]
+        required = [*keys, self.target_col]
+        missing = [column for column in required if column not in target_df.columns]
+        if missing:
+            raise ValueError(
+                f"The evaluation DataFrame is missing required columns: {missing}"
+            )
+        if target_df.duplicated(keys).any():
+            raise ValueError(
+                "The evaluation DataFrame must contain at most one target per "
+                "identifier and time."
+            )
+
+        merged = pred_df.merge(
+            target_df[required], on=keys, how="left", validate="one_to_one"
+        )
+        if merged[self.target_col].isna().any():
+            raise ValueError(
+                "The evaluation DataFrame must contain a target for every "
+                "prediction row."
+            )
+        return merged
 
     def _validate_prediction_panel(self, pred_df: pd.DataFrame, h: int) -> int:
         """Validate that forecasts form a balanced series-by-horizon panel."""

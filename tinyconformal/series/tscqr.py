@@ -420,6 +420,7 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         n_series = self._validate_prediction_panel(pred_df, h)
 
         for low_col, high_col in self.intervals_:
+            self._require_forecast_columns(pred_df, (low_col, high_col))
             q_low = pred_df[low_col].to_numpy()
             q_high = pred_df[high_col].to_numpy()
             if np.any(q_low > q_high):
@@ -451,15 +452,7 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
     ) -> pd.DataFrame:
         """Evaluate every configured raw and conformalized interval at its own alpha."""
         eval_df = self.predict_interval(X_df=self._prediction_features(df_test), h=h)
-        eval_df = eval_df.merge(
-            df_test[[self.id_col, self.time_col, self.target_col]],
-            on=[self.id_col, self.time_col],
-            how="inner",
-        )
-        if eval_df.empty:
-            raise ValueError(
-                "No prediction rows matched df_test on the identifier and time columns."
-            )
+        eval_df = self._merge_predictions_with_targets(eval_df, df_test)
 
         y_true = eval_df[self.target_col].to_numpy()
         records = []

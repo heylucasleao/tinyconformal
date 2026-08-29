@@ -1,7 +1,9 @@
-import pytest
+from unittest.mock import MagicMock
+
 import numpy as np
 import pandas as pd
-from unittest.mock import MagicMock
+import pytest
+
 from tinyconformal.series import ConformalDistributionTimeSeriesRegressor
 
 
@@ -590,3 +592,60 @@ def test_predict_rejects_inconsistent_forecast_time_grids(
 
     with pytest.raises(ValueError, match="same horizon timestamps"):
         cdr.predict_interval(h=2)
+
+
+def test_predict_rejects_model_not_seen_during_calibration(
+    mock_point_learner, sample_distribution_data
+):
+    cdr = ConformalDistributionTimeSeriesRegressor(
+        learner=mock_point_learner, horizon=2, n_windows=2
+    ).fit(sample_distribution_data)
+    mock_point_learner.predict.side_effect = None
+    mock_point_learner.predict.return_value = pd.DataFrame(
+        {
+            "unique_id": ["id_1"] * 2 + ["id_2"] * 2,
+            "ds": list(pd.date_range("2024-01-26", periods=2)) * 2,
+            "OtherModel": [20.0] * 4,
+        }
+    )
+
+    with pytest.raises(ValueError, match="was not present during calibration"):
+        cdr.predict_interval(h=2)
+
+
+def test_evaluate_rejects_duplicate_targets(
+    mock_point_learner, sample_distribution_data
+):
+    cdr = ConformalDistributionTimeSeriesRegressor(
+        learner=mock_point_learner, horizon=2, n_windows=2
+    ).fit(sample_distribution_data)
+    test_df = pd.DataFrame(
+        {
+            "unique_id": ["id_1", "id_1", "id_1", "id_2", "id_2"],
+            "ds": pd.to_datetime(
+                ["2024-01-26", "2024-01-26", "2024-01-27", "2024-01-26", "2024-01-27"]
+            ),
+            "y": [20.0] * 5,
+        }
+    )
+
+    with pytest.raises(ValueError, match="at most one target"):
+        cdr.evaluate(test_df, h=2)
+
+
+def test_evaluate_requires_target_for_every_prediction(
+    mock_point_learner, sample_distribution_data
+):
+    cdr = ConformalDistributionTimeSeriesRegressor(
+        learner=mock_point_learner, horizon=2, n_windows=2
+    ).fit(sample_distribution_data)
+    test_df = pd.DataFrame(
+        {
+            "unique_id": ["id_1", "id_1", "id_2"],
+            "ds": pd.to_datetime(["2024-01-26", "2024-01-27", "2024-01-26"]),
+            "y": [20.0] * 3,
+        }
+    )
+
+    with pytest.raises(ValueError, match="target for every prediction row"):
+        cdr.evaluate(test_df, h=2)

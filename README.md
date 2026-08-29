@@ -198,7 +198,10 @@ from tinyconformal.series import ConformalQuantileTimeSeriesRegressor
 
 # Forecaster configured to output quantile columns
 mlf = MLForecast(
-    models=[LGBMRegressor(objective="quantile", alpha=0.05), LGBMRegressor(objective="quantile", alpha=0.95)],
+    models={
+        "LGBM-lo-90": LGBMRegressor(objective="quantile", alpha=0.05),
+        "LGBM-hi-90": LGBMRegressor(objective="quantile", alpha=0.95),
+    },
     freq="D",
     lags=[1, 7],
 )

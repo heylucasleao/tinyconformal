@@ -517,3 +517,25 @@ def test_quantile_pair_invalid_bound_indicator_raises_error(
             horizon=3,
             intervals=("LGBM-mid-90", "LGBM-hi-90"),
         )
+
+
+def test_predict_requires_configured_quantile_columns(
+    mock_quantile_learner_single, sample_time_series_data
+):
+    cqr = ConformalQuantileTimeSeriesRegressor(
+        learner=mock_quantile_learner_single,
+        horizon=2,
+        n_windows=2,
+        intervals=("LGBM-lo-90", "LGBM-hi-90"),
+    ).fit(sample_time_series_data)
+    mock_quantile_learner_single.predict.side_effect = None
+    mock_quantile_learner_single.predict.return_value = pd.DataFrame(
+        {
+            "unique_id": ["series_1"] * 2 + ["series_2"] * 2,
+            "ds": list(pd.date_range("2024-01-31", periods=2)) * 2,
+            "LGBM-lo-90": [10.0] * 4,
+        }
+    )
+
+    with pytest.raises(KeyError, match="LGBM-hi-90"):
+        cqr.predict_interval(h=2)

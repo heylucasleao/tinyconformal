@@ -251,7 +251,8 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
 
         Returns
         -------
-        intervals : ndarray of shape (n_series, horizon, 2)
+        pd.DataFrame
+            Point forecasts and lower/upper interval columns for every model.
         """
         h = self._get_horizon(h)
         self._check_is_fitted()
@@ -269,6 +270,11 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         n_series = self._validate_prediction_panel(pred_df, h)
 
         for model in model_cols:
+            if model not in self.ncscores_:
+                raise ValueError(
+                    f"Model column '{model}' was not present during calibration. "
+                    f"Calibrated model columns: {list(self.ncscores_)}"
+                )
             y_hat = pred_df[model].to_numpy()
 
             lower_bound, upper_bound = self._compute_bounds(
@@ -298,15 +304,7 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         eval_df = self.predict_interval(
             X_df=self._prediction_features(df_test), h=h, alpha=alpha
         )
-        eval_df = eval_df.merge(
-            df_test[[self.id_col, self.time_col, self.target_col]],
-            on=[self.id_col, self.time_col],
-            how="inner",
-        )
-        if eval_df.empty:
-            raise ValueError(
-                "No prediction rows matched df_test on the identifier and time columns."
-            )
+        eval_df = self._merge_predictions_with_targets(eval_df, df_test)
 
         y_true = eval_df[self.target_col].to_numpy()
         bound_pattern = re.compile(r"^(?P<model>.+)-lo-(?P<level>\d+)$")
