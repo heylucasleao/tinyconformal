@@ -1,7 +1,9 @@
-import pytest
+from unittest.mock import MagicMock
+
 import numpy as np
 import pandas as pd
-from unittest.mock import MagicMock
+import pytest
+
 from tinyconformal.series import ConformalDistributionTimeSeriesRegressor
 
 
@@ -123,11 +125,11 @@ def test_sample_correction_finite_bounds(mock_point_learner):
     cdr.n = 20
     alpha = 0.10
 
-    # low_q = max(0.0, 0.05 - 1 / 40) = 0.025
-    # high_q = min(1.0, 1.0 - 0.05 + 1 / 40) = 0.975
+    # The conformal ranks are floor(1.05) = 1 and ceil(19.95) = 20.
+    # With method="higher", ranks map to (rank - 1) / (n - 1).
     low_q, high_q = cdr._sample_correction(alpha)
-    assert pytest.approx(low_q, abs=1e-4) == 0.025
-    assert pytest.approx(high_q, abs=1e-4) == 0.975
+    assert pytest.approx(low_q, abs=1e-4) == 0.0
+    assert pytest.approx(high_q, abs=1e-4) == 1.0
 
 
 # --- Full MSCP Pipeline Tests ---
@@ -375,9 +377,7 @@ def test_fit_rejects_invalid_calibration_parameters(
     mock_point_learner, sample_distribution_data, parameter, value, message
 ):
     kwargs = {"horizon": 2, "n_windows": 2, "alpha": 0.05, parameter: value}
-    cdr = ConformalDistributionTimeSeriesRegressor(
-        learner=mock_point_learner, **kwargs
-    )
+    cdr = ConformalDistributionTimeSeriesRegressor(learner=mock_point_learner, **kwargs)
 
     with pytest.raises(ValueError, match=message):
         cdr.fit(sample_distribution_data)
@@ -569,3 +569,146 @@ def test_evaluate_inner_join_behavior(mock_point_learner, sample_distribution_da
     eval_df = cdr.evaluate(df_test=test_df, h=3)
     assert not eval_df.empty
     assert "coverage_rate" in eval_df.columns
+    assert "X_df" not in mock_point_learner.predict.call_args.kwargs
+
+
+def test_predict_rejects_inconsistent_forecast_time_grids(
+    mock_point_learner, sample_distribution_data
+):
+    cdr = ConformalDistributionTimeSeriesRegressor(
+        learner=mock_point_learner, horizon=2, n_windows=2
+    )
+    cdr.fit(sample_distribution_data)
+    mock_point_learner.predict.side_effect = None
+    mock_point_learner.predict.return_value = pd.DataFrame(
+        {
+            "unique_id": ["id_1", "id_1", "id_2", "id_2"],
+            "ds": pd.to_datetime(
+                ["2024-01-26", "2024-01-27", "2024-01-26", "2024-01-28"]
+            ),
+            "LGBMRegressor": [20.0] * 4,
+        }
+    )
+
+    with pytest.raises(ValueError, match="same horizon timestamps"):
+        cdr.predict_interval(h=2)
+
+
+def test_predict_rejects_model_not_seen_during_calibration(
+    mock_point_learner, sample_distribution_data
+):
+    cdr = ConformalDistributionTimeSeriesRegressor(
+        learner=mock_point_learner, horizon=2, n_windows=2
+    ).fit(sample_distribution_data)
+    mock_point_learner.predict.side_effect = None
+    mock_point_learner.predict.return_value = pd.DataFrame(
+        {
+            "unique_id": ["id_1"] * 2 + ["id_2"] * 2,
+            "ds": list(pd.date_range("2024-01-26", periods=2)) * 2,
+            "OtherModel": [20.0] * 4,
+        }
+    )
+
+    with pytest.raises(ValueError, match="was not present during calibration"):
+        cdr.predict_interval(h=2)
+
+
+def test_evaluate_rejects_duplicate_targets(
+    mock_point_learner, sample_distribution_data
+):
+    cdr = ConformalDistributionTimeSeriesRegressor(
+        learner=mock_point_learner, horizon=2, n_windows=2
+    ).fit(sample_distribution_data)
+    test_df = pd.DataFrame(
+        {
+            "unique_id": ["id_1", "id_1", "id_1", "id_2", "id_2"],
+            "ds": pd.to_datetime(
+                ["2024-01-26", "2024-01-26", "2024-01-27", "2024-01-26", "2024-01-27"]
+            ),
+            "y": [20.0] * 5,
+        }
+    )
+
+    with pytest.raises(ValueError, match="at most one target"):
+        cdr.evaluate(test_df, h=2)
+
+
+def test_evaluate_requires_target_for_every_prediction(
+    mock_point_learner, sample_distribution_data
+):
+    cdr = ConformalDistributionTimeSeriesRegressor(
+        learner=mock_point_learner, horizon=2, n_windows=2
+    ).fit(sample_distribution_data)
+    test_df = pd.DataFrame(
+        {
+            "unique_id": ["id_1", "id_1", "id_2"],
+            "ds": pd.to_datetime(["2024-01-26", "2024-01-27", "2024-01-26"]),
+            "y": [20.0] * 3,
+        }
+    )
+
+    with pytest.raises(ValueError, match="target for every prediction row"):
+        cdr.evaluate(test_df, h=2)
+
+
+def test_fit_separates_static_and_dynamic_features(
+    mock_point_learner, sample_distribution_data
+):
+    df = sample_distribution_data.assign(
+        region=lambda frame: frame["unique_id"].map({"id_1": "north", "id_2": "south"}),
+        temperature=np.arange(len(sample_distribution_data)),
+    )
+    cdr = ConformalDistributionTimeSeriesRegressor(
+        learner=mock_point_learner, horizon=2, n_windows=2
+    ).fit(df, static_features=["region"], n_jobs=1)
+
+    assert cdr.static_features_ == ["region"]
+    assert cdr.exog_cols_ == ["temperature"]
+    for call in mock_point_learner.fit.call_args_list:
+        assert call.kwargs["static_features"] == ["region"]
+    for call in mock_point_learner.predict.call_args_list[:-1]:
+        assert "region" not in call.kwargs["X_df"].columns
+        assert "temperature" in call.kwargs["X_df"].columns
+
+
+def test_predict_validates_explicit_future_features(
+    mock_point_learner, sample_distribution_data
+):
+    df = sample_distribution_data.assign(temperature=1.0)
+    cdr = ConformalDistributionTimeSeriesRegressor(
+        learner=mock_point_learner, horizon=2, n_windows=2
+    ).fit(df)
+    invalid_future = pd.DataFrame(
+        {
+            "unique_id": ["id_1"] * 2 + ["id_2"] * 2,
+            "ds": list(pd.date_range("2024-01-26", periods=2)) * 2,
+        }
+    )
+
+    with pytest.raises(ValueError, match="temperature"):
+        cdr.predict_interval(h=2, X_df=invalid_future)
+
+
+def test_mscp_preserves_fractional_coverage_in_column_names(
+    mock_point_learner, sample_distribution_data
+):
+    cdr = ConformalDistributionTimeSeriesRegressor(
+        learner=mock_point_learner, horizon=2, n_windows=2, alpha=0.055
+    ).fit(sample_distribution_data)
+
+    pred_df = cdr.predict_interval(h=2)
+
+    assert "LGBMRegressor-lo-94.5" in pred_df
+    assert "LGBMRegressor-hi-94.5" in pred_df
+
+    test_dates = pd.date_range("2024-01-26", periods=2)
+    test_df = pd.DataFrame(
+        {
+            "unique_id": ["id_1"] * 2 + ["id_2"] * 2,
+            "ds": list(test_dates) * 2,
+            "y": [20.0] * 4,
+        }
+    )
+    eval_df = cdr.evaluate(test_df, h=2)
+    assert eval_df.loc[0, "level"] == "94.5%"
+    assert eval_df.loc[0, "alpha"] == pytest.approx(0.055)

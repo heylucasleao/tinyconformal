@@ -2,12 +2,54 @@
 # TinyConformal - A small toolbox for conformal prediction
 # Licensed under the MIT License
 
+import re
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
 CostInput = str | float | int | dict[str | tuple[str, Any], float]
+
+INTERVAL_COLUMN_PATTERN = re.compile(
+    r"^(?P<model>.+)-(?P<bound>lo|hi)-(?P<level>\d+)(?P<suffix>-cqr)?$"
+)
+
+
+def _parse_interval_pair(interval_pair: tuple[str, str]) -> tuple[str, str, int]:
+    """Validate a named central interval pair and infer its coverage level."""
+    if not isinstance(interval_pair, tuple) or len(interval_pair) != 2:
+        raise ValueError("interval_pair must be a tuple of two column names.")
+    lo_col, hi_col = interval_pair
+    if not isinstance(lo_col, str) or not isinstance(hi_col, str):
+        raise TypeError("interval_pair must contain two string column names.")
+
+    lo_match = INTERVAL_COLUMN_PATTERN.fullmatch(lo_col)
+    hi_match = INTERVAL_COLUMN_PATTERN.fullmatch(hi_col)
+    if lo_match is None or lo_match.group("bound") != "lo":
+        raise ValueError(
+            f"Invalid lower interval column '{lo_col}'. Expected "
+            "'<model>-lo-<level>' with an optional '-cqr' suffix."
+        )
+    if hi_match is None or hi_match.group("bound") != "hi":
+        raise ValueError(
+            f"Invalid upper interval column '{hi_col}'. Expected "
+            "'<model>-hi-<level>' with an optional '-cqr' suffix."
+        )
+
+    for field, label in (
+        ("model", "model"),
+        ("level", "coverage level"),
+        ("suffix", "suffix"),
+    ):
+        if lo_match.group(field) != hi_match.group(field):
+            raise ValueError(
+                f"Interval {label} mismatch between '{lo_col}' and '{hi_col}'."
+            )
+
+    level = int(lo_match.group("level"))
+    if not 0 < level < 100:
+        raise ValueError("The inferred interval level must be between 1 and 99.")
+    return lo_col, hi_col, level
 
 
 def _compute_critical_quantile(cu: np.ndarray, co: np.ndarray) -> np.ndarray:
@@ -53,30 +95,22 @@ def _extract_cost_array(
         )
 
 
-def _enforce_monotonicity(
-    q_lo: np.ndarray, q_hi: np.ndarray, q_med: np.ndarray | None = None
-) -> None:
-    """Enforces physical non-negativity and strictly non-decreasing CDF monotonicity in-place.
+def _enforce_monotonicity(q_lo: np.ndarray, q_hi: np.ndarray) -> None:
+    """Enforce non-negativity and ordered interval bounds in-place.
 
     Applies sequential clipping using `np.maximum(..., out=...)` to prevent memory
-    re-allocation while correcting quantile crossings (e.g., q_lo > q_med or q_med > q_hi).
+    re-allocation while correcting crossed interval bounds.
 
     Args:
         q_lo (np.ndarray): Lower prediction interval bound array. Modified in-place.
         q_hi (np.ndarray): Upper prediction interval bound array. Modified in-place.
-        q_med (np.ndarray | None, optional): Median forecast array. Modified in-place if provided.
     """
     # 1. Non-negativity baseline (physical inventory floor)
     np.maximum(0.0, q_lo, out=q_lo)
     np.maximum(0.0, q_hi, out=q_hi)
 
-    # 2. Sequential quantile ordering (q_lo <= q_med <= q_hi)
-    if q_med is not None:
-        np.maximum(0.0, q_med, out=q_med)
-        np.maximum(q_lo, q_med, out=q_med)
-        np.maximum(q_med, q_hi, out=q_hi)
-    else:
-        np.maximum(q_lo, q_hi, out=q_hi)
+    # 2. Quantile ordering (q_lo <= q_hi)
+    np.maximum(q_lo, q_hi, out=q_hi)
 
 
 def _interpolate_linear(
@@ -85,29 +119,10 @@ def _interpolate_linear(
     q_hi: np.ndarray,
     p_lo: float,
     p_hi: float,
-    q_med: np.ndarray | None = None,
-    p_med: float = 0.50,
 ) -> np.ndarray:
-    """Branch-masked linear interpolation preventing redundant array allocation."""
-    if q_med is None:
-        t = np.clip((q_star - p_lo) / (p_hi - p_lo), 0.0, 1.0)
-        return q_lo + t * (q_hi - q_lo)
-
-    res = np.empty_like(q_star)
-    mask_lo = q_star <= p_med
-    mask_hi = ~mask_lo
-
-    # Segment 1: [p_lo, p_med]
-    if np.any(mask_lo):
-        t_lo = np.clip((q_star[mask_lo] - p_lo) / (p_med - p_lo), 0.0, 1.0)
-        res[mask_lo] = q_lo[mask_lo] + t_lo * (q_med[mask_lo] - q_lo[mask_lo])
-
-    # Segment 2: [p_med, p_hi]
-    if np.any(mask_hi):
-        t_hi = np.clip((q_star[mask_hi] - p_med) / (p_hi - p_med), 0.0, 1.0)
-        res[mask_hi] = q_med[mask_hi] + t_hi * (q_hi[mask_hi] - q_med[mask_hi])
-
-    return res
+    """Linearly interpolate a critical ratio between two interval bounds."""
+    t = np.clip((q_star - p_lo) / (p_hi - p_lo), 0.0, 1.0)
+    return q_lo + t * (q_hi - q_lo)
 
 
 class NewsvendorSolver:
@@ -121,21 +136,20 @@ class NewsvendorSolver:
     General Workflow:
         1. **Critical Quantile Calculation (q_star):** Computes the optimal service
            level q_star = c_u / (c_u + c_o) for each time series and period.
-        2. **Probabilistic Mapping:** Maps prediction interval bounds (and optionally
-           the median) to cumulative probabilities.
+        2. **Probabilistic Mapping:** Treats conformal interval bounds as two
+           approximate cumulative-probability anchors.
         3. **Monotonicity Enforcement:** Enforces physical non-negativity and resolves
            quantile crossings in-place to ensure valid empirical CDF curves.
         4. **Optimal Point Interpolation (y_star):** Estimates the target inventory
-           quantity using memory-optimized 2-point linear or 3-point (2-segment)
-           piecewise linear interpolation.
+           quantity using memory-optimized 2-point linear interpolation.
         5. **Adjustment and Physical Bounding:** Clips the final decision within
            bounds derived from the prediction interval.
 
     Global Attention Points:
         - **Nixtla Ecosystem Compatibility:** Designed for high-throughput panel
           DataFrames. Preserves sorting and index layout with zero-copy views where possible.
-        - **Performance Optimization:** Employs branch masking during interpolation
-          and `np.fromiter` tuple mapping to eliminate Python loops and prevent redundant RAM allocation.
+        - **Performance Optimization:** Uses vectorized interpolation and `np.fromiter`
+          tuple mapping to eliminate Python loops and avoid redundant RAM allocation.
         - **CDF Monotonicity:** Crossed quantile errors from forecasting models
           (e.g., q_lo > q_hi) are resolved via in-place `_enforce_monotonicity`.
 
@@ -144,17 +158,15 @@ class NewsvendorSolver:
         >>> df_forecast = pd.DataFrame({
         ...     "unique_id": ["A", "A"],
         ...     "ds": ["2026-01-01", "2026-01-02"],
-        ...     "lo-90": [10.0, 15.0],
-        ...     "hi-90": [50.0, 60.0],
-        ...     "median": [25.0, 30.0]
+        ...     "model-lo-90-cqr": [10.0, 15.0],
+        ...     "model-hi-90-cqr": [50.0, 60.0]
         ... })
         >>> solver = NewsvendorSolver()
         >>> res = solver.optimize(
         ...     df=df_forecast,
-        ...     interval_pair=("lo-90", "hi-90"),
+        ...     interval_pair=("model-lo-90-cqr", "model-hi-90-cqr"),
         ...     underage_cost=10.0,
-        ...     overage_cost=2.0,
-        ...     median_col="median"
+        ...     overage_cost=2.0
         ... )
     """
 
@@ -164,8 +176,6 @@ class NewsvendorSolver:
         interval_pair: tuple[str, str],
         underage_cost: CostInput,
         overage_cost: CostInput,
-        level: int = 90,
-        median_col: str | None = None,
         id_col: str = "unique_id",
         time_col: str = "ds",
         ratio_col: str = "critical_ratio",
@@ -181,19 +191,15 @@ class NewsvendorSolver:
         Args:
             df (pd.DataFrame): Input DataFrame containing probabilistic forecasts.
             interval_pair (Tuple[str, str]): Column name tuple `(lower_col, upper_col)`
-                representing the prediction interval bounds (e.g., `("lo-90", "hi-90")`).
+                representing central prediction interval bounds. Names must follow
+                `<model>-lo-<level>` and `<model>-hi-<level>`, optionally ending in
+                `-cqr`. The coverage level is inferred from the names.
             underage_cost (Union[str, float, Dict]): Underage/shortage cost (c_u). Can be:
                 - Scalar (`float`/`int`): Constant cost across the entire panel.
                 - `str`: Column name in `df` containing variable costs per row.
                 - `dict`: Cost mapping by ID `{id: cost}` or tuple `{(id, ds): cost}`.
             overage_cost (Union[str, float, Dict]): Overage/holding cost (c_o). Accepts the
                 same input formats as `underage_cost`.
-            level (int, optional): Prediction interval level as a percentage (e.g., 90 for 90%).
-                Determines cumulative probabilities p_lo = (100 - level) / 200 and
-                p_hi = 1 - p_lo. Defaults to 90.
-            median_col (str | None, optional): Name of the median column (Quantile 0.50).
-                If provided, performs 3-point (2-segment) piecewise linear interpolation.
-                If `None`, falls back to 2-point linear interpolation. Defaults to `None`.
             id_col (str, optional): Identifier column for unique time series. Defaults to `"unique_id"`.
             time_col (str, optional): Timestamp/date column. Defaults to `"ds"`.
             output_col (str, optional): Name of the output column for optimized quantities
@@ -208,17 +214,17 @@ class NewsvendorSolver:
             pd.DataFrame: A copy of the DataFrame with calculated optimal inventory values in `output_col`.
 
         Raises:
-            ValueError: If `level` is not strictly between `(0, 100)` or if cost dictionaries are empty.
+            ValueError: If interval names are invalid or inconsistent, or if cost
+                dictionaries are empty.
             TypeError: If the cost input type for `underage_cost` or `overage_cost` is unsupported.
 
         Intentional Clips and Truncations:
-            1. **Physical Non-negativity (`q_lo >= 0`, `q_hi >= 0`, `q_med >= 0`):**
+            1. **Physical Non-negativity (`q_lo >= 0`, `q_hi >= 0`):**
                Applies `np.maximum(0.0, ...)` via `_enforce_monotonicity` to ensure negative
                forecast predictions do not leak into physical inventory decisions.
-            2. **Monotonicity Enforcement (`q_lo <= q_med <= q_hi`):**
-               Sequentially corrects inverted quantile boundaries in-place:
-               - `q_med = max(q_lo, q_med)`
-               - `q_hi = max(q_med, q_hi)`
+            2. **Monotonicity Enforcement (`q_lo <= q_hi`):**
+               Corrects inverted interval boundaries in-place with
+               `q_hi = max(q_lo, q_hi)`.
             3. **Linear Boundary Clipping (`y_final` in range `[q_lo, q_hi]`):**
                Applies `np.clip(y_final, q_lo, q_hi)` to ensure that even for extreme critical
                quantiles (`q_star < p_lo` or `q_star > p_hi`), the final order quantity remains
@@ -227,17 +233,21 @@ class NewsvendorSolver:
         Attention Points:
             - **Zero-Division Safety:** If `underage_cost + overage_cost == 0` for any row, the critical
               quantile defaults to `0.5` (median) to prevent zero-division runtime errors.
-            - **Piecewise Linear Stability:** Uses fully vectorized linear interpolation with
-              branch masking, preventing memory bloat and eliminating wild polynomial tail behavior.
+            - **Approximation, not distributional calibration:** Conformal interval coverage
+              does not imply that each endpoint is a calibrated CDF quantile. The linear
+              interpolation is a bounded decision heuristic, not a conformal guarantee for
+              the critical fractile.
             - **Out-of-Bounds Quantiles (`q_star` outside `[p_lo, p_hi]`):** Critical quantiles
               falling outside the prediction interval are capped at `p_lo` or `p_hi`
               (returning `q_lo` or `q_hi`), maintaining conservative inventory decisions.
             - **Missing Keys in Cost Dicts:** Unmatched IDs or timestamps in cost dictionaries
               will resolve to `NaN` in the optimal output column.
         """
-        if not (0 < level < 100):
+        lo_col, hi_col, level = _parse_interval_pair(interval_pair)
+        missing = [column for column in (lo_col, hi_col) if column not in df.columns]
+        if missing:
             raise ValueError(
-                "The 'level' parameter must be strictly between 0 and 100."
+                f"Interval columns are missing from the DataFrame: {missing}"
             )
 
         if not assume_sorted and id_col in df.columns and time_col in df.columns:
@@ -246,8 +256,6 @@ class NewsvendorSolver:
             df_res = df.copy()
 
         n_rows = len(df_res)
-        lo_col, hi_col = interval_pair
-
         p_lo = (100.0 - level) / 200.0
         p_hi = 1.0 - p_lo
 
@@ -260,19 +268,15 @@ class NewsvendorSolver:
         ):
             invalid = (~np.isnan(costs)) & ((costs < 0) | ~np.isfinite(costs))
             if np.any(invalid):
-                raise ValueError(f"'{name}' must contain only non-negative finite values.")
+                raise ValueError(
+                    f"'{name}' must contain only non-negative finite values."
+                )
 
         q_star = _compute_critical_quantile(cu=cu_arr, co=co_arr)
 
         q_lo = df_res[lo_col].to_numpy(dtype=float, copy=False)
         q_hi = df_res[hi_col].to_numpy(dtype=float, copy=False)
-        q_med = (
-            df_res[median_col].to_numpy(dtype=float, copy=False)
-            if median_col is not None
-            else None
-        )
-
-        _enforce_monotonicity(q_lo=q_lo, q_hi=q_hi, q_med=q_med)
+        _enforce_monotonicity(q_lo=q_lo, q_hi=q_hi)
 
         y_final = _interpolate_linear(
             q_star=q_star,
@@ -280,8 +284,6 @@ class NewsvendorSolver:
             q_hi=q_hi,
             p_lo=p_lo,
             p_hi=p_hi,
-            q_med=q_med,
-            p_med=0.50,
         )
         df_res[ratio_col] = q_star
         df_res[output_col] = np.clip(y_final, q_lo, q_hi)

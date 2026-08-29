@@ -62,9 +62,8 @@ def forecast_df():
         {
             "unique_id": ["B", "A"],
             "ds": [2, 1],
-            "lo": [-2.0, 20.0],
-            "median": [5.0, 10.0],
-            "hi": [8.0, 15.0],
+            "model-lo-90-cqr": [-2.0, 20.0],
+            "model-hi-90-cqr": [8.0, 15.0],
         }
     )
 
@@ -76,19 +75,17 @@ def test_solver_computes_ratio_and_enforces_monotonicity_without_mutating_input(
 
     result = NewsvendorSolver.optimize(
         forecast_df,
-        interval_pair=("lo", "hi"),
+        interval_pair=("model-lo-90-cqr", "model-hi-90-cqr"),
         underage_cost=3.0,
         overage_cost=1.0,
-        median_col="median",
     )
 
     pd.testing.assert_frame_equal(forecast_df, original)
     assert np.allclose(result["critical_ratio"], 0.75)
-    assert np.all(result["lo"] >= 0)
-    assert np.all(result["lo"] <= result["median"])
-    assert np.all(result["median"] <= result["hi"])
-    assert np.all(result["y_optimal"] >= result["lo"])
-    assert np.all(result["y_optimal"] <= result["hi"])
+    assert np.all(result["model-lo-90-cqr"] >= 0)
+    assert np.all(result["model-lo-90-cqr"] <= result["model-hi-90-cqr"])
+    assert np.all(result["y_optimal"] >= result["model-lo-90-cqr"])
+    assert np.all(result["y_optimal"] <= result["model-hi-90-cqr"])
 
 
 def test_solver_supports_cost_columns_and_sorting(forecast_df):
@@ -96,7 +93,7 @@ def test_solver_supports_cost_columns_and_sorting(forecast_df):
 
     result = NewsvendorSolver.optimize(
         df,
-        interval_pair=("lo", "hi"),
+        interval_pair=("model-lo-90-cqr", "model-hi-90-cqr"),
         underage_cost="underage",
         overage_cost="overage",
         assume_sorted=False,
@@ -106,17 +103,19 @@ def test_solver_supports_cost_columns_and_sorting(forecast_df):
     assert np.allclose(result["critical_ratio"], [0.75, 0.25])
 
 
-def test_solver_uses_median_ratio_when_both_costs_are_zero(forecast_df):
+def test_solver_uses_interval_midpoint_when_both_costs_are_zero(forecast_df):
     result = NewsvendorSolver.optimize(
         forecast_df,
-        interval_pair=("lo", "hi"),
+        interval_pair=("model-lo-90-cqr", "model-hi-90-cqr"),
         underage_cost=0.0,
         overage_cost=0.0,
-        median_col="median",
     )
 
     assert np.allclose(result["critical_ratio"], 0.5)
-    assert np.allclose(result["y_optimal"], result["median"])
+    assert np.allclose(
+        result["y_optimal"],
+        (result["model-lo-90-cqr"] + result["model-hi-90-cqr"]) / 2,
+    )
 
 
 @pytest.mark.parametrize("cost", [-1.0, np.inf, -np.inf])
@@ -124,19 +123,27 @@ def test_solver_rejects_invalid_costs(forecast_df, cost):
     with pytest.raises(ValueError, match="non-negative finite"):
         NewsvendorSolver.optimize(
             forecast_df,
-            interval_pair=("lo", "hi"),
+            interval_pair=("model-lo-90-cqr", "model-hi-90-cqr"),
             underage_cost=cost,
             overage_cost=1.0,
         )
 
 
-@pytest.mark.parametrize("level", [0, 100, -1, 101])
-def test_solver_rejects_invalid_level(forecast_df, level):
-    with pytest.raises(ValueError, match="strictly between"):
+@pytest.mark.parametrize(
+    ("interval_pair", "message"),
+    [
+        (("lo-90", "model-hi-90"), "Invalid lower"),
+        (("model-lo-90", "other-hi-90"), "model mismatch"),
+        (("model-lo-90", "model-hi-80"), "coverage level mismatch"),
+        (("model-lo-90-cqr", "model-hi-90"), "suffix mismatch"),
+        (("model-lo-100", "model-hi-100"), "between 1 and 99"),
+    ],
+)
+def test_solver_rejects_invalid_interval_names(forecast_df, interval_pair, message):
+    with pytest.raises(ValueError, match=message):
         NewsvendorSolver.optimize(
             forecast_df,
-            interval_pair=("lo", "hi"),
+            interval_pair=interval_pair,
             underage_cost=1.0,
             overage_cost=1.0,
-            level=level,
         )

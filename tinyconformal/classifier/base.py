@@ -3,13 +3,16 @@
 # Licensed under the MIT License
 
 
-from venn_abers import VennAbers
-from sklearn.utils.validation import check_is_fitted
-from sklearn.base import BaseEstimator
 import warnings
+from abc import ABC, abstractmethod
+
 import numpy as np
 import sklearn.metrics
-from abc import ABC, abstractmethod
+from sklearn.base import BaseEstimator
+from sklearn.utils.validation import check_is_fitted
+from venn_abers import VennAbers
+
+from tinyconformal.utils.quantiles import validate_alpha
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="venn_abers")
 
@@ -71,13 +74,13 @@ class BaseConformalClassifier(ABC):
 
         self.hinge = None
         self.n = None
+        self._quantile_warning_registry = set()
 
     @abstractmethod
     def fit(self, y):
         """
         Fits the classifier to the training data.
         """
-        pass
 
     @abstractmethod
     def predict_set(self, X, alpha=None):
@@ -85,28 +88,24 @@ class BaseConformalClassifier(ABC):
         Generate a prediction set for the given input.
         This method must be implemented by subclasses.
         """
-        pass
 
     @abstractmethod
     def _compute_qhat(self, ncscore, q_level):
         """
         Compute the q-hat value based on the nonconformity scores and the quantile level.
         """
-        pass
 
     @abstractmethod
     def _compute_set(self, ncscore, qhat):
         """
         Compute a set based on the given ncscore and qhat.
         """
-        pass
 
     @abstractmethod
     def _compute_q_level(self, n, alpha):
         """
         Compute the quantile level based on the number of samples and significance level.
         """
-        pass
 
     def _compute_prediction(self, prediction_set):
         """
@@ -138,7 +137,7 @@ class BaseConformalClassifier(ABC):
 
     def _get_alpha(self, alpha):
         """Helper to retrieve the alpha value."""
-        return alpha or self.alpha
+        return validate_alpha(self.alpha if alpha is None else alpha)
 
     def generate_non_conformity_score(self, y_prob):
         """
@@ -170,8 +169,8 @@ class BaseConformalClassifier(ABC):
 
         Notes:
         ------
-        - The quantile is computed as ceil((n + 1) * (1 - alpha)) / n, where n is the
-          number of calibration samples.
+        - The order statistic has rank ceil((n + 1) * (1 - alpha)), clipped to
+          the observed score range when the requested coverage is unattainable.
         - This method relies on the self.ncscore attribute, which should contain the
           nonconformity scores of the calibration samples.
         """

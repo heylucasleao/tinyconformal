@@ -182,11 +182,10 @@ conformal_ts = ConformalDistributionTimeSeriesRegressor(
     learner=mlf,
     horizon=7,
     n_windows=5,
-    step_size=7,  # Window displacement stride
     alpha=0.10,
 )
 
-conformal_ts.fit(df)
+conformal_ts.fit(df, step_size=7)  # Window displacement stride
 intervals_df = conformal_ts.predict_interval(h=7)
 ```
 
@@ -199,7 +198,10 @@ from tinyconformal.series import ConformalQuantileTimeSeriesRegressor
 
 # Forecaster configured to output quantile columns
 mlf = MLForecast(
-    models=[LGBMRegressor(objective="quantile", alpha=0.05), LGBMRegressor(objective="quantile", alpha=0.95)],
+    models={
+        "LGBM-lo-90": LGBMRegressor(objective="quantile", alpha=0.05),
+        "LGBM-hi-90": LGBMRegressor(objective="quantile", alpha=0.95),
+    },
     freq="D",
     lags=[1, 7],
 )
@@ -208,14 +210,48 @@ conformal_cqr_ts = ConformalQuantileTimeSeriesRegressor(
     learner=mlf,
     horizon=7,
     n_windows=5,
-    step_size=7,
-    quantile_cols=("LGBM-lo-90", "LGBM-hi-90"),
-    alpha=0.10,
+    intervals=("LGBM-lo-90", "LGBM-hi-90"),
 )
 
-conformal_cqr_ts.fit(df)
+conformal_cqr_ts.fit(df, step_size=7)
 intervals_df = conformal_cqr_ts.predict_interval(h=7)
 ```
+
+#### Future features and evaluation data
+
+Columns passed through `static_features` belong to each series and are supplied to
+the learner only during fitting. All other non-structural columns in the training
+data are treated as dynamic exogenous features and must be available for future
+timestamps through `X_df`:
+
+```python
+conformal_ts.fit(
+    train_df,
+    static_features=["region"],
+)
+intervals_df = conformal_ts.predict_interval(
+    h=7,
+    X_df=future_df[["unique_id", "ds", "temperature"]],
+)
+```
+
+An explicit `X_df` must contain the identifier, time, and every dynamic exogenous
+column used during fitting. It must also contain exactly `h` unique timestamps per
+series, using the same timestamp grid for every series. The prediction horizon must
+be positive and cannot exceed the `horizon` used for calibration.
+
+`evaluate(df_test, h=...)` uses dynamic features from `df_test` and requires exactly
+one non-missing target for every predicted identifier/timestamp pair. Duplicate or
+missing targets raise an error instead of being silently omitted from the metrics.
+
+MSCP supports fractional coverage levels. For example, `alpha=0.055` produces
+columns such as `Model-lo-94.5` and `Model-hi-94.5`.
+
+Finite-sample conformal correction uses discrete order statistics. When the
+requested coverage cannot be attained with the available calibration sample, a
+`RuntimeWarning` is emitted and the rank is clipped to the observed score range.
+Increasing the number of calibration trajectories, usually through more windows or
+series, permits more extreme coverage levels.
 
 ### Time Series Mechanics: Horizon vs. Step Size
 
@@ -298,6 +334,9 @@ Window 2:       [============ Expanded Train ============] [--- H=4 (t11 to t14)
 
 Training & Residual extraction via backtesting: `fit(df, step_size=...)`
 
+The significance level is configured globally with `alpha` and may be overridden
+when predicting: `predict_interval(h=..., alpha=...)`.
+
 Multi-step interval forecasting: `predict_interval(h=..., alpha=...)`
 
 ### ConformalQuantileTimeSeriesRegressor
@@ -305,7 +344,10 @@ Multi-step interval forecasting: `predict_interval(h=..., alpha=...)`
 
 Training & Nonconformity score calculation via backtesting:` fit(df, step_size=...)`
 
-Multi-step interval forecasting: `predict_interval(h=..., alpha=...)`
+The significance level is inferred independently for each interval from its
+coverage suffix (`-90` means `alpha=0.10`, `-50` means `alpha=0.50`).
+
+Multi-step interval forecasting: `predict_interval(h=...)`
 
 ### ExactnessBound
 
