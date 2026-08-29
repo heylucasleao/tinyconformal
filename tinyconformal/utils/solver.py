@@ -2,9 +2,12 @@
 # TinyConformal - A small toolbox for conformal prediction
 # Licensed under the MIT License
 
-from typing import Any, Dict, Tuple, Union
+from typing import Any
+
 import numpy as np
 import pandas as pd
+
+CostInput = str | float | int | dict[str | tuple[str, Any], float]
 
 
 def _compute_critical_quantile(cu: np.ndarray, co: np.ndarray) -> np.ndarray:
@@ -19,13 +22,13 @@ def _compute_critical_quantile(cu: np.ndarray, co: np.ndarray) -> np.ndarray:
 
 def _extract_cost_array(
     df: pd.DataFrame,
-    cost_input: Union[str, float, int, Dict[Union[str, Tuple[str, Any]], float]],
+    cost_input: CostInput,
     id_col: str,
     time_col: str,
     n_rows: int,
 ) -> np.ndarray:
     """Extracts cost structures into flat NumPy arrays with optimized dict lookup."""
-    if isinstance(cost_input, (int, float)):
+    if isinstance(cost_input, (int, float, np.integer, np.floating)):
         return np.full(n_rows, float(cost_input), dtype=float)
     elif isinstance(cost_input, str):
         return df[cost_input].to_numpy(dtype=float)
@@ -149,8 +152,8 @@ class NewsvendorSolver:
         >>> res = solver.optimize(
         ...     df=df_forecast,
         ...     interval_pair=("lo-90", "hi-90"),
-        ...     cu=10.0,
-        ...     co=2.0,
+        ...     underage_cost=10.0,
+        ...     overage_cost=2.0,
         ...     median_col="median"
         ... )
     """
@@ -158,9 +161,9 @@ class NewsvendorSolver:
     @staticmethod
     def optimize(
         df: pd.DataFrame,
-        interval_pair: Tuple[str, str],
-        underage_cost: Union[str, float, Dict[Union[str, Tuple[str, Any]], float]],
-        overage_cost: Union[str, float, Dict[Union[str, Tuple[str, Any]], float]],
+        interval_pair: tuple[str, str],
+        underage_cost: CostInput,
+        overage_cost: CostInput,
         level: int = 90,
         median_col: str | None = None,
         id_col: str = "unique_id",
@@ -250,6 +253,15 @@ class NewsvendorSolver:
 
         cu_arr = _extract_cost_array(df_res, underage_cost, id_col, time_col, n_rows)
         co_arr = _extract_cost_array(df_res, overage_cost, id_col, time_col, n_rows)
+
+        for name, costs in (
+            ("underage_cost", cu_arr),
+            ("overage_cost", co_arr),
+        ):
+            invalid = (~np.isnan(costs)) & ((costs < 0) | ~np.isfinite(costs))
+            if np.any(invalid):
+                raise ValueError(f"'{name}' must contain only non-negative finite values.")
+
         q_star = _compute_critical_quantile(cu=cu_arr, co=co_arr)
 
         q_lo = df_res[lo_col].to_numpy(dtype=float, copy=False)

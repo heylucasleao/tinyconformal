@@ -189,16 +189,28 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
 
     def _get_alpha(self, alpha: Optional[float] = None) -> float:
         """Helper to retrieve the active significance level (alpha)."""
-        return alpha if alpha is not None else self.alpha
+        alpha = alpha if alpha is not None else self.alpha
+        if not isinstance(alpha, (int, float, np.integer, np.floating)) or not (
+            0.0 < alpha < 1.0
+        ):
+            raise ValueError("alpha must be a number strictly between 0 and 1.")
+        return float(alpha)
 
-    def _get_horizon(self, h: Optional[float] = None) -> float:
+    def _get_horizon(self, h: Optional[int] = None) -> int:
         """Helper to retrieve and validate the forecast horizon."""
         h = h if h is not None else self.horizon
+        if not isinstance(h, (int, np.integer)) or isinstance(h, bool) or h <= 0:
+            raise ValueError("Forecast horizon h must be a positive integer.")
         if h > self.horizon:
             raise ValueError(
                 f"Requested forecast horizon h={h} exceeds fitted calibration horizon ({self.horizon})."
             )
-        return h
+        return int(h)
+
+    def _check_is_fitted(self) -> None:
+        """Raise a clear error when prediction is attempted before calibration."""
+        if not self.ncscores_ or self.n <= 0:
+            raise RuntimeError("This conformal regressor must be fitted before prediction.")
 
     def _invoke(self, method, **kwargs):
         """
@@ -312,7 +324,13 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         n_jobs: int = -1,
     ) -> dict:
         """Executes sequential backtesting across n_windows to extract CQR nonconformity scores."""
-        step_size = step_size or self.horizon
+        step_size = self.horizon if step_size is None else step_size
+        if (
+            not isinstance(step_size, (int, np.integer))
+            or isinstance(step_size, bool)
+            or step_size <= 0
+        ):
+            raise ValueError("step_size must be a positive integer.")
 
         time_steps, total_steps, n_series = self._prepare_and_validate_steps(
             df, step_size
@@ -368,6 +386,14 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         df = df.sort_values(by=[self.id_col, self.time_col]).reset_index(drop=True)
 
         self._validate_columns(df)
+        self._get_horizon()
+        self._get_alpha()
+        if (
+            not isinstance(self.n_windows, (int, np.integer))
+            or isinstance(self.n_windows, bool)
+            or self.n_windows <= 0
+        ):
+            raise ValueError("n_windows must be a positive integer.")
 
         self.exog_cols_ = [
             col
@@ -415,6 +441,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         Generates base model point predictions from Nixtla estimator into standard ndarray.
         """
         h = self._get_horizon(h)
+        self._check_is_fitted()
 
         preds_df = self._invoke(
             self.learner.predict,
@@ -464,6 +491,10 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             on=[self.id_col, self.time_col],
             how="inner",
         )
+        if eval_df.empty:
+            raise ValueError(
+                "No prediction rows matched df_test on the identifier and time columns."
+            )
         y_true = eval_df[self.target_col].to_numpy()
 
         BOUND_PATTERN = re.compile(

@@ -66,7 +66,7 @@ class BaseConformalClassifier(ABC):
         self.beta = None
         check_is_fitted(learner)
 
-        if learner.n_classes_ > 2:
+        if len(self.classes) != 2:
             raise ValueError("This classifier supports only binary classification.")
 
         self.hinge = None

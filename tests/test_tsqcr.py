@@ -212,6 +212,56 @@ def test_sequential_backtesting_missing_quantile_column(
         cqr.fit(sample_time_series_data)
 
 
+def test_window_residuals_align_shuffled_forecasts_by_keys(
+    mock_quantile_learner_single,
+):
+    """Quantile residuals must align by series and timestamp, not row order."""
+    cqr = ConformalQuantileTimeSeriesRegressor(
+        learner=mock_quantile_learner_single,
+        horizon=2,
+        interval_pairs=("LGBM-lo-90", "LGBM-hi-90"),
+    )
+    val_df = pd.DataFrame(
+        {
+            "unique_id": ["s1", "s1", "s2", "s2"],
+            "ds": [1, 2, 1, 2],
+            "y": [10.0, 20.0, 30.0, 40.0],
+        }
+    )
+    fcst = pd.DataFrame(
+        {
+            "unique_id": ["s2", "s1", "s2", "s1"],
+            "ds": [2, 1, 1, 2],
+            "LGBM-lo-90": [39.0, 9.0, 29.0, 19.0],
+            "LGBM-hi-90": [41.0, 11.0, 31.0, 21.0],
+        }
+    )
+    residuals = {}
+
+    cqr._compute_window_residuals(fcst, val_df, 2, residuals)
+
+    np.testing.assert_array_equal(
+        residuals["LGBM-lo-90:LGBM-hi-90"][0],
+        np.full((2, 2), -1.0),
+    )
+
+
+def test_backtesting_does_not_fit_original_learner_per_window(
+    mock_quantile_learner_single, sample_time_series_data
+):
+    """Only the final full-data fit should mutate the user-provided learner."""
+    cqr = ConformalQuantileTimeSeriesRegressor(
+        learner=mock_quantile_learner_single,
+        horizon=3,
+        n_windows=2,
+        interval_pairs=("LGBM-lo-90", "LGBM-hi-90"),
+    )
+
+    cqr.fit(sample_time_series_data, n_jobs=1)
+
+    assert mock_quantile_learner_single.fit.call_count == 1
+
+
 # --- Fitting and Interval Prediction Tests ---
 
 
@@ -417,6 +467,20 @@ def test_normalize_median_cols_invalid_raises_error(mock_quantile_learner_single
             horizon=3,
             interval_pairs=("LGBM-lo-90", "LGBM-hi-90"),
             median_cols=12345,
+        )
+
+
+def test_median_cols_reject_multiple_interval_pairs(mock_quantile_learner_multi):
+    """Avoid silently deriving one median from whichever interval pair runs last."""
+    with pytest.raises(ValueError, match="median_cols requires exactly one interval pair"):
+        ConformalQuantileTimeSeriesRegressor(
+            learner=mock_quantile_learner_multi,
+            horizon=3,
+            interval_pairs=[
+                ("LGBM-lo-90", "LGBM-hi-90"),
+                ("LGBM-lo-50", "LGBM-hi-50"),
+            ],
+            median_cols="LGBM",
         )
 
 
