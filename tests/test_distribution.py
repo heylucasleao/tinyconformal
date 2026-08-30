@@ -96,6 +96,73 @@ def test_newsvendor_rejects_distribution_batch_size_mismatch():
         )
 
 
+def test_newsvendor_marginal_benefit_uses_discrete_cdf():
+    cps = DiscreteConformalPredictiveSystem(_fitted_dummy(value=1.5))
+    cps.fit(np.arange(5).reshape(-1, 1), np.array([0, 0, 1, 2, 3]))
+    distribution = cps.predict_distribution(np.array([[10], [11]]))
+    frame = pd.DataFrame(
+        {
+            "unique_id": ["a", "b"],
+            "ds": [1, 1],
+            "cu": [10.0, 6.0],
+            "co": [2.0, 4.0],
+        }
+    )
+
+    result = NewsvendorSolver.marginal_benefit_distribution(
+        frame,
+        distribution,
+        underage_cost="cu",
+        overage_cost="co",
+        max_k=1,
+    )
+
+    # max_k + 1 equals the number of rows here, exercising the row/grid
+    # ambiguity in the distribution input protocol.
+    units = np.array([0, 1])
+    thresholds = np.broadcast_to(units - 1, (len(frame), len(units)))
+    probability_less = distribution.cdf(thresholds)
+    expected = frame["cu"].to_numpy()[:, None] * (1 - probability_less) - frame[
+        "co"
+    ].to_numpy()[:, None] * probability_less
+    np.testing.assert_allclose(result[["MB(k=0)", "MB(k=1)"]], expected)
+
+
+def test_newsvendor_marginal_benefit_supports_explicit_units():
+    cps = DiscreteConformalPredictiveSystem(_fitted_dummy(value=1.5))
+    cps.fit(np.arange(5).reshape(-1, 1), np.array([0, 0, 1, 2, 3]))
+    distribution = cps.predict_distribution(np.array([[10]]))
+    frame = pd.DataFrame({"unique_id": ["a"], "ds": [1]})
+
+    result = NewsvendorSolver.marginal_benefit_distribution(
+        frame,
+        distribution,
+        underage_cost=10.0,
+        overage_cost=2.0,
+        units=[1, 3, 5],
+    )
+
+    assert [column for column in result if column.startswith("MB(")] == [
+        "MB(k=1)",
+        "MB(k=3)",
+        "MB(k=5)",
+    ]
+
+
+def test_newsvendor_marginal_benefit_rejects_continuous_distribution():
+    cps = ContinuousConformalPredictiveSystem(_fitted_dummy())
+    cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
+    distribution = cps.predict_distribution(np.array([[20]]))
+
+    with pytest.raises(TypeError, match="only for discrete"):
+        NewsvendorSolver.marginal_benefit_distribution(
+            pd.DataFrame({"unique_id": ["a"], "ds": [1]}),
+            distribution,
+            underage_cost=1.0,
+            overage_cost=1.0,
+        )
+
+
 def test_predictive_distribution_evaluates_coverage():
     cps = ContinuousConformalPredictiveSystem(_fitted_dummy())
     cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))

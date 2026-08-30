@@ -104,6 +104,20 @@ result = NewsvendorSolver.optimize_distribution(
 )
 ```
 
+For a discrete predictive distribution, the solver can also report the expected
+net benefit of adding each inventory unit. The calculation uses the conformal
+CDF directly and accepts either ``max_k`` or an explicit unit grid:
+
+```python
+marginal_benefit = NewsvendorSolver.marginal_benefit_distribution(
+    forecast_frame,
+    predictive,
+    underage_cost="shortage_cost",
+    overage_cost="holding_cost",
+    units=[0, 5, 10, 15],
+)
+```
+
 Standard split CPS calibration assumes exchangeability. For time series, build
 the calibration set with rolling-origin predictions and choose a windowing or
 weighting scheme appropriate to the temporal dependence and drift.

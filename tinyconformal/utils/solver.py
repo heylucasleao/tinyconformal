@@ -8,6 +8,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from tinyconformal.distribution.base import DiscretePredictiveDistribution
+
 CostInput = str | float | int | dict[str | tuple[str, Any], float]
 
 INTERVAL_COLUMN_PATTERN = re.compile(
@@ -123,6 +125,59 @@ def _interpolate_linear(
     """Linearly interpolate a critical ratio between two interval bounds."""
     t = np.clip((q_star - p_lo) / (p_hi - p_lo), 0.0, 1.0)
     return q_lo + t * (q_hi - q_lo)
+
+
+def _validate_distribution_batch(distribution, n_rows: int, method: str) -> None:
+    """Validate batch alignment and a required predictive-distribution method."""
+    try:
+        n_distributions = len(distribution)
+    except (TypeError, AttributeError) as exc:
+        raise TypeError(
+            f"distribution must implement len() and a callable {method}() method."
+        ) from exc
+
+    if n_distributions != n_rows:
+        raise ValueError(
+            "The predictive distribution batch and DataFrame must have the same "
+            f"number of rows; got {n_distributions} and {n_rows}."
+        )
+    if not callable(getattr(distribution, method, None)):
+        raise TypeError(f"distribution must implement a callable {method}() method.")
+
+
+def _resolve_unit_grid(max_k: int, units) -> np.ndarray:
+    """Validate and return the integer grid used for marginal benefits."""
+    if units is None:
+        if (
+            isinstance(max_k, (bool, np.bool_))
+            or not isinstance(max_k, (int, np.integer))
+            or max_k < 0
+        ):
+            raise ValueError("max_k must be a non-negative integer.")
+        return np.arange(int(max_k) + 1, dtype=int)
+
+    unit_grid = np.asarray(units)
+    if (
+        unit_grid.ndim != 1
+        or unit_grid.size == 0
+        or not np.all(np.isfinite(unit_grid))
+        or np.any(unit_grid != np.floor(unit_grid))
+        or np.any(unit_grid < 0)
+    ):
+        raise ValueError(
+            "units must be a non-empty one-dimensional sequence of "
+            "non-negative integers."
+        )
+    unit_grid = unit_grid.astype(int)
+    if np.unique(unit_grid).size != unit_grid.size:
+        raise ValueError("units must not contain duplicates.")
+    return unit_grid
+
+
+def _validate_column_template(column_template: str) -> None:
+    """Validate the output-column template used for inventory units."""
+    if not isinstance(column_template, str) or "{k}" not in column_template:
+        raise ValueError("column_template must be a string containing '{k}'.")
 
 
 class NewsvendorSolver:
@@ -314,19 +369,7 @@ class NewsvendorSolver:
         df_res = df.copy()
 
         n_rows = len(df_res)
-        try:
-            n_distributions = len(distribution)
-        except (TypeError, AttributeError) as exc:
-            raise TypeError(
-                "distribution must implement len() and a row-wise ppf() method."
-            ) from exc
-        if n_distributions != n_rows:
-            raise ValueError(
-                "The predictive distribution batch and DataFrame must have the same "
-                f"number of rows; got {n_distributions} and {n_rows}."
-            )
-        if not callable(getattr(distribution, "ppf", None)):
-            raise TypeError("distribution must implement a callable ppf() method.")
+        _validate_distribution_batch(distribution, n_rows, method="ppf")
 
         cu_arr = _extract_cost_array(df_res, underage_cost, id_col, time_col, n_rows)
         co_arr = _extract_cost_array(df_res, overage_cost, id_col, time_col, n_rows)
@@ -348,4 +391,116 @@ class NewsvendorSolver:
 
         df_res[ratio_col] = q_star
         df_res[output_col] = y_final
+        return df_res
+
+    @staticmethod
+    def marginal_benefit_distribution(
+        df: pd.DataFrame,
+        distribution: DiscretePredictiveDistribution,
+        underage_cost: CostInput,
+        overage_cost: CostInput,
+        max_k: int = 10,
+        units=None,
+        id_col: str = "unique_id",
+        time_col: str = "ds",
+        column_template: str = "MB(k={k})",
+    ) -> pd.DataFrame:
+        """Evaluate the marginal benefit of discrete inventory units.
+
+        For every forecast row and candidate unit ``k``, this method computes
+
+        ``MB(k) = c_u * P(Y >= k) - c_o * P(Y < k)``
+
+        directly from the predictive CDF as
+
+        ``MB(k) = c_u * (1 - F(k - 1)) - c_o * F(k - 1)``.
+
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            Row-aligned forecast or decision frame.  Cost columns, when used,
+            are read from this frame.
+        distribution : DiscretePredictiveDistribution
+            Batch of discrete predictive distributions aligned positionally
+            with ``df``.
+        underage_cost : str, float, int, or dict
+            Unit shortage cost.  It may be a scalar, a column name, a mapping
+            from series IDs to costs, or a mapping from ``(ID, time)`` pairs.
+        overage_cost : str, float, int, or dict
+            Unit excess cost, with the same accepted forms as
+            ``underage_cost``.
+        max_k : int, default=10
+            Largest non-negative unit evaluated when ``units`` is not supplied.
+            The resulting grid is ``0, 1, ..., max_k``.
+        units : array-like of int or None, default=None
+            Explicit non-empty grid of unique, non-negative inventory units.
+            When provided, it takes precedence over ``max_k``.
+        id_col : str, default="unique_id"
+            Series identifier column used by dictionary cost inputs.
+        time_col : str, default="ds"
+            Time column used by dictionary cost inputs.
+        column_template : str, default="MB(k={k})"
+            Format string used for output columns.  It must contain ``{k}``.
+
+        Returns
+        -------
+        pandas.DataFrame
+            A copy of ``df`` with one marginal-benefit column per requested
+            inventory unit.
+
+        Notes
+        -----
+        Positive values favor adding unit ``k``; negative values indicate that
+        its expected overage cost exceeds its expected shortage benefit.  The
+        calculation uses the CDF directly rather than accumulating a truncated
+        PMF, so it remains valid for discrete supports whose minimum is not zero.
+
+        Row order is significant: distribution row ``i`` must describe frame
+        row ``i``.  This method is intentionally unavailable for continuous
+        predictive distributions, where an individual inventory unit does not
+        define a probability-mass increment.
+        """
+        if not isinstance(distribution, DiscretePredictiveDistribution):
+            raise TypeError(
+                "marginal benefit is available only for discrete predictive "
+                "distributions."
+            )
+
+        df_res = df.copy()
+        n_rows = len(df_res)
+        _validate_distribution_batch(distribution, n_rows, method="cdf")
+        unit_grid = _resolve_unit_grid(max_k=max_k, units=units)
+        _validate_column_template(column_template)
+
+        cu_arr = _extract_cost_array(
+            df_res, underage_cost, id_col, time_col, n_rows
+        )
+        co_arr = _extract_cost_array(
+            df_res, overage_cost, id_col, time_col, n_rows
+        )
+        for name, costs in (("underage_cost", cu_arr), ("overage_cost", co_arr)):
+            invalid = (~np.isnan(costs)) & ((costs < 0) | ~np.isfinite(costs))
+            if np.any(invalid):
+                raise ValueError(
+                    f"'{name}' must contain only non-negative finite values."
+                )
+
+        # A 2D matrix avoids ambiguity when the unit grid happens to have the
+        # same length as the distribution batch (which otherwise means row-wise
+        # input in the PredictiveDistribution protocol).
+        thresholds = np.broadcast_to(unit_grid - 1, (n_rows, unit_grid.size))
+        probability_less = np.asarray(distribution.cdf(thresholds), dtype=float)
+        expected_shape = (n_rows, unit_grid.size)
+        if probability_less.shape != expected_shape:
+            raise ValueError(
+                "distribution.cdf(unit_grid) must return a matrix with shape "
+                f"{expected_shape}; got {probability_less.shape}."
+            )
+
+        marginal_benefit = (
+            cu_arr[:, None] * (1.0 - probability_less)
+            - co_arr[:, None] * probability_less
+        )
+        for index, unit in enumerate(unit_grid):
+            df_res[column_template.format(k=int(unit))] = marginal_benefit[:, index]
         return df_res
