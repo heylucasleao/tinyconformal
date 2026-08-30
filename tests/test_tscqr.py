@@ -280,8 +280,41 @@ def test_fit_and_ncscores_structure(
 
     pair_key = "LGBM-lo-90:LGBM-hi-90"
     assert pair_key in cqr.ncscores_
-    assert cqr.ncscores_[pair_key].shape == (4, 3)
-    assert cqr.n == 4
+    assert set(cqr.ncscores_[pair_key]) == {"series_1", "series_2"}
+    assert all(
+        scores.shape == (2, 3) for scores in cqr.ncscores_[pair_key].values()
+    )
+    assert cqr.n == 2
+
+
+def test_tscqr_bounds_are_calibrated_by_unique_id(mock_quantile_learner_single):
+    """Each series must use only its own CQR nonconformity scores."""
+    cqr = ConformalQuantileTimeSeriesRegressor(
+        learner=mock_quantile_learner_single,
+        horizon=2,
+        n_windows=2,
+        intervals=("LGBM-lo-90", "LGBM-hi-90"),
+    )
+    pair_key = "LGBM-lo-90:LGBM-hi-90"
+    cqr.ncscores_ = {
+        pair_key: {
+            "stable": np.array([[1.0, 2.0], [1.0, 2.0]]),
+            "volatile": np.array([[10.0, 20.0], [10.0, 20.0]]),
+        }
+    }
+    cqr.n = 2
+
+    lower, upper = cqr._compute_bounds(
+        q_low=np.full(4, 90.0),
+        q_high=np.full(4, 110.0),
+        pair_key=pair_key,
+        h=2,
+        prediction_ids=np.array(["stable", "stable", "volatile", "volatile"]),
+        alpha=0.1,
+    )
+
+    np.testing.assert_array_equal(lower, [89.0, 88.0, 80.0, 70.0])
+    np.testing.assert_array_equal(upper, [111.0, 112.0, 120.0, 130.0])
 
 
 def test_predict_interval_single_pair_formatting(
