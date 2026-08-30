@@ -23,14 +23,78 @@ from .mscp import ConformalDistributionTimeSeriesRegressor
 class DistributionalConformalPredictiveSystemTimeSeriesRegressor(
     ConformalDistributionTimeSeriesRegressor
 ):
-    """PIT-based, horizon-wise DCP for Nixtla-compatible estimators.
+    """Distributional conformal predictive system for panel time series.
+
+    DCP starts from conditional quantile forecasts emitted by a
+    Nixtla-compatible learner and interprets each quantile grid as a base
+    predictive distribution.  Sequential rolling-origin backtesting evaluates
+    the observed targets under those base CDFs, producing probability integral
+    transform (PIT) values separately for every model and forecast horizon.
+    The empirical PIT distributions then recalibrate the complete forecast CDF,
+    rather than correcting only one preselected interval.
 
     Parameters
     ----------
+    learner : BaseEstimator
+        Unfitted Nixtla-compatible forecasting estimator.  Its prediction frame
+        must include every column declared in ``quantile_columns``.
+    horizon : int
+        Maximum forecast horizon calibrated by rolling-origin backtesting.
     quantile_columns : dict
-        Either ``{probability: column}`` for one model or
-        ``{model: {probability: column}}`` for multiple models. Every configured
-        column must be emitted by the Nixtla learner's ``predict`` method.
+        Mapping between probability levels and forecast columns.  Use
+        ``{probability: column}`` for one model or
+        ``{model: {probability: column}}`` for multiple models.  Flat mappings
+        require column names of the form ``<model>-q-<percent>`` so the model
+        name can be inferred.  Every grid must contain at least two strictly
+        increasing probability levels inside ``(0, 1)``.
+    n_windows : int, default=10
+        Number of sequential backtesting windows.  Each series contributes one
+        PIT trajectory per window.
+    alpha : float, default=0.05
+        Default significance level used by ``predict_interval`` and ``evaluate``.
+        Arbitrary quantiles remain available through ``predict_quantiles`` and
+        ``predict_distribution``.
+    id_col : str, default="unique_id"
+        Column identifying the individual time series.
+    time_col : str, default="ds"
+        Column containing ordered timestamps.
+    target_col : str, default="y"
+        Column containing observed targets.
+
+    Attributes
+    ----------
+    learner : BaseEstimator
+        Fitted forecasting learner after calibration.
+    quantile_columns_ : dict of str to dict
+        Normalized model-specific mappings with sorted floating-point
+        probability levels.
+    ncscores_ : dict of str to ndarray
+        PIT calibration matrices keyed by model.  Each matrix has shape
+        ``(n_series * n_windows, horizon)`` with entries in ``[0, 1]``.
+    n : int
+        Number of PIT calibration trajectories available per horizon step.
+    exog_cols_ : list of str
+        Exogenous feature columns inferred from the training panel.
+
+    Notes
+    -----
+    Predicted quantile crossings are rearranged by a cumulative maximum before
+    the base CDF is constructed.  Between supplied quantile knots, the base CDF
+    and PPF use linear interpolation; outside the grid, the PPF is clipped to
+    the extreme predicted quantiles.  Consequently, grid density and tail
+    coverage determine how much distributional detail is available before
+    conformal recalibration.
+
+    Calibration is horizon-specific.  A prediction row at horizon step ``h``
+    is recalibrated only with PITs observed at the same step during backtesting.
+    The resulting validity is marginal by horizon under the relevant
+    exchangeability assumptions, not a simultaneous guarantee for an entire
+    forecast path.
+
+    ``predict_distribution`` returns the forecast DataFrame and a dictionary of
+    row-aligned :class:`DistributionalConformalDistribution` batches.  Their row
+    order must not be changed independently.  This implementation is continuous;
+    it exposes CDF and PPF operations but no PMF.
     """
 
     def __init__(

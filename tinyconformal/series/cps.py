@@ -27,7 +27,13 @@ def _validate_matrix(values, name: str) -> np.ndarray:
 
 
 class HorizonConformalDistribution(PredictiveDistribution):
-    """Predictive distributions calibrated separately by forecast horizon.
+    """Batch of residual-based predictive distributions calibrated by horizon.
+
+    Each prediction is represented as a point forecast plus the empirical
+    distribution of signed calibration residuals for its forecast step.  The
+    object implements the common :class:`PredictiveDistribution` interface, so
+    callers can evaluate CDFs, request arbitrary quantiles, construct central
+    intervals, or draw samples without refitting the forecasting model.
 
     Parameters
     ----------
@@ -37,6 +43,26 @@ class HorizonConformalDistribution(PredictiveDistribution):
         Signed residuals ``y - y_hat`` from sequential backtesting.
     horizon_steps : ndarray of shape (n_predictions,)
         Zero-based horizon index associated with every point forecast.
+
+    Attributes
+    ----------
+    locations : ndarray of shape (n_predictions,)
+        Point forecasts defining the location of each predictive distribution.
+    residuals : ndarray of shape (n_calibration_trajectories, horizon)
+        Sorted signed calibration residuals for every horizon step.
+    horizon_steps : ndarray of shape (n_predictions,)
+        Horizon step used to select the residual distribution for each row.
+
+    Notes
+    -----
+    If ``r = y - y_hat`` denotes a signed calibration residual, the predictive
+    distribution for row ``i`` is the empirical distribution of
+    ``locations[i] + r[:, horizon_steps[i]]``.  The CDF uses conformal ranks with
+    denominator ``n_calibration_trajectories + 1`` and the PPF uses the
+    corresponding finite-sample ceiling rule.
+
+    Rows are positional.  Their order must remain identical to the associated
+    Nixtla forecast DataFrame returned by ``predict_distribution``.
     """
 
     def __init__(self, locations, residuals, horizon_steps):
@@ -103,7 +129,31 @@ class HorizonConformalDistribution(PredictiveDistribution):
 class DiscreteHorizonConformalDistribution(
     HorizonConformalDistribution, DiscretePredictiveDistribution
 ):
-    """Horizon-wise conformal distribution on an ordered integer support."""
+    """Horizon-wise conformal predictive distributions on integer support.
+
+    This specialization converts CPS quantiles to integers with ``ceil`` and
+    optionally truncates the support below at ``minimum``.  It also inherits
+    :meth:`~tinyconformal.distribution.base.DiscretePredictiveDistribution.pmf`,
+    which evaluates probability masses as ``F(k) - F(k - 1)``.
+
+    Parameters
+    ----------
+    locations : ndarray of shape (n_predictions,)
+        Point forecasts in sorted Nixtla panel order.
+    residuals : ndarray of shape (n_calibration_trajectories, horizon)
+        Signed residuals ``y - y_hat`` obtained by sequential backtesting.
+    horizon_steps : ndarray of shape (n_predictions,)
+        Zero-based forecast step associated with each prediction row.
+    minimum : int or None, default=0
+        Lower boundary of the integer support.  If ``None``, no lower boundary
+        is imposed.
+
+    Notes
+    -----
+    The class is intended for genuinely discrete targets such as demand counts.
+    Rounding a continuous target merely to expose a PMF changes the statistical
+    object and is not equivalent to a continuous CPS.
+    """
 
     def __init__(self, locations, residuals, horizon_steps, minimum: int | None = 0):
         super().__init__(locations, residuals, horizon_steps)
@@ -133,15 +183,71 @@ class DiscreteHorizonConformalDistribution(
 class ConformalPredictiveSystemTimeSeriesRegressor(
     ConformalDistributionTimeSeriesRegressor
 ):
-    """Horizon-wise CPS for Nixtla-compatible forecasting estimators.
+    """Conformal predictive system for multi-step panel forecasting.
 
-    Calibration uses the same sequential rolling-origin backtesting engine as
-    MSCP and TSCQR. Signed residual distributions are retained per model and
-    horizon instead of being reduced to one interval during prediction.
+    The regressor calibrates complete residual distributions for each forecast
+    horizon of a Nixtla-compatible learner, such as ``MLForecast`` or
+    ``StatsForecast``.  Sequential rolling-origin backtesting produces signed
+    residual trajectories.  Unlike an interval-only conformal method, CPS keeps
+    those empirical distributions and can therefore return CDFs, arbitrary
+    quantiles, samples, and intervals after a single calibration fit.
 
     ``predict_distribution`` returns a dictionary because Nixtla estimators may
     expose more than one model column. Each value is aligned row-for-row with the
     DataFrame returned alongside it.
+
+    Parameters
+    ----------
+    learner : BaseEstimator
+        Unfitted Nixtla-compatible forecasting estimator.  Its ``fit`` method
+        must accept a long-format panel and its ``predict`` method must return
+        ``id_col``, ``time_col``, and one or more model forecast columns.
+    horizon : int
+        Maximum forecast horizon calibrated during rolling-origin backtesting.
+    n_windows : int, default=10
+        Number of backtesting windows.  Each series contributes one residual
+        trajectory per window.
+    alpha : float, default=0.05
+        Default significance level used by ``predict_interval`` and ``evaluate``.
+        It does not restrict the quantiles available from the fitted CPS.
+    discrete : bool, default=False
+        Whether to construct integer-support predictive distributions.
+    minimum : int or None, default=0
+        Lower support boundary used when ``discrete=True``.  Ignored for
+        continuous distributions.
+    id_col : str, default="unique_id"
+        Column identifying the individual time series.
+    time_col : str, default="ds"
+        Column containing ordered timestamps.
+    target_col : str, default="y"
+        Column containing observed targets.
+
+    Attributes
+    ----------
+    learner : BaseEstimator
+        Fitted forecasting learner after ``fit`` completes.
+    ncscores_ : dict of str to ndarray
+        Calibration residual matrices keyed by model column.  Each matrix has
+        shape ``(n_series * n_windows, horizon)`` and stores ``y_hat - y``;
+        signs are reversed when CPS distributions are constructed.
+    n : int
+        Number of calibration trajectories available per horizon step.
+    exog_cols_ : list of str
+        Exogenous feature columns inferred from the training panel.
+
+    Notes
+    -----
+    Calibration is horizon-specific: predictions at step ``h`` use only the
+    residuals collected at that same step.  The conformal guarantee therefore
+    applies marginally to each calibrated horizon under the exchangeability
+    assumptions appropriate to the rolling-origin residual trajectories; it is
+    not a simultaneous pathwise guarantee over the full forecast trajectory.
+
+    The forecast DataFrame and returned distribution batches are positionally
+    aligned after sorting by ``id_col`` and ``time_col``.  Reordering either one
+    independently invalidates that correspondence.  Forecasts beyond the fitted
+    ``horizon`` are not supported because no matching residual distribution was
+    calibrated.
     """
 
     def __init__(
@@ -301,7 +407,35 @@ class ConformalPredictiveSystemTimeSeriesRegressor(
 class ContinuousConformalPredictiveSystemTimeSeriesRegressor(
     ConformalPredictiveSystemTimeSeriesRegressor
 ):
-    """Continuous-target horizon-wise CPS for Nixtla estimators."""
+    """Continuous-target CPS for multi-step Nixtla panel forecasts.
+
+    This convenience class configures
+    :class:`ConformalPredictiveSystemTimeSeriesRegressor` with
+    ``discrete=False``.  Predictive distributions retain their real-valued
+    support and expose CDF, PPF, interval, and sampling operations.
+
+    Parameters
+    ----------
+    learner : BaseEstimator
+        Unfitted Nixtla-compatible forecasting estimator.
+    horizon : int
+        Maximum forecast horizon to calibrate.
+    n_windows : int, default=10
+        Number of sequential backtesting windows.
+    alpha : float, default=0.05
+        Default significance level for interval prediction and evaluation.
+    id_col : str, default="unique_id"
+        Series identifier column.
+    time_col : str, default="ds"
+        Timestamp column.
+    target_col : str, default="y"
+        Target column.
+
+    Notes
+    -----
+    A continuous CPS does not define a probability mass function.  Use ``cdf``
+    and ``ppf`` on the distributions returned by ``predict_distribution``.
+    """
 
     def __init__(
         self,
@@ -329,7 +463,39 @@ class ContinuousConformalPredictiveSystemTimeSeriesRegressor(
 class DiscreteConformalPredictiveSystemTimeSeriesRegressor(
     ConformalPredictiveSystemTimeSeriesRegressor
 ):
-    """Integer-target horizon-wise CPS for Nixtla estimators."""
+    """Integer-target CPS for multi-step Nixtla panel forecasts.
+
+    This convenience class validates integer training targets and constructs
+    :class:`DiscreteHorizonConformalDistribution` objects.  Their quantiles are
+    integer-valued and their PMFs are obtained from adjacent CDF differences.
+
+    Parameters
+    ----------
+    learner : BaseEstimator
+        Unfitted Nixtla-compatible forecasting estimator.
+    horizon : int
+        Maximum forecast horizon to calibrate.
+    n_windows : int, default=10
+        Number of sequential backtesting windows.
+    alpha : float, default=0.05
+        Default significance level for interval prediction and evaluation.
+    minimum : int or None, default=0
+        Lower boundary of the target support.  Set to ``None`` to allow all
+        integers.
+    id_col : str, default="unique_id"
+        Series identifier column.
+    time_col : str, default="ds"
+        Timestamp column.
+    target_col : str, default="y"
+        Integer target column.
+
+    Notes
+    -----
+    ``fit`` rejects non-finite, non-integer targets and observations below a
+    configured ``minimum``.  The learner's point forecasts may remain real
+    valued; discretization is applied when the predictive distribution is
+    queried.
+    """
 
     def __init__(
         self,
