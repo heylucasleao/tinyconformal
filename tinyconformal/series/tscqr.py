@@ -88,14 +88,17 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
     exog_cols_ : list
         List of detected exogenous column names.
     ncscores_ : dict
-        Dictionary mapping each quantile pair key (`"low_col:high_col"`) to a 2D numpy
-        array of nonconformity scores of shape (N, horizon).
+        Dictionary mapping each quantile pair key (`"low_col:high_col"`) to a
+        second dictionary keyed by series identifier. Each per-series value is
+        a score matrix of shape ``(n_windows, horizon)``.
     n : int, default=0
-        Total number of calibration trajectories extracted across windows and series.
+        Number of calibration windows available for each series and horizon.
 
     Notes
     -----
     - Nonconformity scores are computed via $E_{i,t} = \max(q_{\text{low}} - y, y - q_{\text{high}})$.
+    - Quantiles are calibrated independently for every series identifier and
+      forecast horizon; scores are never pooled across series.
     - Finite-sample correction uses order-statistic rank
       $\lceil (n+1)(1-\alpha) \rceil$, mapped exactly to NumPy's ``higher`` quantile.
 
@@ -248,6 +251,22 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         """Computes CQR Nonconformity Scores: E_{i,t} = max(q_low - y, y - q_high)"""
         return np.maximum(q_low - y_true, y_true - q_high)
 
+    def _finalize_residuals(
+        self,
+        residuals_by_model: dict[str, list[np.ndarray]],
+        series_ids: list,
+    ) -> dict[str, dict[object, np.ndarray]]:
+        """Preserve one horizon-wise nonconformity matrix per series."""
+        return {
+            pair_key: {
+                series_id: np.vstack(
+                    [window_scores[row] for window_scores in windows]
+                )
+                for row, series_id in enumerate(series_ids)
+            }
+            for pair_key, windows in residuals_by_model.items()
+        }
+
     def _prepare_and_validate_steps(
         self, df: pd.DataFrame, step_size: int
     ) -> tuple[np.ndarray, int, int]:
@@ -361,7 +380,7 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         q_high: np.ndarray,
         pair_key: str,
         h: int,
-        n_series: int,
+        prediction_ids: np.ndarray,
         alpha: float,
     ) -> tuple[np.ndarray, np.ndarray]:
         """Computes lower and upper conformalized quantile bounds.
@@ -370,14 +389,26 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         """
         q_level = self._sample_correction(self._validate_alpha(alpha))
 
-        ncscore = self.ncscores_[pair_key]
-        ncscore_sliced = ncscore[:, :h]
+        scores_by_id = self.ncscores_[pair_key]
+        missing_ids = sorted(set(prediction_ids) - set(scores_by_id), key=str)
+        if missing_ids:
+            raise ValueError(
+                "No calibration scores are available for forecast identifiers: "
+                f"{missing_ids}"
+            )
 
-        q_hat_h = self._compute_qhat(ncscore_sliced, q_level, axis=0)
-        q_hat_tiled = np.tile(q_hat_h, n_series)
-
-        lower_bound = q_low - q_hat_tiled
-        upper_bound = q_high + q_hat_tiled
+        lower_bound = np.empty_like(q_low, dtype=float)
+        upper_bound = np.empty_like(q_high, dtype=float)
+        for series_id in pd.unique(prediction_ids):
+            row_mask = prediction_ids == series_id
+            ncscore = scores_by_id[series_id][:, :h]
+            q_hat_h = self._compute_qhat(ncscore, q_level, axis=0)
+            if row_mask.sum() != h:
+                raise ValueError(
+                    f"Forecast identifier {series_id!r} must contain exactly {h} rows."
+                )
+            lower_bound[row_mask] = q_low[row_mask] - q_hat_h
+            upper_bound[row_mask] = q_high[row_mask] + q_hat_h
 
         return lower_bound, upper_bound
 
@@ -421,7 +452,7 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
             .reset_index(drop=True)
         )
 
-        n_series = self._validate_prediction_panel(pred_df, h)
+        self._validate_prediction_panel(pred_df, h)
 
         for low_col, high_col in self.intervals_:
             self._require_forecast_columns(pred_df, (low_col, high_col))
@@ -439,7 +470,7 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
                 q_high=q_high,
                 pair_key=pair_key,
                 h=h,
-                n_series=n_series,
+                prediction_ids=pred_df[self.id_col].to_numpy(),
                 alpha=interval_alpha,
             )
 
