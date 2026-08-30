@@ -3,6 +3,7 @@
 # Licensed under the MIT License
 
 import re
+from collections.abc import Iterable
 from typing import Any
 
 import numpy as np
@@ -145,33 +146,36 @@ def _validate_distribution_batch(distribution, n_rows: int, method: str) -> None
         raise TypeError(f"distribution must implement a callable {method}() method.")
 
 
-def _resolve_unit_grid(max_k: int, units) -> np.ndarray:
-    """Validate and return the integer grid used for marginal benefits."""
+def _resolve_unit_grid(max_k: int | None, units: Iterable[int] | None) -> np.ndarray:
+    """Validate the unit selection and return its grid."""
+    if max_k is not None and units is not None:
+        raise ValueError("Provide either max_k or units, not both.")
     if units is None:
+        max_k = 10 if max_k is None else max_k
         if (
             isinstance(max_k, (bool, np.bool_))
             or not isinstance(max_k, (int, np.integer))
             or max_k < 0
         ):
             raise ValueError("max_k must be a non-negative integer.")
-        return np.arange(int(max_k) + 1, dtype=int)
+        return np.arange(0, int(max_k) + 1)
 
-    unit_grid = np.asarray(units)
-    if (
-        unit_grid.ndim != 1
-        or unit_grid.size == 0
-        or not np.all(np.isfinite(unit_grid))
-        or np.any(unit_grid != np.floor(unit_grid))
-        or np.any(unit_grid < 0)
+    if isinstance(units, (str, bytes)):
+        raise ValueError("units must be a non-empty iterable of integers.")
+    try:
+        unit_values = list(units)
+    except TypeError as exc:
+        raise ValueError("units must be a non-empty iterable of integers.") from exc
+    if not unit_values or any(
+        isinstance(unit, (bool, np.bool_))
+        or not isinstance(unit, (int, np.integer))
+        or unit < 0
+        for unit in unit_values
     ):
-        raise ValueError(
-            "units must be a non-empty one-dimensional sequence of "
-            "non-negative integers."
-        )
-    unit_grid = unit_grid.astype(int)
-    if np.unique(unit_grid).size != unit_grid.size:
+        raise ValueError("units must be a non-empty iterable of non-negative integers.")
+    if len(set(unit_values)) != len(unit_values):
         raise ValueError("units must not contain duplicates.")
-    return unit_grid
+    return np.asarray(unit_values, dtype=int)
 
 
 def _validate_column_template(column_template: str) -> None:
@@ -394,13 +398,58 @@ class NewsvendorSolver:
         return df_res
 
     @staticmethod
+    def pmf_distribution(
+        df: pd.DataFrame,
+        distribution: DiscretePredictiveDistribution,
+        max_k: int | None = None,
+        units: Iterable[int] | None = None,
+        column_template: str = "P(Y={k})",
+    ) -> pd.DataFrame:
+        """Evaluate exact probability masses for selected inventory units.
+
+        Provide either ``max_k`` for the dense grid ``0, ..., max_k`` or
+        ``units`` for an explicit sparse/stepped grid. If neither is provided,
+        ``max_k`` defaults to 10.
+        """
+        if not isinstance(distribution, DiscretePredictiveDistribution):
+            raise TypeError(
+                "pmf is available only for discrete predictive distributions."
+            )
+
+        df_res = df.copy()
+        n_rows = len(df_res)
+        _validate_distribution_batch(distribution, n_rows, method="pmf")
+        unit_grid = _resolve_unit_grid(max_k=max_k, units=units)
+        _validate_column_template(column_template)
+
+        # Always use a matrix to avoid the row-wise/grid ambiguity when both
+        # dimensions happen to have the same length.
+        values = np.broadcast_to(unit_grid, (n_rows, unit_grid.size))
+        pmf_matrix = np.asarray(distribution.pmf(values), dtype=float)
+        expected_shape = (n_rows, unit_grid.size)
+        if pmf_matrix.shape != expected_shape:
+            raise ValueError(
+                "distribution.pmf(unit_grid) must return a matrix with shape "
+                f"{expected_shape}; got {pmf_matrix.shape}."
+            )
+
+        for index, unit in enumerate(unit_grid):
+            df_res[column_template.format(k=int(unit))] = pmf_matrix[:, index]
+
+        # Summing selected masses gives the upper-tail probability only for the
+        # complete dense support prefix selected through max_k.
+        if units is None:
+            df_res[f"P(Y>{int(unit_grid[-1])})"] = 1.0 - pmf_matrix.sum(axis=1)
+        return df_res
+
+    @staticmethod
     def marginal_benefit_distribution(
         df: pd.DataFrame,
         distribution: DiscretePredictiveDistribution,
         underage_cost: CostInput,
         overage_cost: CostInput,
-        max_k: int = 10,
-        units=None,
+        max_k: int | None = None,
+        units: Iterable[int] | None = None,
         id_col: str = "unique_id",
         time_col: str = "ds",
         column_template: str = "MB(k={k})",
@@ -429,12 +478,12 @@ class NewsvendorSolver:
         overage_cost : str, float, int, or dict
             Unit excess cost, with the same accepted forms as
             ``underage_cost``.
-        max_k : int, default=10
+        max_k : int, optional
             Largest non-negative unit evaluated when ``units`` is not supplied.
-            The resulting grid is ``0, 1, ..., max_k``.
-        units : array-like of int or None, default=None
+            Defaults to 10 and cannot be combined with ``units``.
+        units : iterable of int, optional
             Explicit non-empty grid of unique, non-negative inventory units.
-            When provided, it takes precedence over ``max_k``.
+            Cannot be combined with ``max_k``.
         id_col : str, default="unique_id"
             Series identifier column used by dictionary cost inputs.
         time_col : str, default="ds"
@@ -472,12 +521,8 @@ class NewsvendorSolver:
         unit_grid = _resolve_unit_grid(max_k=max_k, units=units)
         _validate_column_template(column_template)
 
-        cu_arr = _extract_cost_array(
-            df_res, underage_cost, id_col, time_col, n_rows
-        )
-        co_arr = _extract_cost_array(
-            df_res, overage_cost, id_col, time_col, n_rows
-        )
+        cu_arr = _extract_cost_array(df_res, underage_cost, id_col, time_col, n_rows)
+        co_arr = _extract_cost_array(df_res, overage_cost, id_col, time_col, n_rows)
         for name, costs in (("underage_cost", cu_arr), ("overage_cost", co_arr)):
             invalid = (~np.isnan(costs)) & ((costs < 0) | ~np.isfinite(costs))
             if np.any(invalid):
