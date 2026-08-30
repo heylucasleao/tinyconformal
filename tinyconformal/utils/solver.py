@@ -288,3 +288,64 @@ class NewsvendorSolver:
         df_res[ratio_col] = q_star
         df_res[output_col] = np.clip(y_final, q_lo, q_hi)
         return df_res
+
+    @staticmethod
+    def optimize_distribution(
+        df: pd.DataFrame,
+        distribution,
+        underage_cost: CostInput,
+        overage_cost: CostInput,
+        id_col: str = "unique_id",
+        time_col: str = "ds",
+        ratio_col: str = "critical_ratio",
+        output_col: str = "y_optimal",
+        nonnegative: bool = True,
+    ) -> pd.DataFrame:
+        """Optimize inventory directly from a predictive distribution's inverse CDF.
+
+        ``distribution`` must implement ``len(distribution)`` and a row-wise
+        ``ppf(quantiles)`` method, as objects returned by
+        ``SplitConformalPredictiveSystem.predict_distribution`` do. Unlike
+        :meth:`optimize`, this method evaluates the exact requested critical
+        fractile instead of interpolating between two interval endpoints.
+        """
+        # Row order is significant: each distribution belongs to the DataFrame
+        # row at the same position.
+        df_res = df.copy()
+
+        n_rows = len(df_res)
+        try:
+            n_distributions = len(distribution)
+        except (TypeError, AttributeError) as exc:
+            raise TypeError(
+                "distribution must implement len() and a row-wise ppf() method."
+            ) from exc
+        if n_distributions != n_rows:
+            raise ValueError(
+                "The predictive distribution batch and DataFrame must have the same "
+                f"number of rows; got {n_distributions} and {n_rows}."
+            )
+        if not callable(getattr(distribution, "ppf", None)):
+            raise TypeError("distribution must implement a callable ppf() method.")
+
+        cu_arr = _extract_cost_array(df_res, underage_cost, id_col, time_col, n_rows)
+        co_arr = _extract_cost_array(df_res, overage_cost, id_col, time_col, n_rows)
+        for name, costs in (("underage_cost", cu_arr), ("overage_cost", co_arr)):
+            invalid = (~np.isnan(costs)) & ((costs < 0) | ~np.isfinite(costs))
+            if np.any(invalid):
+                raise ValueError(
+                    f"'{name}' must contain only non-negative finite values."
+                )
+
+        q_star = _compute_critical_quantile(cu=cu_arr, co=co_arr)
+        y_final = np.asarray(distribution.ppf(q_star), dtype=float)
+        if y_final.shape != (n_rows,):
+            raise ValueError(
+                "distribution.ppf(row_wise_quantiles) must return one value per row."
+            )
+        if nonnegative:
+            y_final = np.maximum(y_final, 0.0)
+
+        df_res[ratio_col] = q_star
+        df_res[output_col] = y_final
+        return df_res
