@@ -5,6 +5,7 @@
 from abc import ABC, abstractmethod
 
 import numpy as np
+import pandas as pd
 
 
 class PredictiveDistribution(ABC):
@@ -50,6 +51,33 @@ class PredictiveDistribution(ABC):
         rng = np.random.default_rng(random_state)
         uniforms = rng.random((len(self), int(n_samples)))
         return np.asarray(self.ppf(uniforms))
+
+    def evaluate(self, y, coverages=(0.5, 0.8, 0.9, 0.95)) -> pd.DataFrame:
+        """Evaluate central interval coverage, width, and Winkler score."""
+        y = np.asarray(y, dtype=float)
+        if y.shape != (len(self),) or not np.all(np.isfinite(y)):
+            raise ValueError("y must contain one finite value per distribution row.")
+        records = []
+        for coverage in coverages:
+            bounds = self.interval(coverage)
+            alpha = 1.0 - float(coverage)
+            lower, upper = bounds[:, 0], bounds[:, 1]
+            covered = (y >= lower) & (y <= upper)
+            width = upper - lower
+            winkler = (
+                width
+                + (2.0 / alpha) * (lower - y) * (y < lower)
+                + (2.0 / alpha) * (y - upper) * (y > upper)
+            )
+            records.append(
+                {
+                    "coverage": float(coverage),
+                    "empirical_coverage": float(np.mean(covered)),
+                    "mean_width": float(np.mean(width)),
+                    "winkler_score": float(np.mean(winkler)),
+                }
+            )
+        return pd.DataFrame(records)
 
 
 class DiscretePredictiveDistribution(PredictiveDistribution):

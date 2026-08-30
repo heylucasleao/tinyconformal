@@ -3,6 +3,7 @@ import pytest
 from sklearn.base import BaseEstimator
 
 from tinyconformal.distribution import (
+    DiscreteDistributionalConformalPredictiveSystem,
     DistributionalConformalPredictiveSystem,
     QuantileGridDistribution,
 )
@@ -67,6 +68,20 @@ def test_distributional_cps_accepts_native_cdf_ppf_distribution():
     calibrated = dcp.predict_distribution_from_base(test_base)
 
     assert calibrated.ppf([0.1, 0.5, 0.9]).shape == (1, 3)
+
+
+def test_discrete_distributional_cps_randomized_pit_pmf_and_evaluation():
+    dcp = DiscreteDistributionalConformalPredictiveSystem(
+        quantiles=[0.1, 0.5, 0.9], random_state=42
+    )
+    calibration = np.array([[0, 1, 3], [0, 2, 4], [1, 2, 5]], dtype=float)
+    dcp.fit_from_predictions([1, 2, 2], calibration)
+    distribution = dcp.predict_distribution_from_predictions([[0, 2, 5], [1, 3, 6]])
+
+    assert np.all((dcp.calibration_pits_ >= 0) & (dcp.calibration_pits_ <= 1))
+    assert np.issubdtype(distribution.ppf(0.5).dtype, np.integer)
+    assert np.all(distribution.pmf([2, 3]) >= 0)
+    assert len(distribution.evaluate([2, 3], coverages=[0.8])) == 1
 
 
 @pytest.mark.parametrize(

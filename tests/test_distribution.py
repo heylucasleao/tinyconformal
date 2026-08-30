@@ -94,3 +94,19 @@ def test_newsvendor_rejects_distribution_batch_size_mismatch():
             underage_cost=1,
             overage_cost=1,
         )
+
+
+def test_predictive_distribution_evaluates_coverage():
+    cps = ContinuousConformalPredictiveSystem(_fitted_dummy())
+    cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
+    distribution = cps.predict_distribution(np.array([[20], [21]]))
+
+    result = distribution.evaluate([10, 10], coverages=[0.5, 0.9])
+
+    assert list(result.columns) == [
+        "coverage",
+        "empirical_coverage",
+        "mean_width",
+        "winkler_score",
+    ]
+    assert len(result) == 2

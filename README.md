@@ -181,8 +181,20 @@ forecast_df, distributions = dcp.predict_distribution(h=14)
 ```
 
 Quantile crossings are repaired before interpolation. The current DCP is for
-continuous ordered targets and deliberately has no dependency on `tinyshift` or
-its two-stage Negative Binomial model.
+continuous ordered targets and also provides a discrete variant using randomized
+PIT. It deliberately has no dependency on `tinyshift` or its two-stage Negative
+Binomial model.
+
+Runnable distribution examples are organized in `examples/distribution/`:
+
+- `cps_continuous.ipynb`
+- `cps_discrete.ipynb`
+- `dcp_continuous.ipynb`
+- `dcp_discrete.ipynb`
+
+They compare scikit-learn and LightGBM learners, add quantile-forest to DCP, and
+cover CDF, PMF where applicable, PPF, arbitrary quantiles, empirical coverage,
+and Newsvendor optimization.
 
 ### Classifier submodule
 

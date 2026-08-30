@@ -8,7 +8,7 @@ import numpy as np
 from sklearn.base import BaseEstimator
 from sklearn.utils.validation import check_is_fitted
 
-from .base import PredictiveDistribution
+from .base import DiscretePredictiveDistribution, PredictiveDistribution
 
 
 def validate_quantile_levels(quantiles) -> np.ndarray:
@@ -107,6 +107,42 @@ class QuantileGridDistribution(PredictiveDistribution):
         return result[:, 0] if squeeze else result
 
 
+class DiscreteQuantileGridDistribution(
+    QuantileGridDistribution, DiscretePredictiveDistribution
+):
+    """Ordered integer distributions represented by conditional quantile grids."""
+
+    def __init__(self, quantile_predictions, quantiles, minimum: int | None = 0):
+        predictions = np.ceil(np.asarray(quantile_predictions, dtype=float))
+        if minimum is not None:
+            if not isinstance(minimum, (int, np.integer)):
+                raise TypeError("minimum must be an integer or None.")
+            predictions = np.maximum(predictions, minimum)
+        super().__init__(predictions, quantiles)
+        self.minimum = minimum
+
+    def cdf(self, values):
+        values, squeeze = self._rowwise_or_grid(values, "values")
+        values = np.floor(values)
+        result = np.empty_like(values, dtype=float)
+        for row in range(len(self)):
+            ranks = np.sum(
+                self.quantile_predictions[row, :, None] <= values[row, None, :],
+                axis=0,
+            )
+            result[row] = np.where(
+                ranks == 0,
+                0.0,
+                np.where(ranks == self.quantiles.size, 1.0, self.quantiles[ranks - 1]),
+            )
+        if self.minimum is not None:
+            result[values < self.minimum] = 0.0
+        return result[:, 0] if squeeze else result
+
+    def ppf(self, quantiles):
+        return np.ceil(super().ppf(quantiles)).astype(int)
+
+
 class DistributionalConformalDistribution(PredictiveDistribution):
     """PIT-calibrated conditional distributions.
 
@@ -175,6 +211,15 @@ class DistributionalConformalDistribution(PredictiveDistribution):
         return result[:, 0] if squeeze else result
 
 
+class DiscreteDistributionalConformalDistribution(
+    DistributionalConformalDistribution, DiscretePredictiveDistribution
+):
+    """PIT-calibrated predictive distribution on an integer support."""
+
+    def ppf(self, quantiles):
+        return np.ceil(super().ppf(quantiles)).astype(int)
+
+
 class DistributionalConformalPredictiveSystem(BaseEstimator):
     """PIT-based DCP over a fitted conditional quantile learner.
 
@@ -183,9 +228,19 @@ class DistributionalConformalPredictiveSystem(BaseEstimator):
     ``predict_distribution_from_predictions``.
     """
 
-    def __init__(self, learner: BaseEstimator | None = None, quantiles=None):
+    def __init__(
+        self,
+        learner: BaseEstimator | None = None,
+        quantiles=None,
+        discrete: bool = False,
+        minimum: int | None = 0,
+        random_state=None,
+    ):
         self.learner = learner
         self.quantiles = quantiles
+        self.discrete = discrete
+        self.minimum = minimum
+        self.random_state = random_state
 
     def _levels(self) -> np.ndarray:
         if self.quantiles is None:
@@ -217,7 +272,12 @@ class DistributionalConformalPredictiveSystem(BaseEstimator):
 
     def fit_from_predictions(self, y, quantile_predictions):
         levels = self._levels()
-        base = QuantileGridDistribution(quantile_predictions, levels)
+        if self.discrete:
+            base = DiscreteQuantileGridDistribution(
+                quantile_predictions, levels, minimum=self.minimum
+            )
+        else:
+            base = QuantileGridDistribution(quantile_predictions, levels)
         return self.fit_from_distribution(y, base)
 
     def fit_from_distribution(self, y, base_distribution: PredictiveDistribution):
@@ -227,7 +287,17 @@ class DistributionalConformalPredictiveSystem(BaseEstimator):
             raise ValueError("y must be one-dimensional and match the distribution rows.")
         if not np.all(np.isfinite(y)):
             raise ValueError("y must contain only finite values.")
-        self.calibration_pits_ = np.asarray(base_distribution.cdf(y), dtype=float)
+        if self.discrete:
+            if np.any(y != np.floor(y)):
+                raise ValueError("Discrete DCP targets must be integer-valued.")
+            cdf_right = np.asarray(base_distribution.cdf(y), dtype=float)
+            cdf_left = np.asarray(base_distribution.cdf(y - 1), dtype=float)
+            rng = np.random.default_rng(self.random_state)
+            self.calibration_pits_ = cdf_left + rng.random(y.size) * (
+                cdf_right - cdf_left
+            )
+        else:
+            self.calibration_pits_ = np.asarray(base_distribution.cdf(y), dtype=float)
         if self.calibration_pits_.shape != y.shape:
             raise ValueError("base_distribution.cdf(y) must return one PIT per row.")
         self.n_calibration_ = y.size
@@ -242,6 +312,10 @@ class DistributionalConformalPredictiveSystem(BaseEstimator):
     ) -> DistributionalConformalDistribution:
         check_is_fitted(self, attributes=["calibration_pits_", "n_calibration_"])
         base = QuantileGridDistribution(quantile_predictions, self._levels())
+        if self.discrete:
+            base = DiscreteQuantileGridDistribution(
+                quantile_predictions, self._levels(), minimum=self.minimum
+            )
         return self.predict_distribution_from_base(base)
 
     def predict_distribution_from_base(
@@ -249,12 +323,36 @@ class DistributionalConformalPredictiveSystem(BaseEstimator):
     ) -> DistributionalConformalDistribution:
         """Recalibrate any native conditional distribution through fitted PIT ranks."""
         check_is_fitted(self, attributes=["calibration_pits_", "n_calibration_"])
-        return DistributionalConformalDistribution(
-            base_distribution, self.calibration_pits_
+        distribution_class = (
+            DiscreteDistributionalConformalDistribution
+            if self.discrete
+            else DistributionalConformalDistribution
         )
+        return distribution_class(base_distribution, self.calibration_pits_)
 
     def predict_interval(self, X, coverage: float = 0.95) -> np.ndarray:
         return self.predict_distribution(X).interval(coverage)
 
     def predict(self, X):
         return self.predict_distribution(X).ppf(0.5)
+
+
+class DiscreteDistributionalConformalPredictiveSystem(
+    DistributionalConformalPredictiveSystem
+):
+    """PIT-based DCP for ordered integer targets."""
+
+    def __init__(
+        self,
+        learner: BaseEstimator | None = None,
+        quantiles=None,
+        minimum: int | None = 0,
+        random_state=None,
+    ):
+        super().__init__(
+            learner=learner,
+            quantiles=quantiles,
+            discrete=True,
+            minimum=minimum,
+            random_state=random_state,
+        )

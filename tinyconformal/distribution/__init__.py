@@ -2,6 +2,9 @@
 
 from .base import DiscretePredictiveDistribution, PredictiveDistribution
 from .distributional import (
+    DiscreteDistributionalConformalDistribution,
+    DiscreteDistributionalConformalPredictiveSystem,
+    DiscreteQuantileGridDistribution,
     DistributionalConformalDistribution,
     DistributionalConformalPredictiveSystem,
     QuantileGridDistribution,
@@ -19,7 +22,10 @@ __all__ = [
     "ContinuousConformalPredictiveSystem",
     "DiscreteConformalDistribution",
     "DiscreteConformalPredictiveSystem",
+    "DiscreteDistributionalConformalDistribution",
+    "DiscreteDistributionalConformalPredictiveSystem",
     "DiscretePredictiveDistribution",
+    "DiscreteQuantileGridDistribution",
     "DistributionalConformalDistribution",
     "DistributionalConformalPredictiveSystem",
     "PredictiveDistribution",
