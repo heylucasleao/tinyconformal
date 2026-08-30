@@ -1,6 +1,11 @@
 """Conformal predictive distributions for continuous and discrete regression."""
 
 from .base import DiscretePredictiveDistribution, PredictiveDistribution
+from .distributional import (
+    DistributionalConformalDistribution,
+    DistributionalConformalPredictiveSystem,
+    QuantileGridDistribution,
+)
 from .split import (
     ContinuousConformalDistribution,
     ContinuousConformalPredictiveSystem,
@@ -15,6 +20,9 @@ __all__ = [
     "DiscreteConformalDistribution",
     "DiscreteConformalPredictiveSystem",
     "DiscretePredictiveDistribution",
+    "DistributionalConformalDistribution",
+    "DistributionalConformalPredictiveSystem",
     "PredictiveDistribution",
+    "QuantileGridDistribution",
     "SplitConformalPredictiveSystem",
 ]
