@@ -143,9 +143,12 @@ def test_mscp_fit_and_residuals(mock_point_learner, sample_distribution_data):
     cdr.fit(sample_distribution_data)
 
     assert "LGBMRegressor" in cdr.ncscores_
-    # 2 windows * 2 series = 4 trajectories
-    assert cdr.ncscores_["LGBMRegressor"].shape == (4, 3)
-    assert cdr.n == 4
+    assert set(cdr.ncscores_["LGBMRegressor"]) == {"id_1", "id_2"}
+    assert all(
+        scores.shape == (2, 3)
+        for scores in cdr.ncscores_["LGBMRegressor"].values()
+    )
+    assert cdr.n == 2
 
 
 def test_mscp_predict_interval_output(mock_point_learner, sample_distribution_data):
@@ -310,7 +313,9 @@ def test_mscp_compute_bounds_direct(mock_point_learner):
     cdr = ConformalDistributionTimeSeriesRegressor(
         learner=mock_point_learner, horizon=2
     )
-    cdr.ncscores_ = {"LGBM": np.array([[-2.0, -1.0], [2.0, 3.0]])}
+    cdr.ncscores_ = {
+        "LGBM": {"id_1": np.array([[-2.0, -1.0], [2.0, 3.0]])}
+    }
     cdr.n = 2
 
     y_hat = np.array([10.0, 20.0])  # 1 series, horizon 2
@@ -320,7 +325,11 @@ def test_mscp_compute_bounds_direct(mock_point_learner):
     # lower_bound = y_hat - q_high = [10 - 2, 20 - 3] = [8.0, 17.0]
     # upper_bound = y_hat - q_low = [10 - (-2), 20 - (-1)] = [12.0, 21.0]
     lower, upper = cdr._compute_bounds(
-        y_hat=y_hat, model_name="LGBM", h=2, n_series=1, alpha=0.10
+        y_hat=y_hat,
+        model_name="LGBM",
+        h=2,
+        prediction_ids=np.array(["id_1", "id_1"]),
+        alpha=0.10,
     )
 
     np.testing.assert_array_equal(lower, np.array([8.0, 17.0]))
@@ -545,7 +554,35 @@ def test_fit_default_step_size_fallback(mock_point_learner, sample_distribution_
     )
     # Executing fit without step_size parameter
     cdr.fit(sample_distribution_data, step_size=None)
-    assert cdr.ncscores_["LGBMRegressor"].shape == (4, 3)
+    assert all(
+        scores.shape == (2, 3)
+        for scores in cdr.ncscores_["LGBMRegressor"].values()
+    )
+
+
+def test_mscp_bounds_are_calibrated_by_unique_id(mock_point_learner):
+    """A volatile series must not widen another series' interval."""
+    cdr = ConformalDistributionTimeSeriesRegressor(
+        learner=mock_point_learner, horizon=2, n_windows=2, alpha=0.5
+    )
+    cdr.ncscores_ = {
+        "LGBM": {
+            "stable": np.array([[-1.0, -2.0], [1.0, 2.0]]),
+            "volatile": np.array([[-10.0, -20.0], [10.0, 20.0]]),
+        }
+    }
+    cdr.n = 2
+
+    lower, upper = cdr._compute_bounds(
+        y_hat=np.full(4, 100.0),
+        model_name="LGBM",
+        h=2,
+        prediction_ids=np.array(["stable", "stable", "volatile", "volatile"]),
+        alpha=0.5,
+    )
+
+    np.testing.assert_array_equal(lower, [99.0, 98.0, 90.0, 80.0])
+    np.testing.assert_array_equal(upper, [101.0, 102.0, 110.0, 120.0])
 
 
 def test_evaluate_inner_join_behavior(mock_point_learner, sample_distribution_data):
