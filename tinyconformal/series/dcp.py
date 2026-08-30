@@ -11,6 +11,8 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 
 from tinyconformal.distribution import (
+    DiscreteDistributionalConformalDistribution,
+    DiscreteQuantileGridDistribution,
     DistributionalConformalDistribution,
     QuantileGridDistribution,
 )
@@ -60,6 +62,13 @@ class DistributionalConformalPredictiveSystemTimeSeriesRegressor(
         Column containing ordered timestamps.
     target_col : str, default="y"
         Column containing observed targets.
+    discrete : bool, default=False
+        Whether to calibrate an ordered integer target with randomized PITs.
+    minimum : int or None, default=0
+        Lower support boundary when ``discrete=True``. If ``None``, all integers
+        are allowed.
+    random_state : int or None, default=None
+        Seed controlling randomized PITs for discrete targets.
 
     Attributes
     ----------
@@ -92,9 +101,9 @@ class DistributionalConformalPredictiveSystemTimeSeriesRegressor(
     forecast path.
 
     ``predict_distribution`` returns the forecast DataFrame and a dictionary of
-    row-aligned :class:`DistributionalConformalDistribution` batches.  Their row
-    order must not be changed independently.  This implementation is continuous;
-    it exposes CDF and PPF operations but no PMF.
+    row-aligned predictive distribution batches. Their row order must not be
+    changed independently. With ``discrete=True``, the distributions expose a
+    PMF and integer-valued quantiles.
     """
 
     def __init__(
@@ -107,6 +116,9 @@ class DistributionalConformalPredictiveSystemTimeSeriesRegressor(
         id_col: str = "unique_id",
         time_col: str = "ds",
         target_col: str = "y",
+        discrete: bool = False,
+        minimum: int | None = 0,
+        random_state=None,
     ):
         super().__init__(
             learner=learner,
@@ -118,6 +130,9 @@ class DistributionalConformalPredictiveSystemTimeSeriesRegressor(
             target_col=target_col,
         )
         self.quantile_columns = quantile_columns
+        self.discrete = discrete
+        self.minimum = minimum
+        self.random_state = random_state
         self.quantile_columns_ = self._normalize_quantile_columns(quantile_columns)
 
     @staticmethod
@@ -137,11 +152,15 @@ class DistributionalConformalPredictiveSystemTimeSeriesRegressor(
 
     def _normalize_one_grid(self, mapping: dict) -> dict[float, str]:
         if not isinstance(mapping, dict) or len(mapping) < 2:
-            raise ValueError("Each quantile column mapping must contain at least two levels.")
+            raise ValueError(
+                "Each quantile column mapping must contain at least two levels."
+            )
         try:
             pairs = sorted((float(level), column) for level, column in mapping.items())
         except (TypeError, ValueError) as exc:
-            raise ValueError("Quantile mapping keys must be numeric probabilities.") from exc
+            raise ValueError(
+                "Quantile mapping keys must be numeric probabilities."
+            ) from exc
         levels = validate_quantile_levels([level for level, _ in pairs])
         columns = [column for _, column in pairs]
         if not all(isinstance(column, str) for column in columns):
@@ -170,8 +189,34 @@ class DistributionalConformalPredictiveSystemTimeSeriesRegressor(
     def _validate_fit_configuration(self) -> None:
         super()._validate_fit_configuration()
         # Re-normalize because sklearn parameters may have been changed via set_params.
-        self.quantile_columns_ = self._normalize_quantile_columns(
-            self.quantile_columns
+        self.quantile_columns_ = self._normalize_quantile_columns(self.quantile_columns)
+        if not isinstance(self.discrete, (bool, np.bool_)):
+            raise TypeError("discrete must be a boolean.")
+        if (
+            self.discrete
+            and self.minimum is not None
+            and not isinstance(self.minimum, (int, np.integer))
+        ):
+            raise TypeError("minimum must be an integer or None.")
+
+    def fit(self, df, step_size=None, static_features=None, n_jobs=-1):
+        if self.discrete:
+            self._validate_columns(df)
+            target = np.asarray(df[self.target_col], dtype=float)
+            if not np.all(np.isfinite(target)) or np.any(target != np.floor(target)):
+                raise ValueError(
+                    "Discrete time-series DCP targets must be finite integers."
+                )
+            if self.minimum is not None and np.any(target < self.minimum):
+                raise ValueError(
+                    f"Discrete time-series DCP targets must be >= {self.minimum}."
+                )
+        self._random_generator_ = np.random.default_rng(self.random_state)
+        return super().fit(
+            df,
+            step_size=step_size,
+            static_features=static_features,
+            n_jobs=n_jobs,
         )
 
     def _all_quantile_columns(self) -> tuple[str, ...]:
@@ -202,11 +247,23 @@ class DistributionalConformalPredictiveSystemTimeSeriesRegressor(
                 forecast_pivots[0].index, target_pivot, *arrays
             )
             grid = np.stack(arrays, axis=-1).reshape(-1, levels.size)
-            base = QuantileGridDistribution(grid, levels)
-            pits = np.asarray(base.cdf(y_true.reshape(-1))).reshape(
-                n_series, self.horizon
-            )
+            base = self._base_distribution(grid, levels)
+            targets = y_true.reshape(-1)
+            if self.discrete:
+                cdf_right = np.asarray(base.cdf(targets), dtype=float)
+                cdf_left = np.asarray(base.cdf(targets - 1), dtype=float)
+                pits = cdf_left + self._random_generator_.random(targets.size) * (
+                    cdf_right - cdf_left
+                )
+            else:
+                pits = np.asarray(base.cdf(targets), dtype=float)
+            pits = pits.reshape(n_series, self.horizon)
             residuals_by_model.setdefault(model, []).append(pits)
+
+    def _base_distribution(self, grid, levels):
+        if self.discrete:
+            return DiscreteQuantileGridDistribution(grid, levels, minimum=self.minimum)
+        return QuantileGridDistribution(grid, levels)
 
     def _prediction_frame(
         self, h: int | None, X_df: pd.DataFrame | None
@@ -235,12 +292,15 @@ class DistributionalConformalPredictiveSystemTimeSeriesRegressor(
                 )
             levels = np.asarray(list(mapping), dtype=float)
             grid = pred_df[list(mapping.values())].to_numpy(dtype=float)
-            base = QuantileGridDistribution(grid, levels)
+            base = self._base_distribution(grid, levels)
             horizon_pits = self.ncscores_[model][:, :h]
             row_pits = horizon_pits[:, horizon_steps].T
-            distributions[model] = DistributionalConformalDistribution(
-                base, row_pits
+            distribution_class = (
+                DiscreteDistributionalConformalDistribution
+                if self.discrete
+                else DistributionalConformalDistribution
             )
+            distributions[model] = distribution_class(base, row_pits)
         return distributions
 
     @requires_extra("series")
@@ -265,7 +325,9 @@ class DistributionalConformalPredictiveSystemTimeSeriesRegressor(
         if levels.ndim == 0:
             levels = levels.reshape(1)
         if levels.ndim != 1 or levels.size == 0 or not np.all(np.isfinite(levels)):
-            raise ValueError("quantiles must be a non-empty finite scalar or 1D sequence.")
+            raise ValueError(
+                "quantiles must be a non-empty finite scalar or 1D sequence."
+            )
         if np.any((levels < 0.0) | (levels > 1.0)):
             raise ValueError("quantiles must lie in [0, 1].")
 
@@ -325,9 +387,40 @@ class DistributionalConformalPredictiveSystemTimeSeriesRegressor(
                     "interval_width_mean": np.round(
                         self._interval_width_mean(lower, upper), 3
                     ),
-                    "mwis": np.round(
-                        self._mwi_score(y_true, lower, upper, alpha), 3
-                    ),
+                    "mwis": np.round(self._mwi_score(y_true, lower, upper, alpha), 3),
                 }
             )
         return pd.DataFrame(records).sort_values("model").reset_index(drop=True)
+
+
+class DiscreteDistributionalConformalPredictiveSystemTimeSeriesRegressor(
+    DistributionalConformalPredictiveSystemTimeSeriesRegressor
+):
+    """PIT-calibrated predictive system for ordered integer time series."""
+
+    def __init__(
+        self,
+        learner: BaseEstimator,
+        horizon: int,
+        quantile_columns: dict,
+        n_windows: int = 10,
+        alpha: float = 0.05,
+        minimum: int | None = 0,
+        random_state=None,
+        id_col: str = "unique_id",
+        time_col: str = "ds",
+        target_col: str = "y",
+    ):
+        super().__init__(
+            learner=learner,
+            horizon=horizon,
+            quantile_columns=quantile_columns,
+            n_windows=n_windows,
+            alpha=alpha,
+            discrete=True,
+            minimum=minimum,
+            random_state=random_state,
+            id_col=id_col,
+            time_col=time_col,
+            target_col=target_col,
+        )

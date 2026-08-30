@@ -194,9 +194,11 @@ dcp.fit(train_df, step_size=14)
 forecast_df, distributions = dcp.predict_distribution(h=14)
 ```
 
-Quantile crossings are repaired before interpolation. The current DCP is for
-continuous ordered targets and also provides a discrete variant using randomized
-PIT. It deliberately has no dependency on `tinyshift` or its two-stage Negative
+For ordered integer/count series, use
+`DiscreteDistributionalConformalPredictiveSystemTimeSeriesRegressor`. It uses
+randomized PIT calibration, returns integer quantiles, and exposes `pmf` on the
+returned distributions. Quantile crossings are repaired before interpolation.
+The implementation has no dependency on `tinyshift` or its two-stage Negative
 Binomial model.
 
 Runnable distribution examples are organized in `examples/distribution/`:
