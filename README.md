@@ -13,7 +13,7 @@ For more information on a previous project related to Out-of-Bag (OOB) solutions
 
 ## Recent updates
 - Added out-of-fold regression calibration through `CrossValidationCalibration`.
-- Added `fit_from_scores` for ICP/CQR and `fit_from_residuals` for CPS.
+- Added `fit_from_scores` for ICP/CQR and standardized residual calibration for CPS.
 - Classifiers and regressors can now reuse out-of-fold cross-validation outputs for conformal calibration without reserving a separate calibration split.
 - Added `tinyconformal.series` support with `ConformalDistributionTimeSeriesRegressor` and `ConformalQuantileTimeSeriesRegressor` for multi-step time series interval forecasting with customizable backtesting strides (`step_size`).
 - Added support for Conformalized Quantile Regression (CQR) on multi-step time series using base estimators producing quantile forecasts.
@@ -67,18 +67,22 @@ TinyConformal is organized into two main submodules:
 - `tinyconformal.classifier`: conformal classifiers for binary classification.
 - `tinyconformal.regressor`: conformal regressors and exactness-bound utilities.
 - `tinyconformal.series`: multi-step conformal prediction for time series forecasting.
-- `tinyconformal.distribution`: split conformal predictive distributions and CPS wrappers.
+- `tinyconformal.distribution`: cross-fitted conformal predictive distributions.
 
 ### Predictive distribution submodule
 
-Calibrate a fitted regressor with labeled out-of-sample data, then request any
+Cross-fit location and scale estimators on the training data, then request any
 quantile, central interval, CDF value, or random sample:
 
 ```python
-from tinyconformal.distribution import ContinuousConformalPredictiveSystem
+from tinyconformal.distribution import ContinuousCrossConformalPredictiveSystem
 
-cps = ContinuousConformalPredictiveSystem(fitted_regressor)
-cps.fit(X_cal, y_cal)
+cps = ContinuousCrossConformalPredictiveSystem(
+    learner=location_regressor,
+    dispersion_learner=scale_regressor,
+    cv=5,
+)
+cps.fit(X_train, y_train)
 predictive = cps.predict_distribution(X_test)
 
 median = predictive.ppf(0.5)
@@ -86,8 +90,13 @@ intervals = predictive.interval(coverage=0.90)
 probabilities = predictive.cdf(values)
 ```
 
+The dispersion learner must return a strictly positive conditional scale
+estimate directly (not a variance). CPS internally generates OOF location
+residuals, cross-fits the scale learner on their absolute values, standardizes
+the residuals, and finally refits both models on all training rows.
+
 For ordered integer targets such as demand counts, use
-`DiscreteConformalPredictiveSystem`. Its predictive object additionally exposes
+`DiscreteCrossConformalPredictiveSystem`. Its predictive object additionally exposes
 `pmf(values)` and returns integer quantiles. For nominal, unordered labels, use
 the classifiers in `tinyconformal.classifier` instead.
 
@@ -118,12 +127,8 @@ marginal_benefit = NewsvendorSolver.marginal_benefit_distribution(
 )
 ```
 
-Standard split CPS calibration assumes exchangeability. For time series, build
-the calibration set with rolling-origin predictions and choose a windowing or
-weighting scheme appropriate to the temporal dependence and drift.
-Forecasting wrappers that do not implement `predict(X)` can use
-`fit_from_predictions(y_cal, y_pred_cal)` followed by
-`predict_distribution_from_predictions(y_pred_test)`.
+The tabular CPS supports cross-fitting only; it does not implement split
+calibration or CV+. For time series, use the horizon-wise series CPS below.
 
 For Nixtla-compatible estimators, use the horizon-wise series CPS. It shares the
 sequential rolling-origin backtesting machinery and panel contract used by MSCP
@@ -427,11 +432,11 @@ with `fit(y=y_train, oob=True)`, and precomputed OOF calibration with
 
 Import these classes from `tinyconformal.distribution`:
 
-- `ContinuousConformalPredictiveSystem`: calibrates a fitted point regressor and
-  produces continuous conformal predictive distributions.
-- `DiscreteConformalPredictiveSystem`: produces conformal predictive
+- `ContinuousCrossConformalPredictiveSystem`: cross-fits location and scale
+  regressors and produces continuous predictive distributions.
+- `DiscreteCrossConformalPredictiveSystem`: produces conformal predictive
   distributions for ordered integer or count targets.
-- `SplitConformalPredictiveSystem`: common split-calibration implementation used
+- `CrossConformalPredictiveSystem`: common cross-fitting implementation used
   by the continuous and discrete systems.
 - `ContinuousConformalDistribution`: continuous predictive-distribution object
   returned by the continuous system.

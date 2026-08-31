@@ -1,20 +1,20 @@
 """Conformal predictive distributions for continuous and discrete regression."""
 
 from .base import DiscretePredictiveDistribution, PredictiveDistribution
-from .split import (
+from .cross import (
     ContinuousConformalDistribution,
-    ContinuousConformalPredictiveSystem,
+    ContinuousCrossConformalPredictiveSystem,
+    CrossConformalPredictiveSystem,
     DiscreteConformalDistribution,
-    DiscreteConformalPredictiveSystem,
-    SplitConformalPredictiveSystem,
+    DiscreteCrossConformalPredictiveSystem,
 )
 
 __all__ = [
     "ContinuousConformalDistribution",
-    "ContinuousConformalPredictiveSystem",
+    "ContinuousCrossConformalPredictiveSystem",
+    "CrossConformalPredictiveSystem",
     "DiscreteConformalDistribution",
-    "DiscreteConformalPredictiveSystem",
+    "DiscreteCrossConformalPredictiveSystem",
     "DiscretePredictiveDistribution",
     "PredictiveDistribution",
-    "SplitConformalPredictiveSystem",
 ]

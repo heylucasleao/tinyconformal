@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tinyconformal.distribution.split import ContinuousConformalDistribution
+from tinyconformal.distribution.cross import ContinuousConformalDistribution
 from tinyconformal.series import (
     ContinuousConformalPredictiveSystemTimeSeriesRegressor,
     DiscreteConformalPredictiveSystemTimeSeriesRegressor,

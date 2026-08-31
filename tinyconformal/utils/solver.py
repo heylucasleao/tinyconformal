@@ -364,7 +364,7 @@ class NewsvendorSolver:
 
         ``distribution`` must implement ``len(distribution)`` and a row-wise
         ``ppf(quantiles)`` method, as objects returned by
-        ``SplitConformalPredictiveSystem.predict_distribution`` do. Unlike
+        ``CrossConformalPredictiveSystem.predict_distribution`` do. Unlike
         :meth:`optimize`, this method evaluates the exact requested critical
         fractile instead of interpolating between two interval endpoints.
         """
