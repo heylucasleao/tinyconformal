@@ -6,7 +6,9 @@ import pytest
 from tinyconformal.core.quantiles import (
     central_conformal_quantile_levels,
     conformal_quantile_level,
+    temporal_decay_weights,
     validate_alpha,
+    weighted_quantile,
 )
 
 
@@ -42,3 +44,15 @@ def test_unattainable_coverage_warns_only_once_per_registry():
 def test_validate_alpha_rejects_invalid_values(alpha):
     with pytest.raises(ValueError, match="strictly between 0 and 1"):
         validate_alpha(alpha)
+
+
+def test_temporal_decay_weights_favor_recent_observations():
+    weights = temporal_decay_weights(3, decay=0.5)
+    np.testing.assert_allclose(weights, np.array([0.25, 0.5, 1.0]) / 1.75)
+    assert weighted_quantile([-10.0, 0.0, 10.0], 0.5, weights) == 10.0
+
+
+@pytest.mark.parametrize("decay", [0.0, 1.0, -0.1, 1.1, "0.99"])
+def test_temporal_decay_weights_reject_invalid_decay(decay):
+    with pytest.raises(ValueError, match="decay"):
+        temporal_decay_weights(3, decay=decay)

@@ -16,6 +16,74 @@ def validate_alpha(alpha: float) -> float:
     return float(alpha)
 
 
+def temporal_decay_weights(n: int, decay: float = 0.99) -> np.ndarray:
+    """Return normalized exponential weights from oldest to newest observation.
+
+    Parameters
+    ----------
+    n : int
+        Number of chronologically ordered observations.
+    decay : float, default=0.99
+        Multiplicative decay in ``(0, 1)``. The newest observation has unit
+        unnormalized weight and older observations receive successive powers.
+
+    Returns
+    -------
+    ndarray of shape (n,)
+        Positive weights summing to one, ordered oldest to newest.
+    """
+    n = _validate_sample_size(n)
+    if not isinstance(decay, (int, float, np.integer, np.floating)) or not (
+        0.0 < decay < 1.0
+    ):
+        raise ValueError("decay must be a number strictly between 0 and 1.")
+    weights = float(decay) ** np.arange(n - 1, -1, -1, dtype=float)
+    return weights / weights.sum()
+
+
+def weighted_quantile(values, quantile: float, weights, axis=None):
+    """Compute a higher-style weighted quantile along the calibration axis.
+
+    Parameters
+    ----------
+    values : array-like
+        Values whose weighted quantile is requested.
+    quantile : float
+        Quantile level in ``[0, 1]``.
+    weights : array-like of shape (values.shape[axis],)
+        Finite non-negative weights with positive total mass.
+    axis : int or None, default=None
+        Calibration axis. ``None`` flattens ``values``.
+
+    Returns
+    -------
+    scalar or ndarray
+        Smallest sorted value whose cumulative normalized weight reaches the
+        requested quantile.
+    """
+    values = np.asarray(values, dtype=float)
+    weights = np.asarray(weights, dtype=float)
+    if not 0.0 <= quantile <= 1.0:
+        raise ValueError("quantile must lie in [0, 1].")
+    if axis is None:
+        values = values.reshape(-1)
+        axis = 0
+    values = np.moveaxis(values, axis, 0)
+    if weights.shape != (values.shape[0],):
+        raise ValueError("weights must match the selected calibration axis.")
+    if not np.all(np.isfinite(weights)) or np.any(weights < 0) or weights.sum() <= 0:
+        raise ValueError("weights must be finite, non-negative, and have positive mass.")
+    weights = weights / weights.sum()
+    order = np.argsort(values, axis=0)
+    sorted_values = np.take_along_axis(values, order, axis=0)
+    expanded_weights = np.broadcast_to(
+        weights.reshape((-1,) + (1,) * (values.ndim - 1)), values.shape
+    )
+    sorted_weights = np.take_along_axis(expanded_weights, order, axis=0)
+    indices = np.argmax(np.cumsum(sorted_weights, axis=0) >= quantile, axis=0)
+    return np.take_along_axis(sorted_values, indices[None, ...], axis=0)[0]
+
+
 def _validate_sample_size(n: int) -> int:
     if not isinstance(n, (int, np.integer)) or isinstance(n, bool) or n <= 0:
         raise ValueError("The calibration sample size n must be a positive integer.")

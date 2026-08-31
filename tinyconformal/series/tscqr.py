@@ -10,8 +10,8 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 
 from tinyconformal.core.conformal import cqr_bounds, cqr_scores
-from tinyconformal.utils.imports import requires_extra
 from tinyconformal.core.quantiles import conformal_quantile_level
+from tinyconformal.utils.imports import requires_extra
 
 from .base import BaseConformalTimeSeriesRegressor
 
@@ -58,6 +58,13 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         naming convention.
     n_windows : int, default=3
         Number of backtesting windows used to extract calibration residuals.
+    nexcp : bool, default=False
+        Whether to weight calibration windows by exponential recency decay.
+    decay : float, default=0.99
+        Decay factor in ``(0, 1)`` used when ``nexcp=True``.
+    weighted_refit : bool, default=True
+        Whether to pass timestamp-level recency weights to ``learner.fit``
+        through ``weight_col`` when ``nexcp=True``.
     id_col : str, default="unique_id"
         Column name representing the unique identifier for each time series.
     time_col : str, default="ds"
@@ -78,8 +85,12 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         columns ending in `-90` use `alpha=0.10`.
     n_windows : int
         Number of backtesting windows.
-    alpha : float
-        Significance level.
+    nexcp : bool
+        Whether exponentially decayed calibration weights are enabled.
+    decay : float
+        Exponential recency-decay factor.
+    weighted_refit : bool
+        Whether recency weights are also used while fitting the learner.
     id_col : str
         Identifier column name.
     time_col : str
@@ -143,6 +154,9 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         horizon: int,
         intervals: tuple[str, str] | list[tuple[str, str]],
         n_windows: int = 3,
+        nexcp: bool = False,
+        decay: float = 0.99,
+        weighted_refit: bool = True,
         id_col: str = "unique_id",
         time_col: str = "ds",
         target_col: str = "y",
@@ -154,6 +168,9 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
             learner=learner,
             horizon=horizon,
             n_windows=n_windows,
+            nexcp=nexcp,
+            decay=decay,
+            weighted_refit=weighted_refit,
             id_col=id_col,
             time_col=time_col,
             target_col=target_col,
@@ -323,13 +340,8 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
     ) -> pd.DataFrame:
         """Clones the learner, fits it on the training window, and predicts the validation window."""
         learner_clone = copy.deepcopy(self.learner)
-        self._invoke(
-            learner_clone.fit,
-            df=train_df,
-            id_col=self.id_col,
-            time_col=self.time_col,
-            target_col=self.target_col,
-            static_features=static_features,
+        self._fit_forecaster(
+            learner_clone, train_df, static_features=static_features
         )
 
         predict_cols = [self.id_col, self.time_col] + self.exog_cols_

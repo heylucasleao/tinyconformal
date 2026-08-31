@@ -33,7 +33,8 @@ class ConformalizedRegressor(BaseEstimator, BaseConformalRegressor):
         Parameters:
         ----------
         learner : BaseEstimator
-            The base learner to be used in the regressor.
+            Already-fitted point regressor used to obtain calibration and test
+            predictions.
         alpha : float, default=0.05
             The significance level applied in the regressor.
         """
@@ -49,6 +50,22 @@ class ConformalizedRegressor(BaseEstimator, BaseConformalRegressor):
         return self
 
     def fit(self, X=None, y=None, oob=False):
+        """Calibrate ICP scores from predictions of the fitted learner.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features), optional
+            Calibration features. Required unless ``oob=True``.
+        y : array-like of shape (n_samples,)
+            Calibration targets.
+        oob : bool, default=False
+            Use the learner's ``oob_prediction_`` instead of predicting ``X``.
+
+        Returns
+        -------
+        self
+            Fitted conformal regressor.
+        """
 
         if y is None:
             raise ValueError("The true labels (y) must be provided.")
@@ -71,8 +88,19 @@ class ConformalizedRegressor(BaseEstimator, BaseConformalRegressor):
         )
 
     def predict_interval(self, X_test, alpha=None):
-        """
-        Generate prediction intervals for the given model and calibration data.
+        """Generate symmetric conformal prediction intervals.
+
+        Parameters
+        ----------
+        X_test : array-like of shape (n_samples, n_features)
+            Features for which intervals are requested.
+        alpha : float or None, default=None
+            Significance-level override. Uses ``self.alpha`` when omitted.
+
+        Returns
+        -------
+        ndarray of shape (n_samples, 2)
+            Lower and upper conformal bounds.
         """
 
         alpha = self._get_alpha(alpha)

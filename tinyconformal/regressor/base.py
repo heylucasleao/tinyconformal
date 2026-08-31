@@ -34,7 +34,7 @@ class BaseConformalRegressor(ABC):
         Parameters:
         ----------
         learner : BaseEstimator
-            The base learner to be used in the regressor.
+            Already-fitted base learner used by the conformal regressor.
         alpha : float, default=0.05
             The significance level applied in the regressor.
 
@@ -64,9 +64,7 @@ class BaseConformalRegressor(ABC):
 
     @abstractmethod
     def fit(self, y):
-        """
-        Fits the classifier to the training data.
-        """
+        """Calibrate the regressor from targets or subclass-specific inputs."""
 
     @abstractmethod
     def predict_interval(self, X, alpha=None):
@@ -182,22 +180,22 @@ class BaseConformalRegressor(ABC):
         return np.mean(width + penalty_lower + penalty_upper)
 
     def evaluate(self, X, y, alpha=None):
-        """
-        Evaluate the performance the regressor on the given dataset.
-        Parameters:
-            X:
-                The input features for the evaluation dataset.
-            y:
-                The true target values corresponding to the input features.
-            alpha:
-                Significance level for prediction intervals. If None, the regressor's default alpha is used.
-        Returns:
-            A dictionary containing the following evaluation metrics:
-            - "total" (int): The total number of samples in the dataset.
-            - "alpha" (float): The significance level used for evaluation.
-            - "coverage_rate" (float): The coverage rate of the prediction intervals.
-            - "interval_width_mean" (float): The mean width of the prediction intervals.
-            - "mwis" (float): The Mean Weighted Interval Score (MWIS).
+        """Evaluate interval coverage, width, and mean Winkler score.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input features passed to ``predict_interval``.
+        y : array-like of shape (n_samples,)
+            Observed target values.
+        alpha : float or None, default=None
+            Significance-level override. Uses ``self.alpha`` when omitted.
+
+        Returns
+        -------
+        dict
+            Evaluation summary containing ``total``, ``alpha``,
+            ``coverage_rate``, ``interval_width_mean``, and ``mwis``.
         """
 
         alpha = self._get_alpha(alpha)

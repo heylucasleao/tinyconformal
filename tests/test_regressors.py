@@ -149,14 +149,17 @@ def test_cross_validation_calibration_icp_and_cps(regression_dataset):
         regression_dataset["y_train"],
         cv=3,
     )
-    cps_residuals = CrossValidationCalibration.cps_residuals(
+    cps = CrossValidationCalibration.cps_scores(
         learner,
+        RandomForestRegressor(n_estimators=20, random_state=43),
         regression_dataset["X_train"],
         regression_dataset["y_train"],
         cv=3,
     )
-    assert icp_scores.shape == cps_residuals.shape == regression_dataset["y_train"].shape
-    np.testing.assert_allclose(icp_scores, np.abs(cps_residuals))
+    assert icp_scores.shape == cps.residuals.shape == regression_dataset["y_train"].shape
+    assert cps.scales.shape == cps.standardized_residuals.shape == cps.residuals.shape
+    np.testing.assert_allclose(icp_scores, np.abs(cps.residuals))
+    np.testing.assert_allclose(cps.standardized_residuals, cps.residuals / cps.scales)
 
 
 def test_cross_validation_calibration_cqr(regression_dataset):

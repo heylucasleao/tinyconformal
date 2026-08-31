@@ -40,7 +40,8 @@ class ConformalizedQuantileRegressor(BaseEstimator, BaseConformalRegressor):
         Parameters:
         ----------
         learner : BaseEstimator
-            The base learner to be used in the regressor.
+            Already-fitted quantile regressor whose ``predict`` method accepts a
+            ``quantiles`` argument.
         alpha : float, default=0.05
             The significance level applied in the regressor.
         """

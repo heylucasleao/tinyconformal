@@ -1,5 +1,5 @@
 """Core calibration and conformal-prediction primitives."""
 
-from .calibration import CrossValidationCalibration
+from .calibration import CrossFittedCPSCalibration, CrossValidationCalibration
 
-__all__ = ["CrossValidationCalibration"]
+__all__ = ["CrossFittedCPSCalibration", "CrossValidationCalibration"]

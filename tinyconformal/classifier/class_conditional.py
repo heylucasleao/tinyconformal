@@ -20,7 +20,7 @@ class BinaryClassConditionalConformalClassifier(
     ClassifierMixin, BaseEstimator, BaseConformalClassifier
 ):
     """
-    A modrian class conditional conformal classifier methodology utilizing a classifier as the underlying learner.
+    A Mondrian class-conditional conformal classifier using a binary learner.
     This class is inspired by the WrapperClassifier classes from the Crepes library.
     """
 
@@ -35,7 +35,7 @@ class BinaryClassConditionalConformalClassifier(
         Parameters:
         ----------
         learner : BaseEstimator
-            The base learner to be used in the classifier.
+            Already-fitted binary classifier implementing ``predict_proba``.
         alpha : float, default=0.05
             The significance level applied in the classifier.
 
@@ -48,7 +48,7 @@ class BinaryClassConditionalConformalClassifier(
         classes : array-like of shape (n_classes,), default=None
             The unique class labels identified during training.
         hinge : list of array-like, default=None
-            Nonconformity scores for each class based on the predicted probabilities.
+            Per-class calibration scores ``1 - p_true``.
         n : array-like of shape (n_classes,), default=None
             The number of calibration points for each class.
         alpha : float, default=0.05
@@ -59,7 +59,7 @@ class BinaryClassConditionalConformalClassifier(
 
     def fit(self, X=None, y=None, oob=False):
         """
-        Fits the classifier to the training data. Calculates the conformity score for each training instance.
+        Calibrate the classifier from class-conditional nonconformity scores.
 
         Parameters:
         ----------
@@ -155,14 +155,16 @@ class BinaryClassConditionalConformalClassifier(
         """
         Predicts the possible set of classes for the instances in X based on the predefined significance level.
 
-        Parameters:
-        X: array-like of shape (n_samples, n_features)
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
             The input samples.
-        alpha: float, default=None
+        alpha : float or None, default=None
             The significance level. If None, the value of self.alpha is used.
 
-        Returns:
-        prediction_set: array-like of shape (n_samples, n_classes)
+        Returns
+        -------
+        prediction_set : ndarray of shape (n_samples, 2)
             The predicted set of classes. A class is included in the set if its non-conformity score is less
             than or equal to the quantile of the hinge loss distribution at the (n+1)*(1-alpha)/n level.
         """
