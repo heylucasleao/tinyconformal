@@ -9,6 +9,10 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
 
+from tinyconformal.utils.conformal import (
+    signed_forecast_residuals,
+    signed_residual_bounds,
+)
 from tinyconformal.utils.imports import requires_extra
 from tinyconformal.utils.quantiles import central_conformal_quantile_levels
 
@@ -105,7 +109,7 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         Computes nonconformity scores (residuals) via conformal distribution:
         R_{t,h} = \\hat{y}_{t,h} - y_{t,h}
         """
-        return y_hat - y_true
+        return signed_forecast_residuals(y_true, y_hat)
 
     def _finalize_residuals(
         self,
@@ -264,8 +268,11 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
                 raise ValueError(
                     f"Forecast identifier {series_id!r} must contain exactly {h} rows."
                 )
-            lower_bound[row_mask] = y_hat[row_mask] - q_high_h
-            upper_bound[row_mask] = y_hat[row_mask] - q_low_h
+            lower, upper = signed_residual_bounds(
+                y_hat[row_mask], q_low_h, q_high_h
+            )
+            lower_bound[row_mask] = lower
+            upper_bound[row_mask] = upper
 
         return lower_bound, upper_bound
 

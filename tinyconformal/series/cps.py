@@ -12,6 +12,7 @@ from sklearn.base import BaseEstimator
 
 from tinyconformal.distribution.base import (
     DiscretePredictiveDistribution,
+    EmpiricalResidualDistribution,
     PredictiveDistribution,
 )
 from tinyconformal.utils.imports import requires_extra
@@ -28,7 +29,7 @@ def _validate_matrix(values, name: str) -> np.ndarray:
     return array
 
 
-class HorizonConformalDistribution(PredictiveDistribution):
+class HorizonConformalDistribution(EmpiricalResidualDistribution):
     """Batch of residual-based predictive distributions calibrated by horizon.
 
     Each prediction is represented as a point forecast plus the empirical
@@ -139,22 +140,9 @@ class HorizonConformalDistribution(PredictiveDistribution):
     def __len__(self) -> int:
         return self.locations.size
 
-    def _rowwise_or_grid(self, values, name: str) -> tuple[np.ndarray, bool]:
-        array = np.asarray(values, dtype=float)
-        if not np.all(np.isfinite(array)):
-            raise ValueError(f"{name} must contain only finite values.")
-        if array.ndim == 0:
-            return np.full((len(self), 1), float(array)), True
-        if array.ndim == 1:
-            if array.size == len(self):
-                return array[:, None], True
-            return np.broadcast_to(array[None, :], (len(self), array.size)), False
-        if array.ndim == 2 and array.shape[0] == len(self):
-            return array, False
-        raise ValueError(
-            f"{name} must be a scalar, a one-dimensional grid, a row-wise vector "
-            f"of length {len(self)}, or a matrix with {len(self)} rows."
-        )
+    @property
+    def n_calibration(self) -> int:
+        return self._n_calibration
 
     def _row_residuals(self) -> np.ndarray:
         if self.series_ids is not None:
@@ -167,30 +155,6 @@ class HorizonConformalDistribution(PredictiveDistribution):
                 ]
             )
         return self.residuals[:, self.horizon_steps].T
-
-    def cdf(self, values):
-        values, squeeze = self._rowwise_or_grid(values, "values")
-        scores = values - self.locations[:, None]
-        row_residuals = self._row_residuals()
-        ranks = np.sum(
-            row_residuals[:, :, None] <= scores[:, None, :], axis=1
-        )
-        n = self._n_calibration
-        result = ranks.astype(float) / (n + 1)
-        result[ranks == n] = 1.0
-        return result[:, 0] if squeeze else result
-
-    def ppf(self, quantiles):
-        quantiles, squeeze = self._rowwise_or_grid(quantiles, "quantiles")
-        if np.any((quantiles < 0.0) | (quantiles > 1.0)):
-            raise ValueError("quantiles must lie in [0, 1].")
-        n = self._n_calibration
-        ranks = np.ceil((n + 1) * quantiles).astype(int)
-        ranks = np.clip(ranks, 1, n) - 1
-        selected = np.take_along_axis(self._row_residuals(), ranks, axis=1)
-        result = self.locations[:, None] + selected
-        return result[:, 0] if squeeze else result
-
 
 class DiscreteHorizonConformalDistribution(
     HorizonConformalDistribution, DiscretePredictiveDistribution

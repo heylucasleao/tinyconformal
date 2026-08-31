@@ -89,3 +89,57 @@ class DiscretePredictiveDistribution(PredictiveDistribution):
         if not np.all(np.isfinite(values)) or np.any(values != np.floor(values)):
             raise ValueError("pmf values must be finite integers.")
         return np.asarray(self.cdf(values)) - np.asarray(self.cdf(values - 1))
+
+
+class EmpiricalResidualDistribution(PredictiveDistribution):
+    """Common implementation for predictive distributions shifted by residuals.
+
+    Subclasses only need to expose one sorted residual vector per prediction row
+    through :meth:`_row_residuals`. This accommodates both a single split-
+    conformal calibration sample and series/horizon-specific samples.
+    """
+
+    def _rowwise_or_grid(self, values, name: str) -> tuple[np.ndarray, bool]:
+        array = np.asarray(values, dtype=float)
+        if not np.all(np.isfinite(array)):
+            raise ValueError(f"{name} must contain only finite values.")
+        if array.ndim == 0:
+            return np.full((len(self), 1), float(array)), True
+        if array.ndim == 1:
+            if array.size == len(self):
+                return array[:, None], True
+            return np.broadcast_to(array[None, :], (len(self), array.size)), False
+        if array.ndim == 2 and array.shape[0] == len(self):
+            return array, False
+        raise ValueError(
+            f"{name} must be a scalar, a one-dimensional grid, a row-wise vector "
+            f"of length {len(self)}, or a matrix with {len(self)} rows."
+        )
+
+    @abstractmethod
+    def _row_residuals(self) -> np.ndarray:
+        """Return sorted residuals shaped ``(n_rows, n_calibration)``."""
+
+    @property
+    @abstractmethod
+    def n_calibration(self) -> int:
+        """Return the number of residuals available for every row."""
+
+    def cdf(self, values):
+        values, squeeze = self._rowwise_or_grid(values, "values")
+        scores = values - self.locations[:, None]
+        residuals = self._row_residuals()
+        ranks = np.sum(residuals[:, :, None] <= scores[:, None, :], axis=1)
+        result = ranks.astype(float) / (self.n_calibration + 1)
+        result[ranks == self.n_calibration] = 1.0
+        return result[:, 0] if squeeze else result
+
+    def ppf(self, quantiles):
+        quantiles, squeeze = self._rowwise_or_grid(quantiles, "quantiles")
+        if np.any((quantiles < 0.0) | (quantiles > 1.0)):
+            raise ValueError("quantiles must lie in [0, 1].")
+        ranks = np.ceil((self.n_calibration + 1) * quantiles).astype(int)
+        ranks = np.clip(ranks, 1, self.n_calibration) - 1
+        selected = np.take_along_axis(self._row_residuals(), ranks, axis=1)
+        result = self.locations[:, None] + selected
+        return result[:, 0] if squeeze else result
