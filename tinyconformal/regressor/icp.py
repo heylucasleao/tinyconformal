@@ -6,7 +6,11 @@
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
 
-from tinyconformal.utils.conformal import absolute_residual_scores, symmetric_bounds
+from tinyconformal.utils.conformal import (
+    absolute_residual_scores,
+    symmetric_bounds,
+    validate_calibration_values,
+)
 
 from .base import BaseConformalRegressor
 
@@ -35,56 +39,13 @@ class ConformalizedRegressor(RegressorMixin, BaseEstimator, BaseConformalRegress
         """
         super().__init__(learner, alpha)
 
-    def unlabeled_fit(
-        self,
-        X=None,
-        tilde_beta: float = None,
-        beta: float = None,
-    ):
-        """Fits the conformal regressor using unlabeled data via model exactness
-        bounds (Flechsig & Pilz, 2025).
-
-        Standard CP guarantees coverage >= 1 - alpha using labeled data.
-        With unlabeled data, the model exactness error (beta) degrades the bound:
-        Coverage >= 1 - alpha - beta
-
-        Parameters:
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Unlabeled calibration features[cite: 1].
-        tilde_beta : float
-            Prediction error bound (e.g., MedAE or q-th error quantile)[cite: 1].
-        beta : float, default=0.50
-            Probability bound complementary to accuracy (e.g., 0.50 for MedAE)
-        [cite: 1].
-
-        Returns:
-        -------
-        self : object
-            The fitted regressor.
-        """
-        if X is None:
-            raise ValueError("Unlabeled calibration data (X) must be provided.")
-
-        if tilde_beta is None:
-            raise ValueError(
-                "The error bound 'tilde_beta' (e.g., MedAE or error quantile) must be provided[cite: 1]. "
-                "Example: `tilde_beta = np.median(np.abs(y_tr - y_pred_cv))`[cite: 1]"
-            )
-
-        if beta is None:
-            raise ValueError(
-                "The parameter 'beta' must be provided. "
-                "Without 'beta', the actual lower coverage bound (1 - alpha - beta) cannot be determined. "
-                "Consider using `tilde_beta, beta = ExactnessBound.estimate_icp_bound(...)`."
-            )
-
-        self.is_unlabeled = True
-        self.tilde_beta = float(tilde_beta)
-        self.beta = float(beta)
-        self.n = len(X)
-        self.ncscore = np.full(shape=self.n, fill_value=self.tilde_beta)
-
+    def fit_from_scores(self, scores):
+        """Calibrate from precomputed out-of-sample absolute-residual scores."""
+        scores = validate_calibration_values(scores, "scores")
+        if np.any(scores < 0.0):
+            raise ValueError("ICP scores must be non-negative.")
+        self.ncscore = scores
+        self.n = self.ncscore.size
         return self
 
     def fit(self, X=None, y=None, oob=False):
@@ -105,11 +66,9 @@ class ConformalizedRegressor(RegressorMixin, BaseEstimator, BaseConformalRegress
 
             self.decision_function_ = self.learner.predict(X)
 
-        self.n = len(self.decision_function_)
-
-        self.ncscore = absolute_residual_scores(y, self.decision_function_)
-
-        return self
+        return self.fit_from_scores(
+            absolute_residual_scores(y, self.decision_function_)
+        )
 
     def predict(self, X_test, alpha=None):
         """

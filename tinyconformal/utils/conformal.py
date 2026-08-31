@@ -3,6 +3,16 @@
 import numpy as np
 
 
+def validate_calibration_values(values, name: str) -> np.ndarray:
+    """Return a non-empty finite one-dimensional calibration array."""
+    values = np.asarray(values, dtype=float)
+    if values.ndim != 1 or values.size == 0:
+        raise ValueError(f"{name} must be a non-empty one-dimensional array.")
+    if not np.all(np.isfinite(values)):
+        raise ValueError(f"{name} must contain only finite values.")
+    return values
+
+
 def absolute_residual_scores(y_true, y_pred) -> np.ndarray:
     """Return the symmetric ICP nonconformity score ``|y - y_hat|``."""
     return np.abs(np.asarray(y_true) - np.asarray(y_pred))

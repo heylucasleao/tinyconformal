@@ -8,6 +8,8 @@ import numpy as np
 from sklearn.base import BaseEstimator
 from sklearn.utils.validation import check_is_fitted
 
+from tinyconformal.utils.conformal import validate_calibration_values
+
 from .base import (
     DiscretePredictiveDistribution,
     EmpiricalResidualDistribution,
@@ -130,8 +132,12 @@ class SplitConformalPredictiveSystem(BaseEstimator):
             raise ValueError("Discrete CPS targets must be integer-valued.")
         if self.discrete and self.minimum is not None and np.any(y < self.minimum):
             raise ValueError(f"Discrete CPS targets must be >= {self.minimum}.")
-        self.residuals_ = y - predictions
-        self.n_calibration_ = y.size
+        return self.fit_from_residuals(y - predictions)
+
+    def fit_from_residuals(self, residuals):
+        """Calibrate from precomputed out-of-sample signed residuals ``y - y_hat``."""
+        self.residuals_ = validate_calibration_values(residuals, "residuals")
+        self.n_calibration_ = self.residuals_.size
         return self
 
     def predict_distribution(self, X) -> PredictiveDistribution:
