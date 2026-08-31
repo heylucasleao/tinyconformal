@@ -11,7 +11,7 @@ from joblib import Parallel, delayed
 from sklearn.base import BaseEstimator, RegressorMixin
 
 from tinyconformal.utils.imports import requires_extra
-from tinyconformal.utils.quantiles import validate_alpha
+from tinyconformal.core.quantiles import validate_alpha
 
 
 class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):

@@ -178,7 +178,7 @@ Import from `tinyconformal.regressor`:
 ```python
 from tinyconformal.regressor import ConformalizedRegressor
 from tinyconformal.regressor import ConformalizedQuantileRegressor
-from tinyconformal.calibration import CrossValidationCalibration
+from tinyconformal.core.calibration import CrossValidationCalibration
 ```
 
 ###  Time Series submodule
@@ -217,7 +217,7 @@ separate calibration split:
 
 ```python
 from sklearn.ensemble import RandomForestClassifier
-from tinyconformal.calibration import CrossValidationCalibration
+from tinyconformal.core.calibration import CrossValidationCalibration
 from tinyconformal.classifier import BinaryMarginalConformalClassifier
 
 learner = RandomForestClassifier(n_estimators=100, oob_score=True)
@@ -237,7 +237,7 @@ available training data:
 
 ```python
 from sklearn.ensemble import RandomForestRegressor
-from tinyconformal.calibration import CrossValidationCalibration
+from tinyconformal.core.calibration import CrossValidationCalibration
 from tinyconformal.regressor import ConformalizedRegressor
 
 learner = RandomForestRegressor(random_state=42)

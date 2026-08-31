@@ -9,9 +9,9 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
 
-from tinyconformal.utils.conformal import cqr_bounds, cqr_scores
+from tinyconformal.core.conformal import cqr_bounds, cqr_scores
 from tinyconformal.utils.imports import requires_extra
-from tinyconformal.utils.quantiles import conformal_quantile_level
+from tinyconformal.core.quantiles import conformal_quantile_level
 
 from .base import BaseConformalTimeSeriesRegressor
 

@@ -8,7 +8,7 @@ import numpy as np
 from sklearn.base import BaseEstimator
 from sklearn.utils.validation import check_is_fitted
 
-from tinyconformal.utils.conformal import validate_calibration_values
+from tinyconformal.core.conformal import validate_calibration_values
 
 from .base import (
     DiscretePredictiveDistribution,

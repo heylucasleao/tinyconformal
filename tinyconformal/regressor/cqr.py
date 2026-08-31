@@ -8,7 +8,7 @@ import warnings
 import numpy as np
 from sklearn.base import BaseEstimator
 
-from tinyconformal.utils.conformal import (
+from tinyconformal.core.conformal import (
     cqr_bounds,
     cqr_scores,
     validate_calibration_values,

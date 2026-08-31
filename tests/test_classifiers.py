@@ -10,7 +10,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 
-from tinyconformal.calibration import CrossValidationCalibration
+from tinyconformal.core.calibration import CrossValidationCalibration
 from tinyconformal.classifier.class_conditional import (
     BinaryClassConditionalConformalClassifier,
 )
