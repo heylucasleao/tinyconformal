@@ -9,12 +9,12 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
 
-from tinyconformal.utils.conformal import (
+from tinyconformal.core.conformal import (
     signed_forecast_residuals,
     signed_residual_bounds,
 )
 from tinyconformal.utils.imports import requires_extra
-from tinyconformal.utils.quantiles import central_conformal_quantile_levels
+from tinyconformal.core.quantiles import central_conformal_quantile_levels
 
 from .base import BaseConformalTimeSeriesRegressor
 

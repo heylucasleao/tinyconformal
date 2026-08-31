@@ -9,7 +9,7 @@ from sklearn.datasets import make_regression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 
-from tinyconformal.calibration import CrossValidationCalibration
+from tinyconformal.core.calibration import CrossValidationCalibration
 from tinyconformal.regressor import (
     ConformalizedQuantileRegressor,
     ConformalizedRegressor,

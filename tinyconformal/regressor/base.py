@@ -9,7 +9,7 @@ import numpy as np
 from sklearn.base import BaseEstimator
 from sklearn.utils.validation import check_is_fitted
 
-from tinyconformal.utils.quantiles import conformal_quantile_level, validate_alpha
+from tinyconformal.core.quantiles import conformal_quantile_level, validate_alpha
 
 
 class BaseConformalRegressor(ABC):

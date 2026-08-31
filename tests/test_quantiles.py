@@ -3,7 +3,7 @@ import warnings
 import numpy as np
 import pytest
 
-from tinyconformal.utils.quantiles import (
+from tinyconformal.core.quantiles import (
     central_conformal_quantile_levels,
     conformal_quantile_level,
     validate_alpha,

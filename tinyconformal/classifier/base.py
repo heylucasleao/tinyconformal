@@ -12,13 +12,13 @@ from sklearn.base import BaseEstimator
 from sklearn.utils.validation import check_is_fitted
 from venn_abers import VennAbers
 
-from tinyconformal.utils.conformal import (
+from tinyconformal.core.conformal import (
     class_indices,
     probability_scores,
     true_class_probability_scores,
     validate_probabilities,
 )
-from tinyconformal.utils.quantiles import validate_alpha
+from tinyconformal.core.quantiles import validate_alpha
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="venn_abers")
 

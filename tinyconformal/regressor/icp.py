@@ -6,7 +6,7 @@
 import numpy as np
 from sklearn.base import BaseEstimator
 
-from tinyconformal.utils.conformal import (
+from tinyconformal.core.conformal import (
     absolute_residual_scores,
     symmetric_bounds,
     validate_calibration_values,

@@ -6,12 +6,12 @@
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
 
-from tinyconformal.utils.conformal import (
+from tinyconformal.core.conformal import (
     class_indices,
     conformal_p_values,
     threshold_prediction_set,
 )
-from tinyconformal.utils.quantiles import conformal_quantile_level
+from tinyconformal.core.quantiles import conformal_quantile_level
 
 from .base import BaseConformalClassifier
 
