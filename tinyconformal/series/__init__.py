@@ -10,10 +10,6 @@ from .cps import (
     DiscreteHorizonConformalDistribution,
     HorizonConformalDistribution,
 )
-from .dcp import (
-    DiscreteDistributionalConformalPredictiveSystemTimeSeriesRegressor,
-    DistributionalConformalPredictiveSystemTimeSeriesRegressor,
-)
 from .mscp import ConformalDistributionTimeSeriesRegressor
 from .tscqr import ConformalQuantileTimeSeriesRegressor
 
@@ -23,8 +19,6 @@ __all__ = [
     "ConformalQuantileTimeSeriesRegressor",
     "ContinuousConformalPredictiveSystemTimeSeriesRegressor",
     "DiscreteConformalPredictiveSystemTimeSeriesRegressor",
-    "DiscreteDistributionalConformalPredictiveSystemTimeSeriesRegressor",
     "DiscreteHorizonConformalDistribution",
-    "DistributionalConformalPredictiveSystemTimeSeriesRegressor",
     "HorizonConformalDistribution",
 ]

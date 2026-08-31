@@ -151,66 +151,13 @@ each distribution is aligned row-for-row with `forecast_df`. Use
 `DiscreteConformalPredictiveSystemTimeSeriesRegressor` for ordered integer/count
 targets; those distributions additionally provide `pmf`.
 
-### Distributional conformal prediction (DCP)
-
-For heteroscedastic learners that predict a conditional quantile grid, DCP
-calibrates probability integral transform (PIT) ranks rather than additive
-residuals:
-
-```python
-from tinyconformal.distribution import DistributionalConformalPredictiveSystem
-
-dcp = DistributionalConformalPredictiveSystem(
-    fitted_quantile_learner,
-    quantiles=[0.01, 0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95, 0.99],
-)
-dcp.fit(X_cal, y_cal)
-predictive = dcp.predict_distribution(X_test)
-```
-
-Native conditional-distribution models are supported without an adapter-specific
-dependency by passing batches that implement `cdf`, `ppf`, and `len` to
-`fit_from_distribution` and `predict_distribution_from_base`.
-
-For Nixtla-compatible forecasting estimators, configure the quantile columns and
-calibrate PITs separately for each forecast horizon:
-
-```python
-from tinyconformal.series import (
-    DistributionalConformalPredictiveSystemTimeSeriesRegressor,
-)
-
-dcp = DistributionalConformalPredictiveSystemTimeSeriesRegressor(
-    learner=quantile_forecaster,
-    horizon=14,
-    n_windows=5,
-    quantile_columns={
-        0.10: "LGBM-q-10",
-        0.50: "LGBM-q-50",
-        0.90: "LGBM-q-90",
-    },
-)
-dcp.fit(train_df, step_size=14)
-forecast_df, distributions = dcp.predict_distribution(h=14)
-```
-
-For ordered integer/count series, use
-`DiscreteDistributionalConformalPredictiveSystemTimeSeriesRegressor`. It uses
-randomized PIT calibration, returns integer quantiles, and exposes `pmf` on the
-returned distributions. Quantile crossings are repaired before interpolation.
-The implementation has no dependency on `tinyshift` or its two-stage Negative
-Binomial model.
-
 Runnable distribution examples are organized in `examples/distribution/`:
 
 - `cps_continuous.ipynb`
 - `cps_discrete.ipynb`
-- `dcp_continuous.ipynb`
-- `dcp_discrete.ipynb`
 
-They compare scikit-learn and LightGBM learners, add quantile-forest to DCP, and
-cover CDF, PMF where applicable, PPF, arbitrary quantiles, empirical coverage,
-and Newsvendor optimization.
+They cover CDF, PMF where applicable, PPF, arbitrary quantiles, empirical
+coverage, and Newsvendor optimization.
 
 ### Classifier submodule
 
