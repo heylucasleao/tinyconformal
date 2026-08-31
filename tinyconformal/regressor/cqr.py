@@ -8,7 +8,11 @@ import warnings
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
 
-from tinyconformal.utils.conformal import cqr_bounds, cqr_scores
+from tinyconformal.utils.conformal import (
+    cqr_bounds,
+    cqr_scores,
+    validate_calibration_values,
+)
 
 from .base import BaseConformalRegressor
 
@@ -44,51 +48,10 @@ class ConformalizedQuantileRegressor(
         """
         super().__init__(learner, alpha)
 
-    def unlabeled_fit(
-        self,
-        X,
-        tilde_beta: float,
-        beta: float = None,
-    ):
-        """
-        Calibrates the CQR nonconformity scores using unlabeled data (X) based on a specified
-        quantile model exactness measure (tilde_beta, beta) as in Flechsig & Pilz (2025).
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Unlabeled calibration features.
-        tilde_beta : float
-            The quantile model error bound (e.g., residual bound computed on OOB/CV quantile predictions).
-
-        Returns
-        -------
-        self : object
-            The fitted conformalized quantile regressor.
-        """
-        if X is None:
-            raise ValueError("Unlabeled calibration data (X) must be provided.")
-
-        if tilde_beta is None:
-            raise ValueError(
-                "The error bound 'tilde_beta' (e.g., a quantile residual bound) "
-                "must be provided. Consider using "
-                "`tilde_beta, beta = ExactnessBound.estimate_cqr_bound(...)`."
-            )
-
-        if beta is None:
-            raise ValueError(
-                "The parameter 'beta' must be provided. "
-                "Without 'beta', the actual lower coverage bound (1 - alpha - beta) cannot be determined. "
-                "Consider using `tilde_beta, beta = ExactnessBound.estimate_cqr_bound(...)`."
-            )
-
-        self.beta = beta
-        self.is_unlabeled = True
-        self.tilde_beta = float(tilde_beta)
-        self.n = len(X)
-        self.ncscore = np.full(shape=self.n, fill_value=self.tilde_beta)
-
+    def fit_from_scores(self, scores):
+        """Calibrate from precomputed out-of-sample CQR scores."""
+        self.ncscore = validate_calibration_values(scores, "scores")
+        self.n = self.ncscore.size
         return self
 
     def _predict_quantiles(self, X, quantiles, oob_score=False):
@@ -149,12 +112,11 @@ class ConformalizedQuantileRegressor(
                 X, quantiles=[q_low, q_high]
             )
 
-        self.n = len(self.decision_function_)
-        self.ncscore = cqr_scores(
-            y, self.decision_function_[:, 0], self.decision_function_[:, -1]
+        return self.fit_from_scores(
+            cqr_scores(
+                y, self.decision_function_[:, 0], self.decision_function_[:, -1]
+            )
         )
-
-        return self
 
     def predict(
         self,

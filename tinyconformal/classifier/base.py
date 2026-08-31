@@ -12,6 +12,12 @@ from sklearn.base import BaseEstimator
 from sklearn.utils.validation import check_is_fitted
 from venn_abers import VennAbers
 
+from tinyconformal.utils.conformal import (
+    class_indices,
+    probability_scores,
+    true_class_probability_scores,
+    validate_probabilities,
+)
 from tinyconformal.utils.quantiles import validate_alpha
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="venn_abers")
@@ -65,8 +71,6 @@ class BaseConformalClassifier(ABC):
         self.calibration_layer = VennAbers()
         self.classes = getattr(self.learner, "classes_", [0, 1])
         self.decision_function_ = None
-        self.is_unlabeled = False
-        self.beta = None
         check_is_fitted(learner)
 
         if len(self.classes) != 2:
@@ -103,18 +107,34 @@ class BaseConformalClassifier(ABC):
 
     @abstractmethod
     def _compute_q_level(self, n, alpha):
-        """
-        Compute the quantile level based on the number of samples and significance level.
-        """
+        """Compute the quantile level from sample size and significance level."""
+
+    @abstractmethod
+    def _store_calibration_scores(self, scores, labels):
+        """Store marginal or class-conditional calibration scores."""
+
+    def fit_from_probabilities(self, probabilities, y):
+        """Calibrate from out-of-sample probabilities and observed labels."""
+        probabilities = validate_probabilities(probabilities)
+        y = np.asarray(y)
+        if probabilities.shape != (y.size, len(self.classes)):
+            raise ValueError(
+                "probabilities must contain one row per label and one column per class."
+            )
+        indices = class_indices(y, self.classes)
+        if any(not np.any(indices == index) for index in range(len(self.classes))):
+            raise ValueError("Calibration requires samples from both classes.")
+        self.decision_function_ = probabilities
+        self.calibration_layer.fit(probabilities, indices)
+        calibrated, _ = self.calibration_layer.predict_proba(probabilities)
+        scores = true_class_probability_scores(calibrated, y, self.classes)
+        self._store_calibration_scores(scores, y)
+        return self
 
     def _compute_prediction(self, prediction_set):
-        """
-        Compute the prediction based on the given prediction set.
-
-        This method evaluates each row in the prediction set and returns 1 if all elements
-        in the row match the pattern [0, 1], otherwise returns 0.
-        """
-        return np.where(np.all(prediction_set == [0, 1], axis=1), 1, 0)
+        """Return the class label contained in every singleton prediction set."""
+        positions = np.argmax(prediction_set, axis=1)
+        return np.asarray(self.classes)[positions]
 
     def _bookmaker_informedness(self, y, y_pred):
         """
@@ -146,7 +166,7 @@ class BaseConformalClassifier(ABC):
         This function calculates the non-conformity score for conformal prediction
         using the hinge loss approach.
         """
-        return 1 - y_prob
+        return probability_scores(y_prob)
 
     def generate_conformal_quantile(self, alpha=None):
         """
@@ -183,8 +203,7 @@ class BaseConformalClassifier(ABC):
 
     def predict_proba(self, X):
         """
-        Returns class probabilities. Uses Venn-Abers if fit() was used,
-        or raw learner probabilities if unlabeled_fit() was used.
+        Return Venn-Abers calibrated class probabilities.
 
         Parameters:
         X: array-like of shape (n_samples, n_features)
@@ -195,9 +214,6 @@ class BaseConformalClassifier(ABC):
             The calibrated class probabilities.
         """
         y_score = self.learner.predict_proba(X)
-
-        if getattr(self, "is_unlabeled", True):
-            return y_score
 
         p_prime, _ = self.calibration_layer.predict_proba(y_score)
         return p_prime
@@ -231,11 +247,6 @@ class BaseConformalClassifier(ABC):
             The optimal alpha value that maximizes the scoring function.
         """
 
-        if getattr(self, "is_unlabeled", True):
-            raise ValueError(
-                "Calibration is not applicable for unlabeled data. Please use labeled data for calibration."
-            )
-
         scoring_func = self._select_scoring_function(func)
 
         alphas = {k: None for k in np.round(np.arange(0.01, max_alpha + 0.01, 0.01), 2)}
@@ -268,8 +279,12 @@ class BaseConformalClassifier(ABC):
         alpha = self._get_alpha(alpha)
 
         prediction_set = self.predict_set(X, alpha)
-
-        return self._compute_prediction(prediction_set)
+        singletons = prediction_set.sum(axis=1) == 1
+        predictions = np.asarray(self.learner.predict(X)).copy()
+        predictions[singletons] = self._compute_prediction(
+            prediction_set[singletons]
+        )
+        return predictions
 
     def _expected_calibration_error(self, y, y_prob, M=5):
         """
@@ -307,7 +322,7 @@ class BaseConformalClassifier(ABC):
         predicted_label = np.argmax(y_prob, axis=1)
 
         # get a boolean list of correct/false predictions
-        predictions = predicted_label == y
+        predictions = predicted_label == class_indices(y, self.classes)
 
         ece = 0.0
         for bin_lower, bin_upper in zip(bin_lowers, bin_uppers):
@@ -355,7 +370,8 @@ class BaseConformalClassifier(ABC):
 
         alpha = self._get_alpha(alpha)
         predict_sets = self.predict_set(X, alpha)
-        coverages = predict_sets[np.arange(len(y)), y]
+        indices = class_indices(y, self.classes)
+        coverages = predict_sets[np.arange(len(y)), indices]
 
         return np.mean(coverages)
 
@@ -378,7 +394,6 @@ class BaseConformalClassifier(ABC):
             A dictionary containing the following evaluation metrics:
             - "total" (int): Total number of samples.
             - "alpha" (float): Significance level used.
-            - "beta" (float): Base model error rate (if `unlabeled_fit` was used)
             - "coverage_rate" (float): Coverage rate of the prediction sets.
             - "one_c" (float): Proportion of prediction sets containing exactly one element.
             - "avg_c" (float): Average size of the prediction sets.
@@ -406,19 +421,25 @@ class BaseConformalClassifier(ABC):
         one_c = rounded(np.mean([np.sum(p) == 1 for p in predict_set]))
         avg_c = rounded(np.mean([np.sum(p) for p in predict_set]))
         empty = rounded(np.mean([np.sum(p) == 0 for p in predict_set]))
-        error = rounded(1 - np.mean(predict_set[np.arange(len(y)), y]))
-        log_loss = rounded(sklearn.metrics.log_loss(y, y_prob[:, 1]))
+        indices = class_indices(y, self.classes)
+        error = rounded(1 - np.mean(predict_set[np.arange(len(y)), indices]))
+        log_loss = rounded(
+            sklearn.metrics.log_loss(y, y_prob, labels=self.classes)
+        )
         ece = rounded(self._expected_calibration_error(y, y_prob))
         fpr = rounded(self._false_positive_rate(y, y_pred))
         bookmaker_informedness = rounded(self._bookmaker_informedness(y, y_pred))
         matthews_corr = rounded(sklearn.metrics.matthews_corrcoef(y, y_pred))
-        f1 = rounded(sklearn.metrics.f1_score(y, self.predict(X, alpha)))
+        f1 = rounded(
+            sklearn.metrics.f1_score(
+                y, self.predict(X, alpha), pos_label=self.classes[1]
+            )
+        )
 
         # Results aggregation
         results = {
             "total": total,
             "alpha": alpha,
-            "beta": self.beta,
             "coverage_rate": coverage_rate,
             "one_c": one_c,
             "avg_c": avg_c,

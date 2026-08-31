@@ -9,9 +9,11 @@ from sklearn.datasets import make_regression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 
-from tinyconformal.regressor import ConformalizedRegressor
-from tinyconformal.regressor import ConformalizedQuantileRegressor
-from tinyconformal.regressor import ExactnessBound
+from tinyconformal.calibration import CrossValidationCalibration
+from tinyconformal.regressor import (
+    ConformalizedQuantileRegressor,
+    ConformalizedRegressor,
+)
 
 quantile_forest = pytest.importorskip("quantile_forest")
 RandomForestQuantileRegressor = quantile_forest.RandomForestQuantileRegressor
@@ -82,7 +84,6 @@ def _assert_interval_outputs(regressor, dataset):
     expected_keys = {
         "total",
         "alpha",
-        "beta",
         "coverage_rate",
         "interval_width_mean",
         "mwis",
@@ -110,32 +111,12 @@ def test_icp_regressor_oob_fit(regression_dataset, icp_learner):
     assert reg.ncscore.shape == (regression_dataset["y_train"].shape[0],)
 
 
-def test_icp_unlabeled_fit_requires_inputs(icp_learner, regression_dataset):
+def test_icp_fit_from_scores_validates_input(icp_learner):
     reg = ConformalizedRegressor(icp_learner, alpha=0.05)
-
-    with pytest.raises(ValueError, match="Unlabeled calibration data"):
-        reg.unlabeled_fit(X=None, tilde_beta=1.0, beta=0.1)
-
-    with pytest.raises(ValueError, match="tilde_beta"):
-        reg.unlabeled_fit(X=regression_dataset["X_calib"], tilde_beta=None, beta=0.1)
-
-    with pytest.raises(ValueError, match="beta"):
-        reg.unlabeled_fit(X=regression_dataset["X_calib"], tilde_beta=1.0, beta=None)
-
-
-def test_icp_unlabeled_fit_sets_constant_quantile(icp_learner, regression_dataset):
-    reg = ConformalizedRegressor(icp_learner, alpha=0.05)
-    reg.unlabeled_fit(regression_dataset["X_calib"], tilde_beta=2.5, beta=0.1)
-
-    assert reg.is_unlabeled is True
-    assert reg.tilde_beta == 2.5
-    assert reg.beta == 0.1
-    assert reg.n == regression_dataset["X_calib"].shape[0]
-    assert np.all(reg.ncscore == 2.5)
-
-    intervals = reg.predict_interval(regression_dataset["X_test"])
-    widths = intervals[:, 1] - intervals[:, 0]
-    assert np.allclose(widths, 5.0)
+    with pytest.raises(ValueError, match="one-dimensional"):
+        reg.fit_from_scores([[1.0, 2.0]])
+    with pytest.raises(ValueError, match="non-negative"):
+        reg.fit_from_scores([1.0, -1.0])
 
 
 def test_icp_fit_requires_y_and_X_when_not_oob(icp_learner, regression_dataset):
@@ -157,98 +138,45 @@ def test_cqr_fit_predict_evaluate(regression_dataset, cqr_learner):
     _assert_interval_outputs(reg, regression_dataset)
 
 
-def test_cqr_unlabeled_fit_requires_inputs(cqr_learner, regression_dataset):
+def test_cqr_fit_from_scores(cqr_learner, regression_dataset):
     reg = ConformalizedQuantileRegressor(cqr_learner, alpha=0.05)
-
-    with pytest.raises(ValueError, match="Unlabeled calibration data"):
-        reg.unlabeled_fit(X=None, tilde_beta=1.5, beta=0.1)
-
-    with pytest.raises(ValueError, match="tilde_beta"):
-        reg.unlabeled_fit(
-            X=regression_dataset["X_calib"], tilde_beta=None, beta=0.1
-        )
-
-    with pytest.raises(ValueError, match="beta"):
-        reg.unlabeled_fit(X=regression_dataset["X_calib"], tilde_beta=1.5, beta=None)
+    scores = np.array([-1.0, 0.0, 2.0])
+    reg.fit_from_scores(scores)
+    np.testing.assert_array_equal(reg.ncscore, scores)
+    assert reg.n == 3
+    assert reg.predict_interval(regression_dataset["X_test"]).shape[1] == 2
 
 
-def test_cqr_unlabeled_fit_sets_constant_quantile(cqr_learner, regression_dataset):
-    reg = ConformalizedQuantileRegressor(cqr_learner, alpha=0.05)
-    reg.unlabeled_fit(regression_dataset["X_calib"], tilde_beta=3.0, beta=0.1)
-
-    assert reg.is_unlabeled is True
-    assert reg.tilde_beta == 3.0
-    assert reg.beta == 0.1
-    assert reg.n == regression_dataset["X_calib"].shape[0]
-    assert np.all(reg.ncscore == 3.0)
-
-    intervals = reg.predict_interval(regression_dataset["X_test"])
-    assert intervals.shape == (regression_dataset["X_test"].shape[0], 2)
-    assert np.all(intervals[:, 0] <= intervals[:, 1])
-
-
-def test_exactness_bound_icp_invalid_probability(regression_dataset):
-    learner = RandomForestRegressor(n_estimators=10, random_state=42)
-
-    with pytest.raises(ValueError, match=r"must be in \(0, 1\)"):
-        ExactnessBound.estimate_icp_bound(
-            learner,
-            regression_dataset["X_train"],
-            regression_dataset["y_train"],
-            p=1.0,
-            cv=3,
-        )
-
-
-def test_exactness_bound_icp_returns_expected_types(regression_dataset):
+def test_cross_validation_calibration_icp_and_cps(regression_dataset):
     learner = RandomForestRegressor(n_estimators=20, random_state=42)
-
-    tilde_beta, beta = ExactnessBound.estimate_icp_bound(
+    icp_scores = CrossValidationCalibration.icp_scores(
         learner,
         regression_dataset["X_train"],
         regression_dataset["y_train"],
-        p=0.9,
         cv=3,
     )
-
-    assert isinstance(tilde_beta, float)
-    assert isinstance(beta, float)
-    assert tilde_beta >= 0.0
-    assert beta == 0.1
-
-
-def test_exactness_bound_cqr_invalid_probability(regression_dataset):
-    learner = RandomForestQuantileRegressor(
-        n_estimators=10,
-        default_quantiles=[0.1, 0.9],
-        random_state=42,
+    cps_residuals = CrossValidationCalibration.cps_residuals(
+        learner,
+        regression_dataset["X_train"],
+        regression_dataset["y_train"],
+        cv=3,
     )
-
-    with pytest.raises(ValueError, match=r"must be in \(0, 1\)"):
-        ExactnessBound.estimate_cqr_bound(
-            learner,
-            regression_dataset["X_train"],
-            regression_dataset["y_train"],
-            p=0.0,
-            cv=3,
-        )
+    assert icp_scores.shape == cps_residuals.shape == regression_dataset["y_train"].shape
+    np.testing.assert_allclose(icp_scores, np.abs(cps_residuals))
 
 
-def test_exactness_bound_cqr_returns_expected_types(regression_dataset):
+def test_cross_validation_calibration_cqr(regression_dataset):
     learner = RandomForestQuantileRegressor(
         n_estimators=20,
         default_quantiles=[0.1, 0.9],
         random_state=42,
     )
 
-    tilde_beta, beta = ExactnessBound.estimate_cqr_bound(
+    scores = CrossValidationCalibration.cqr_scores(
         learner,
         regression_dataset["X_train"],
         regression_dataset["y_train"],
-        p=0.9,
         cv=3,
     )
-
-    assert isinstance(tilde_beta, float)
-    assert isinstance(beta, float)
-    assert beta == 0.1
+    assert scores.shape == regression_dataset["y_train"].shape
+    assert np.all(np.isfinite(scores))

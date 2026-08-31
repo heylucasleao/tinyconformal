@@ -64,6 +64,17 @@ def test_cps_accepts_precomputed_forecasting_predictions():
     assert distribution.interval(0.8).shape == (2, 2)
 
 
+def test_cps_accepts_precomputed_signed_residuals():
+    cps = ContinuousConformalPredictiveSystem(_fitted_dummy())
+    residuals = np.array([-2.0, -0.5, 1.0, 3.0])
+    cps.fit_from_residuals(residuals)
+
+    distribution = cps.predict_distribution_from_predictions([10.0])
+
+    np.testing.assert_array_equal(cps.residuals_, residuals)
+    np.testing.assert_allclose(distribution.ppf(0.5), [11.0])
+
+
 def test_newsvendor_uses_distribution_ppf_row_wise():
     cps = ContinuousConformalPredictiveSystem(_fitted_dummy())
     cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))

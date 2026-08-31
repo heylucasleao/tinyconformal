@@ -12,9 +12,9 @@ discrete outcomes.
 For more information on a previous project related to Out-of-Bag (OOB) solutions, visit [this link](https://github.com/HeyLucasLeao/cp-study).
 
 ## Recent updates
-- Added support for exactness-bound-based calibration through `ExactnessBound` for ICP and CQR workflows.
-- Added `unlabeled_fit` support for conformal classifiers and regressors, enabling calibration without labeled calibration data when an exactness bound is available.
-- Classifiers can now be calibrated from unlabeled data using pseudo-labels derived from model predictions, while regressors can use a pre-estimated exactness bound to build the conformity scores.
+- Added out-of-fold regression calibration through `CrossValidationCalibration`.
+- Added `fit_from_scores` for ICP/CQR and `fit_from_residuals` for CPS.
+- Classifiers and regressors can now reuse out-of-fold cross-validation outputs for conformal calibration without reserving a separate calibration split.
 - Added `tinyconformal.series` support with `ConformalDistributionTimeSeriesRegressor` and `ConformalQuantileTimeSeriesRegressor` for multi-step time series interval forecasting with customizable backtesting strides (`step_size`).
 - Added support for Conformalized Quantile Regression (CQR) on multi-step time series using base estimators producing quantile forecasts.
 
@@ -159,6 +159,9 @@ Runnable distribution examples are organized in `examples/distribution/`:
 They cover CDF, PMF where applicable, PPF, arbitrary quantiles, empirical
 coverage, and Newsvendor optimization.
 
+The complete OOF workflow for ICP, CQR, CPS, and both binary classification
+strategies is available in `examples/calibration/cross_validation.ipynb`.
+
 ### Classifier submodule
 
 Import from `tinyconformal.classifier`:
@@ -175,7 +178,7 @@ Import from `tinyconformal.regressor`:
 ```python
 from tinyconformal.regressor import ConformalizedRegressor
 from tinyconformal.regressor import ConformalizedQuantileRegressor
-from tinyconformal.regressor import ExactnessBound
+from tinyconformal.calibration import CrossValidationCalibration
 ```
 
 ###  Time Series submodule
@@ -207,43 +210,46 @@ X_test = ...  # your test data
 predictions = conformal_classifier.predict(X_test)
 ```
 
-### Unlabeled calibration example
+### Cross-validation calibration example
 
-For settings where labeled calibration data are unavailable, you can fit the conformal model directly on unlabeled data:
+Use out-of-fold probabilities to calibrate a classifier without reserving a
+separate calibration split:
 
 ```python
 from sklearn.ensemble import RandomForestClassifier
+from tinyconformal.calibration import CrossValidationCalibration
 from tinyconformal.classifier import BinaryMarginalConformalClassifier
-from sklearn.model_selection import cross_val_score
 
 learner = RandomForestClassifier(n_estimators=100, oob_score=True)
+probabilities = CrossValidationCalibration.classification_probabilities(
+    learner, X_train, y_train, cv=5
+)
 learner.fit(X_train, y_train)
 
-score = cross_val_score(rf, X_train, y_train, cv=5, scoring='accuracy', n_jobs=-1)
-beta = round(np.mean(1 - score), 3)
-
 conformal_classifier = BinaryMarginalConformalClassifier(learner)
-conformal_classifier.unlabeled_fit(X_unlabeled, beta)
+conformal_classifier.fit_from_probabilities(probabilities, y_train)
 
 predictions = conformal_classifier.predict(X_test)
 ```
 
-For regressors, you can combine an exactness bound estimate with unlabeled calibration:
+For regressors, generate out-of-fold scores and then fit the final learner on all
+available training data:
 
 ```python
 from sklearn.ensemble import RandomForestRegressor
-from tinyconformal.regressor import ConformalizedRegressor, ExactnessBound
+from tinyconformal.calibration import CrossValidationCalibration
+from tinyconformal.regressor import ConformalizedRegressor
 
 learner = RandomForestRegressor(random_state=42)
-tilde_beta, beta = ExactnessBound.estimate_icp_bound(
-    learner, X_train, y_train, p=0.95, cv=5
+scores = CrossValidationCalibration.icp_scores(
+    learner, X_train, y_train, cv=5
 )
 
 # Fit learner before using conformal regressor
 learner.fit(X_train, y_train)
 
 regressor = ConformalizedRegressor(learner, alpha=0.05)
-regressor.unlabeled_fit(X_unlabeled, tilde_beta=tilde_beta, beta=beta)
+regressor.fit_from_scores(scores)
 
 intervals = regressor.predict_interval(X_test)
 ```
@@ -397,13 +403,12 @@ Window 2:       [============ Expanded Train ============] [--- H=4 (t11 to t14)
 Import these classes from `tinyconformal.regressor`:
 
 - `ConformalizedRegressor`: conformalizes a fitted point regressor and produces
-  prediction intervals. It supports labeled, OOB, and exactness-bound-based
-  unlabeled calibration.
+  prediction intervals. It supports split, OOB, and precomputed OOF-score
+  calibration.
 - `ConformalizedQuantileRegressor`: implements conformalized quantile regression
   (CQR) for learners that produce lower and upper quantile predictions.
-- `ExactnessBound`: estimates the bounds used to calibrate
-  `ConformalizedRegressor` and `ConformalizedQuantileRegressor` without labeled
-  calibration data.
+- `CrossValidationCalibration`: generates OOF ICP/CQR scores and signed CPS
+  residuals from labeled historical data.
 
 ### Classification
 
@@ -414,9 +419,9 @@ Import these classes from `tinyconformal.classifier`:
 - `BinaryClassConditionalConformalClassifier`: constructs binary prediction sets
   with coverage calibrated separately for each class.
 
-Both classifiers support labeled calibration with `fit(X, y)`, OOB calibration
-with `fit(y=y_train, oob=True)`, and unlabeled calibration with
-`unlabeled_fit(X, beta=...)`.
+Both classifiers support split calibration with `fit(X, y)`, OOB calibration
+with `fit(y=y_train, oob=True)`, and precomputed OOF calibration with
+`fit_from_probabilities(probabilities, y)`.
 
 ### Distribution
 

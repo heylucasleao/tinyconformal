@@ -5,4 +5,5 @@
 
 from .cqr import ConformalizedQuantileRegressor
 from .icp import ConformalizedRegressor
-from .exactness_bound import ExactnessBound
+
+__all__ = ["ConformalizedQuantileRegressor", "ConformalizedRegressor"]

@@ -3,16 +3,18 @@
 # Licensed under the MIT License
 
 
-import pytest
 import numpy as np
+import pytest
+from sklearn.datasets import make_classification
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
-from sklearn.datasets import make_classification
-from tinyconformal.classifier.marginal import BinaryMarginalConformalClassifier
+
+from tinyconformal.calibration import CrossValidationCalibration
 from tinyconformal.classifier.class_conditional import (
     BinaryClassConditionalConformalClassifier,
 )
+from tinyconformal.classifier.marginal import BinaryMarginalConformalClassifier
 
 
 @pytest.fixture
@@ -74,7 +76,6 @@ def _assert_classifier_outputs(classifier, dataset):
     expected_keys = {
         "total",
         "alpha",
-        "beta",
         "coverage_rate",
         "one_c",
         "avg_c",
@@ -118,65 +119,21 @@ def test_oob_class_conditional_classifier(dataset, learner):
     "classifier_cls",
     [BinaryMarginalConformalClassifier, BinaryClassConditionalConformalClassifier],
 )
-def test_unlabeled_fit_requires_X(classifier_cls, learner):
-    classifier = classifier_cls(learner)
+def test_classifier_accepts_oof_probabilities(classifier_cls, dataset):
+    unfitted = RandomForestClassifier(n_estimators=10, random_state=42)
+    probabilities = CrossValidationCalibration.classification_probabilities(
+        unfitted, dataset["X_train"], dataset["y_train"], cv=3
+    )
+    unfitted.fit(dataset["X_train"], dataset["y_train"])
+    classifier = classifier_cls(unfitted).fit_from_probabilities(
+        probabilities, dataset["y_train"]
+    )
 
-    with pytest.raises(ValueError, match="Unlabeled calibration data"):
-        classifier.unlabeled_fit(X=None)
-
-
-@pytest.mark.parametrize(
-    "classifier_cls",
-    [BinaryMarginalConformalClassifier, BinaryClassConditionalConformalClassifier],
-)
-def test_unlabeled_fit_warns_when_beta_missing(classifier_cls, learner, dataset):
-    classifier = classifier_cls(learner)
-
-    with pytest.warns(UserWarning, match="beta"):
-        classifier.unlabeled_fit(dataset["X_calib"])
-
-
-@pytest.mark.parametrize(
-    "classifier_cls",
-    [BinaryMarginalConformalClassifier, BinaryClassConditionalConformalClassifier],
-)
-def test_unlabeled_fit_disables_calibration(classifier_cls, learner, dataset):
-    classifier = classifier_cls(learner)
-    classifier.unlabeled_fit(dataset["X_calib"], beta=0.1)
-
-    with pytest.raises(ValueError, match="Calibration is not applicable"):
-        classifier.calibrate(dataset["X_test"], dataset["y_test"])
-
-
-def test_unlabeled_fit_marginal_predict_p_properties(dataset, learner):
-    classifier = BinaryMarginalConformalClassifier(learner)
-    classifier.unlabeled_fit(dataset["X_calib"], beta=0.1)
-
-    assert classifier.is_unlabeled is True
-    assert classifier.beta == 0.1
-    assert classifier.hinge.shape == (dataset["X_calib"].shape[0],)
-    assert classifier.n == dataset["X_calib"].shape[0]
-
-    p_values = classifier.predict_p(dataset["X_test"])
-    assert p_values.shape == (dataset["X_test"].shape[0], 2)
-    assert np.all(p_values >= 0)
-    assert np.all(p_values <= 1)
-
-
-def test_unlabeled_fit_class_conditional_predict_p_properties(dataset, learner):
-    classifier = BinaryClassConditionalConformalClassifier(learner)
-    classifier.unlabeled_fit(dataset["X_calib"], beta=0.1)
-
-    assert classifier.is_unlabeled is True
-    assert classifier.beta == 0.1
-    assert len(classifier.hinge) == 2
-    assert len(classifier.n) == 2
-    assert sum(classifier.n) == dataset["X_calib"].shape[0]
-
-    p_values = classifier.predict_p(dataset["X_test"])
-    assert p_values.shape == (dataset["X_test"].shape[0], 2)
-    assert np.all(p_values >= 0)
-    assert np.all(p_values <= 1)
+    assert probabilities.shape == (len(dataset["y_train"]), 2)
+    assert classifier.predict_p(dataset["X_test"]).shape == (
+        len(dataset["X_test"]),
+        2,
+    )
 
 
 @pytest.mark.parametrize(
@@ -219,15 +176,18 @@ def test_classifier_accepts_learner_without_n_classes_attribute(
     "classifier_cls",
     [BinaryMarginalConformalClassifier, BinaryClassConditionalConformalClassifier],
 )
-def test_labeled_fit_resets_unlabeled_state(classifier_cls, learner, dataset):
-    classifier = classifier_cls(learner)
-    classifier.unlabeled_fit(dataset["X_calib"], beta=0.1)
+def test_classifier_supports_non_positional_labels(classifier_cls, dataset):
+    y_train = np.where(dataset["y_train"] == 0, "no", "yes")
+    y_calib = np.where(dataset["y_calib"] == 0, "no", "yes")
+    learner = LogisticRegression().fit(dataset["X_train"], y_train)
+    classifier = classifier_cls(learner).fit(dataset["X_calib"], y_calib)
 
-    classifier.fit(dataset["X_calib"], dataset["y_calib"])
-
-    assert classifier.is_unlabeled is False
-    assert classifier.beta is None
-    classifier.calibrate(dataset["X_test"], dataset["y_test"])
+    predictions = classifier.predict(dataset["X_test"])
+    assert set(predictions) <= {"no", "yes"}
+    evaluation = classifier.evaluate(
+        dataset["X_test"], np.where(dataset["y_test"] == 0, "no", "yes")
+    )
+    assert 0.0 <= evaluation["coverage_rate"] <= 1.0
 
 
 def test_class_conditional_fit_requires_both_classes(learner, dataset):
@@ -238,17 +198,12 @@ def test_class_conditional_fit_requires_both_classes(learner, dataset):
         classifier.fit(dataset["X_calib"], y_single_class)
 
 
-def test_class_conditional_unlabeled_fit_requires_both_pseudo_classes(
-    learner, dataset, monkeypatch
+def test_class_conditional_fit_from_probabilities_requires_both_classes(
+    learner, dataset
 ):
     classifier = BinaryClassConditionalConformalClassifier(learner)
-    probabilities = np.column_stack(
-        [
-            np.zeros(len(dataset["X_calib"])),
-            np.ones(len(dataset["X_calib"])),
-        ]
-    )
-    monkeypatch.setattr(learner, "predict_proba", lambda X: probabilities)
+    probabilities = learner.predict_proba(dataset["X_calib"])
+    labels = np.zeros(len(probabilities), dtype=int)
 
-    with pytest.raises(ValueError, match="pseudo-labels from both classes"):
-        classifier.unlabeled_fit(dataset["X_calib"], beta=0.1)
+    with pytest.raises(ValueError, match="samples from both classes"):
+        classifier.fit_from_probabilities(probabilities, labels)

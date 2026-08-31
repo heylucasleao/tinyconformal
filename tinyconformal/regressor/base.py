@@ -58,7 +58,6 @@ class BaseConformalRegressor(ABC):
         self.decision_function_ = None
         self.ncscore = None
         self.n = None
-        self.beta = None
         self._quantile_warning_registry = set()
 
         # Ensure the learner is fitted
@@ -217,7 +216,6 @@ class BaseConformalRegressor(ABC):
             A dictionary containing the following evaluation metrics:
             - "total" (int): The total number of samples in the dataset.
             - "alpha" (float): The significance level used for evaluation.
-            - "beta" (float): Base model error rate (if `unlabeled_fit` was used)
             - "coverage_rate" (float): The coverage rate of the prediction intervals.
             - "interval_width_mean" (float): The mean width of the prediction intervals.
             - "mwis" (float): The Mean Weighted Interval Score (MWIS).
@@ -246,7 +244,6 @@ class BaseConformalRegressor(ABC):
         return {
             "total": total,
             "alpha": alpha,
-            "beta": getattr(self, "beta", None),
             "coverage_rate": coverage_rate,
             "interval_width_mean": interval_width_mean,
             "mwis": mwi_score,
