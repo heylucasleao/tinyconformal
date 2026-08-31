@@ -13,6 +13,7 @@ from .tscqr import ConformalQuantileTimeSeriesRegressor
 
 __all__ = [
     "ConformalDistributionTimeSeriesRegressor",
+    "ConformalPredictiveSystemTimeSeriesRegressor",
     "ConformalQuantileTimeSeriesRegressor",
     "ContinuousTimeSeriesConformalPredictiveSystem",
     "DiscreteTimeSeriesConformalPredictiveSystem",
