@@ -8,7 +8,11 @@ import numpy as np
 from sklearn.base import BaseEstimator
 from sklearn.utils.validation import check_is_fitted
 
-from .base import DiscretePredictiveDistribution, PredictiveDistribution
+from .base import (
+    DiscretePredictiveDistribution,
+    EmpiricalResidualDistribution,
+    PredictiveDistribution,
+)
 
 
 def _as_1d_finite(values, name: str) -> np.ndarray:
@@ -22,7 +26,7 @@ def _as_1d_finite(values, name: str) -> np.ndarray:
     return array
 
 
-class _ResidualPredictiveDistribution(PredictiveDistribution):
+class _ResidualPredictiveDistribution(EmpiricalResidualDistribution):
     """Empirical signed-residual distributions shifted by point predictions."""
 
     def __init__(self, locations: np.ndarray, residuals: np.ndarray):
@@ -32,47 +36,12 @@ class _ResidualPredictiveDistribution(PredictiveDistribution):
     def __len__(self) -> int:
         return self.locations.size
 
-    def _rowwise_or_grid(self, values, name: str) -> tuple[np.ndarray, bool]:
-        array = np.asarray(values, dtype=float)
-        if not np.all(np.isfinite(array)):
-            raise ValueError(f"{name} must contain only finite values.")
-        if array.ndim == 0:
-            return np.full((len(self), 1), float(array)), True
-        if array.ndim == 1:
-            if array.size == len(self):
-                return array[:, None], True
-            return np.broadcast_to(array[None, :], (len(self), array.size)), False
-        if array.ndim == 2 and array.shape[0] == len(self):
-            return array, False
-        raise ValueError(
-            f"{name} must be a scalar, a one-dimensional grid, a row-wise vector "
-            f"of length {len(self)}, or a matrix with {len(self)} rows."
-        )
+    @property
+    def n_calibration(self) -> int:
+        return self.residuals.size
 
-    def cdf(self, values):
-        values, squeeze = self._rowwise_or_grid(values, "values")
-        scores = values - self.locations[:, None]
-        ranks = np.searchsorted(self.residuals, scores, side="right")
-        # The n + 1 denominator matches the conformal rank used by ppf. The
-        # otherwise unattainable final rank is assigned to the largest observed
-        # residual, yielding a finite, proper, conservative distribution.
-        result = ranks.astype(float) / (self.residuals.size + 1)
-        result[ranks == self.residuals.size] = 1.0
-        return result[:, 0] if squeeze else result
-
-    def ppf(self, quantiles):
-        quantiles, squeeze = self._rowwise_or_grid(quantiles, "quantiles")
-        if np.any((quantiles < 0.0) | (quantiles > 1.0)):
-            raise ValueError("quantiles must lie in [0, 1].")
-
-        # Generalized inverse of the conformal residual CDF. The ceil((n+1)q)
-        # rank is the finite-sample conformal correction; the otherwise
-        # unattainable final rank is conservatively assigned to the maximum
-        # calibration residual.
-        ranks = np.ceil((self.residuals.size + 1) * quantiles).astype(int)
-        ranks = np.clip(ranks, 1, self.residuals.size) - 1
-        result = self.locations[:, None] + self.residuals[ranks]
-        return result[:, 0] if squeeze else result
+    def _row_residuals(self) -> np.ndarray:
+        return np.broadcast_to(self.residuals, (len(self), self.residuals.size))
 
 
 class ContinuousConformalDistribution(_ResidualPredictiveDistribution):

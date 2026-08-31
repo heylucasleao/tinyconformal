@@ -3,8 +3,11 @@
 # Licensed under the MIT License
 
 
-from sklearn.base import RegressorMixin, BaseEstimator
 import numpy as np
+from sklearn.base import BaseEstimator, RegressorMixin
+
+from tinyconformal.utils.conformal import absolute_residual_scores, symmetric_bounds
+
 from .base import BaseConformalRegressor
 
 
@@ -104,7 +107,7 @@ class ConformalizedRegressor(RegressorMixin, BaseEstimator, BaseConformalRegress
 
         self.n = len(self.decision_function_)
 
-        self.ncscore = np.abs(y - self.decision_function_)
+        self.ncscore = absolute_residual_scores(y, self.decision_function_)
 
         return self
 
@@ -128,7 +131,6 @@ class ConformalizedRegressor(RegressorMixin, BaseEstimator, BaseConformalRegress
         y_pred = self.learner.predict(X_test)
 
         # Calculate the lower and upper bounds of the prediction intervals
-        lower_bound = y_pred - qhat
-        upper_bound = y_pred + qhat
+        lower_bound, upper_bound = symmetric_bounds(y_pred, qhat)
 
         return np.array([lower_bound, upper_bound]).T

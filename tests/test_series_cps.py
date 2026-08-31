@@ -4,10 +4,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tinyconformal.distribution.split import ContinuousConformalDistribution
 from tinyconformal.series import (
     ContinuousConformalPredictiveSystemTimeSeriesRegressor,
     DiscreteConformalPredictiveSystemTimeSeriesRegressor,
 )
+from tinyconformal.series.cps import HorizonConformalDistribution
 
 
 @pytest.fixture
@@ -57,6 +59,20 @@ def test_series_cps_uses_sequential_backtesting_and_horizon_residuals(
     assert len(distributions["Model"]) == len(frame) == 4
     np.testing.assert_array_equal(
         distributions["Model"].horizon_steps, np.array([0, 1, 0, 1])
+    )
+
+
+def test_split_and_single_horizon_cps_share_distribution_semantics():
+    locations = np.array([10.0, 20.0])
+    residuals = np.array([-2.0, 0.0, 3.0])
+    split = ContinuousConformalDistribution(locations, residuals)
+    horizon = HorizonConformalDistribution(
+        locations, residuals[:, None], horizon_steps=np.zeros(2, dtype=int)
+    )
+
+    np.testing.assert_allclose(split.cdf([9.0, 22.0]), horizon.cdf([9.0, 22.0]))
+    np.testing.assert_allclose(
+        split.ppf([0.2, 0.5, 0.8]), horizon.ppf([0.2, 0.5, 0.8])
     )
 
 

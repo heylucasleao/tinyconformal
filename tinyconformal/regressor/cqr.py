@@ -3,10 +3,14 @@
 # Licensed under the MIT License
 
 
-from sklearn.base import RegressorMixin, BaseEstimator
-import numpy as np
-from .base import BaseConformalRegressor
 import warnings
+
+import numpy as np
+from sklearn.base import BaseEstimator, RegressorMixin
+
+from tinyconformal.utils.conformal import cqr_bounds, cqr_scores
+
+from .base import BaseConformalRegressor
 
 warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
 
@@ -146,8 +150,8 @@ class ConformalizedQuantileRegressor(
             )
 
         self.n = len(self.decision_function_)
-        self.ncscore = np.maximum(
-            self.decision_function_[:, 0] - y, y - self.decision_function_[:, -1]
+        self.ncscore = cqr_scores(
+            y, self.decision_function_[:, 0], self.decision_function_[:, -1]
         )
 
         return self
@@ -217,8 +221,7 @@ class ConformalizedQuantileRegressor(
         q_low_base = y_pred[:, 0]
         q_high_base = y_pred[:, -1]
 
-        lower_bound = q_low_base - qhat
-        upper_bound = q_high_base + qhat
+        lower_bound, upper_bound = cqr_bounds(q_low_base, q_high_base, qhat)
 
         if not return_p50:
             return np.column_stack([lower_bound, upper_bound])

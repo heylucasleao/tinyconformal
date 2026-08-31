@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
 
+from tinyconformal.utils.conformal import cqr_bounds, cqr_scores
 from tinyconformal.utils.imports import requires_extra
 from tinyconformal.utils.quantiles import conformal_quantile_level
 
@@ -249,7 +250,7 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         self, q_low: np.ndarray, q_high: np.ndarray, y_true: np.ndarray
     ) -> np.ndarray:
         """Computes CQR Nonconformity Scores: E_{i,t} = max(q_low - y, y - q_high)"""
-        return np.maximum(q_low - y_true, y_true - q_high)
+        return cqr_scores(y_true, q_low, q_high)
 
     def _finalize_residuals(
         self,
@@ -407,8 +408,9 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
                 raise ValueError(
                     f"Forecast identifier {series_id!r} must contain exactly {h} rows."
                 )
-            lower_bound[row_mask] = q_low[row_mask] - q_hat_h
-            upper_bound[row_mask] = q_high[row_mask] + q_hat_h
+            lower, upper = cqr_bounds(q_low[row_mask], q_high[row_mask], q_hat_h)
+            lower_bound[row_mask] = lower
+            upper_bound[row_mask] = upper
 
         return lower_bound, upper_bound
 
