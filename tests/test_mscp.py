@@ -749,3 +749,43 @@ def test_mscp_preserves_fractional_coverage_in_column_names(
     eval_df = cdr.evaluate(test_df, h=2)
     assert eval_df.loc[0, "level"] == "94.5%"
     assert eval_df.loc[0, "alpha"] == pytest.approx(0.055)
+
+
+def test_nexcp_weighted_refit_passes_internal_weight_column(
+    mock_point_learner, sample_distribution_data
+):
+    ConformalDistributionTimeSeriesRegressor(
+        learner=mock_point_learner,
+        horizon=2,
+        n_windows=2,
+        nexcp=True,
+        decay=0.5,
+        weighted_refit=True,
+    ).fit(sample_distribution_data, n_jobs=1)
+
+    fit_kwargs = mock_point_learner.fit.call_args.kwargs
+    assert fit_kwargs["weight_col"] == "_tinyconformal_weight"
+    weights = fit_kwargs["df"].groupby("ds")["_tinyconformal_weight"].first()
+    assert weights.is_monotonic_increasing
+    assert weights.iloc[-1] > weights.iloc[0]
+
+
+def test_nexcp_weighted_refit_requires_weight_col_support(
+    sample_distribution_data,
+):
+    class LearnerWithoutWeights:
+        def fit(self, df):
+            return self
+
+        def predict(self, h):
+            raise AssertionError("predict should not be reached")
+
+    cdr = ConformalDistributionTimeSeriesRegressor(
+        learner=LearnerWithoutWeights(),
+        horizon=2,
+        n_windows=2,
+        nexcp=True,
+        weighted_refit=True,
+    )
+    with pytest.raises(TypeError, match="weight_col"):
+        cdr.fit(sample_distribution_data, n_jobs=1)

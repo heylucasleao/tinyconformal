@@ -372,6 +372,7 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
         alpha: float = 0.05,
         nexcp: bool = False,
         decay: float = 0.99,
+        weighted_refit: bool = True,
         discrete: bool = False,
         minimum: int | None = 0,
         id_col: str = "unique_id",
@@ -384,6 +385,7 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
             n_windows=n_windows,
             nexcp=nexcp,
             decay=decay,
+            weighted_refit=weighted_refit,
             alpha=alpha,
             id_col=id_col,
             time_col=time_col,
@@ -443,12 +445,15 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
         """Predict each window's scales with a model fitted on all other windows."""
         oof_scales = np.empty_like(residuals, dtype=float)
         for window in range(self.n_windows):
-            train_residuals = np.delete(residuals, window, axis=0)
+            train_windows = np.delete(np.arange(self.n_windows), window)
+            train_residuals = residuals[train_windows]
             train_features = pd.concat(
                 [features] * len(train_residuals), ignore_index=True
             )
-            scale_model = self._new_dispersion_pipeline().fit(
-                train_features, self._scale_targets(train_residuals)
+            scale_model = self._fit_dispersion_pipeline(
+                train_features,
+                self._scale_targets(train_residuals),
+                train_windows,
             )
             oof_scales[window] = np.asarray(
                 scale_model.predict(features), dtype=float
@@ -478,9 +483,27 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
         final_features = pd.concat(
             [features] * self.n_windows, ignore_index=True
         )
-        return self._new_dispersion_pipeline().fit(
-            final_features, self._scale_targets(residuals)
+        return self._fit_dispersion_pipeline(
+            final_features,
+            self._scale_targets(residuals),
+            np.arange(self.n_windows),
         )
+
+    def _fit_dispersion_pipeline(self, features, targets, windows) -> Pipeline:
+        """Fit dispersion, forwarding recency weights when supported."""
+        pipeline = self._new_dispersion_pipeline()
+        fit_kwargs = {}
+        if (
+            self.nexcp
+            and self.weighted_refit
+            and self._accepts_parameter(self.dispersion_learner.fit, "sample_weight")
+        ):
+            window_weights = temporal_decay_weights(self.n_windows, self.decay)[windows]
+            repeats = len(features) // len(windows)
+            fit_kwargs["learner__sample_weight"] = np.repeat(
+                window_weights, repeats
+            )
+        return pipeline.fit(features, targets, **fit_kwargs)
 
     def _fit_conditional_scales(self) -> None:
         """Cross-fit and apply conditional scales to rolling-origin residuals.
@@ -721,6 +744,7 @@ class ContinuousTSCPS(_TSCPS):
         alpha: float = 0.05,
         nexcp: bool = False,
         decay: float = 0.99,
+        weighted_refit: bool = True,
         id_col: str = "unique_id",
         time_col: str = "ds",
         target_col: str = "y",
@@ -733,6 +757,7 @@ class ContinuousTSCPS(_TSCPS):
             alpha=alpha,
             nexcp=nexcp,
             decay=decay,
+            weighted_refit=weighted_refit,
             discrete=False,
             minimum=None,
             id_col=id_col,
@@ -787,6 +812,7 @@ class DiscreteTSCPS(_TSCPS):
         alpha: float = 0.05,
         nexcp: bool = False,
         decay: float = 0.99,
+        weighted_refit: bool = True,
         minimum: int | None = 0,
         id_col: str = "unique_id",
         time_col: str = "ds",
@@ -800,6 +826,7 @@ class DiscreteTSCPS(_TSCPS):
             alpha=alpha,
             nexcp=nexcp,
             decay=decay,
+            weighted_refit=weighted_refit,
             discrete=True,
             minimum=minimum,
             id_col=id_col,

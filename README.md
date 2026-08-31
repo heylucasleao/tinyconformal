@@ -148,6 +148,7 @@ cps = ContinuousTSCPS(
     n_windows=5,
     nexcp=True,
     decay=0.99,
+    weighted_refit=True,
 )
 cps.fit(train_df, step_size=14, static_features=["store_type"])
 
@@ -167,8 +168,10 @@ MSCP, TSCQR, and TSCPS share the optional NexCP-style temporal weighting
 contract. With `nexcp=False` (the default), calibration windows have equal
 weight. With `nexcp=True`, weights decay exponentially from the newest window
 using `decay=0.99`, the value used in the NexCP paper experiments. This weights
-calibration scores only; it does not pass temporal weights into the underlying
-forecast learner.
+calibration scores and, when `weighted_refit=True`, adds an internal recency
+weight column to every rolling-origin fit and to the final learner refit. A
+learner without `weight_col` support raises an explicit error. TSCPS also passes
+window weights to dispersion estimators that support `sample_weight`.
 
 Runnable distribution examples are organized in `examples/distribution/`:
 

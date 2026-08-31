@@ -38,6 +38,7 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         alpha: float = 0.05,
         nexcp: bool = False,
         decay: float = 0.99,
+        weighted_refit: bool = True,
         id_col: str = "unique_id",
         time_col: str = "ds",
         target_col: str = "y",
@@ -94,6 +95,7 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             n_windows=n_windows,
             nexcp=nexcp,
             decay=decay,
+            weighted_refit=weighted_refit,
             id_col=id_col,
             time_col=time_col,
             target_col=target_col,
@@ -183,14 +185,7 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         """Fits a temporary model and predicts the validation horizon."""
         temp_model = copy.deepcopy(self.learner)
 
-        self._invoke(
-            temp_model.fit,
-            df=train_df,
-            id_col=self.id_col,
-            time_col=self.time_col,
-            target_col=self.target_col,
-            static_features=static_features,
-        )
+        self._fit_forecaster(temp_model, train_df, static_features=static_features)
 
         predict_cols = [self.id_col, self.time_col] + self.exog_cols_
         X_val = val_df[predict_cols] if self.exog_cols_ else None

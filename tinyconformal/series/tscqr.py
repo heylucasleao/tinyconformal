@@ -145,6 +145,7 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         n_windows: int = 3,
         nexcp: bool = False,
         decay: float = 0.99,
+        weighted_refit: bool = True,
         id_col: str = "unique_id",
         time_col: str = "ds",
         target_col: str = "y",
@@ -158,6 +159,7 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
             n_windows=n_windows,
             nexcp=nexcp,
             decay=decay,
+            weighted_refit=weighted_refit,
             id_col=id_col,
             time_col=time_col,
             target_col=target_col,
@@ -327,13 +329,8 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
     ) -> pd.DataFrame:
         """Clones the learner, fits it on the training window, and predicts the validation window."""
         learner_clone = copy.deepcopy(self.learner)
-        self._invoke(
-            learner_clone.fit,
-            df=train_df,
-            id_col=self.id_col,
-            time_col=self.time_col,
-            target_col=self.target_col,
-            static_features=static_features,
+        self._fit_forecaster(
+            learner_clone, train_df, static_features=static_features
         )
 
         predict_cols = [self.id_col, self.time_col] + self.exog_cols_
