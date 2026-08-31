@@ -42,17 +42,6 @@ class PredictiveDistribution(ABC):
         )
         return np.asarray(self.ppf(quantiles))
 
-    def sample(self, n_samples: int = 1, random_state=None) -> np.ndarray:
-        """Draw samples by inverse-transform sampling.
-
-        Returns an array shaped ``(n_distributions, n_samples)``.
-        """
-        if not isinstance(n_samples, (int, np.integer)) or n_samples < 1:
-            raise ValueError("n_samples must be a positive integer.")
-        rng = np.random.default_rng(random_state)
-        uniforms = rng.random((len(self), int(n_samples)))
-        return np.asarray(self.ppf(uniforms))
-
     def evaluate(self, y, coverages=(0.5, 0.8, 0.9, 0.95)) -> pd.DataFrame:
         """Evaluate central interval coverage, width, and Winkler score."""
         y = np.asarray(y, dtype=float)

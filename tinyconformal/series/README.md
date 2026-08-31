@@ -10,7 +10,7 @@ data use long format with `unique_id`, `ds`, and `y` by default.
 |---|---|---|
 | `ConformalDistributionTimeSeriesRegressor` | MSCP bands | Point forecasters |
 | `ConformalQuantileTimeSeriesRegressor` | TSCQR bands | Quantile forecasters |
-| `ContinuousTimeSeriesConformalPredictiveSystem` | Complete continuous distributions | Arbitrary quantiles, CDFs, samples and intervals |
+| `ContinuousTimeSeriesConformalPredictiveSystem` | Complete continuous distributions | Arbitrary quantiles, CDFs and intervals |
 | `DiscreteTimeSeriesConformalPredictiveSystem` | Complete integer distributions | Counts, PMFs and inventory decisions |
 
 ## MSCP bands
@@ -64,7 +64,7 @@ intervals = forecast.interval(coverage=0.95)
 ```
 
 TSCPS accepts a Nixtla learner configured with exactly one forecast model. Its
-`cdf`, `ppf`, `interval`, and `sample` methods return long pandas DataFrames on
+`cdf`, `ppf`, and `interval` methods return long pandas DataFrames on
 the original panel grid. The discrete system has the same workflow and adds
 `pmf`; its `minimum` parameter defines the integer support boundary.
 

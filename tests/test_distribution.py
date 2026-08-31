@@ -37,12 +37,13 @@ def _fitted_scale(value=1.0):
     return _fitted_dummy(value=value)
 
 
-def test_continuous_cps_cdf_ppf_interval_and_sample():
+def test_continuous_cps_cdf_ppf_and_interval():
     cps = ContinuousCrossConformalPredictiveSystem(
         _fitted_dummy(), _fitted_scale(), cv=2
     )
     cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
     distribution = cps.predict_distribution(np.array([[20], [21]]))
+    assert not hasattr(distribution, "sample")
 
     np.testing.assert_allclose(
         distribution.cdf(np.array([[10], [11]])), [0.5, 2 / 3]
@@ -50,7 +51,6 @@ def test_continuous_cps_cdf_ppf_interval_and_sample():
     np.testing.assert_allclose(distribution.ppf(0.5), [10, 10])
     assert distribution.ppf([0.25, 0.50, 0.75]).shape == (2, 3)
     assert distribution.interval(0.8).shape == (2, 2)
-    assert distribution.sample(4, random_state=42).shape == (2, 4)
 
     quantile_grid = np.linspace(0.01, 0.99, 11)
     draws = distribution.ppf(quantile_grid)

@@ -298,7 +298,7 @@ class CrossConformalPredictiveSystem(BaseEstimator):
             Batch containing one distribution per row of ``X``. Its ``cdf`` and
             ``ppf`` methods accept scalar, common-grid, or row-wise inputs and
             return NumPy arrays whose first dimension follows the order of
-            ``X``. The result also exposes ``interval``, ``sample``, and
+            ``X``. The result also exposes ``interval`` and
             ``evaluate``. Discrete systems additionally expose ``pmf`` and
             return integer quantiles.
 
@@ -402,7 +402,7 @@ class DiscreteCrossConformalPredictiveSystem(CrossConformalPredictiveSystem):
         """Return one discrete predictive distribution per row of ``X``.
 
         The returned object exposes :meth:`cdf`, :meth:`ppf`, :meth:`pmf`,
-        :meth:`interval`, :meth:`sample`, and :meth:`evaluate`. See
+        :meth:`interval` and :meth:`evaluate`. See
         :meth:`CrossConformalPredictiveSystem.predict_distribution` for the
         complete input, output, and error contract.
         """

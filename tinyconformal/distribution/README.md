@@ -24,7 +24,6 @@ distribution = cps.predict_distribution(X_test)
 median = distribution.ppf(0.5)
 intervals = distribution.interval(coverage=0.90)
 probabilities = distribution.cdf(values)
-samples = distribution.sample(100, random_state=42)
 ```
 
 There is intentionally no `predict` shortcut: request the predictive

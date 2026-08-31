@@ -146,6 +146,7 @@ def test_series_cps_quantiles_intervals_and_evaluation(
     ).fit(panel, n_jobs=1)
 
     forecast = cps.predict_distribution(h=2)
+    assert not hasattr(forecast, "sample")
     assert not hasattr(cps, "predict_quantiles")
     assert not hasattr(cps, "predict_interval")
     quantiles = forecast.ppf([0.1, 0.25, 0.5, 0.9])

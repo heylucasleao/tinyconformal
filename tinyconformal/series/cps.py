@@ -42,7 +42,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
     distribution of signed calibration residuals for its forecast step.  The
     object implements the common :class:`PredictiveDistribution` interface, so
     callers can evaluate CDFs, request arbitrary quantiles, construct central
-    intervals, or draw samples without refitting the forecasting model.
+    intervals without refitting the forecasting model.
 
     Parameters
     ----------
@@ -443,14 +443,6 @@ class _PanelConformalForecast:
         result[f"{self.model}-hi-{level}"] = bounds[:, 1]
         return result
 
-    def sample(self, n_samples: int = 1, random_state=None) -> pd.DataFrame:
-        """Draw samples and return one panel column per draw."""
-        samples = np.asarray(self._distribution.sample(n_samples, random_state))
-        result = self._output_frame()
-        for index in range(samples.shape[1]):
-            result[f"{self.model}-sample-{index + 1}"] = samples[:, index]
-        return result
-
     def evaluate(self, y, coverages=(0.5, 0.8, 0.9, 0.95)) -> pd.DataFrame:
         """Evaluate the underlying predictive distribution."""
         return self._distribution.evaluate(y, coverages=coverages)
@@ -502,7 +494,7 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
     ``StatsForecast``.  Sequential rolling-origin backtesting produces signed
     residual trajectories. Unlike an interval-only conformal method, CPS keeps
     those empirical distributions and can therefore return CDFs, arbitrary
-    quantiles, samples, and intervals after a single calibration fit.
+    quantiles and intervals after a single calibration fit.
 
     The Nixtla learner must expose exactly one model column. Consequently,
     ``predict_distribution`` returns one self-contained forecast whose methods
@@ -919,8 +911,8 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
         -------
         _PanelConformalForecast
             Row-aligned predictive forecast sorted by ``id_col`` and
-            ``time_col``. :meth:`cdf`, :meth:`ppf`, :meth:`interval`,
-            :meth:`sample`, and :meth:`to_frame` return pandas DataFrames on the
+            ``time_col``. :meth:`cdf`, :meth:`ppf`, :meth:`interval`, and
+            :meth:`to_frame` return pandas DataFrames on the
             same panel grid. Forecasts from a discrete CPS additionally expose
             :meth:`pmf` and return integer quantiles.
 
@@ -1171,7 +1163,7 @@ class DiscreteTimeSeriesConformalPredictiveSystem(_TSCPS):
         """Return a discrete predictive forecast on the Nixtla panel grid.
 
         The returned object exposes :meth:`cdf`, :meth:`ppf`, :meth:`pmf`,
-        :meth:`interval`, :meth:`sample`, :meth:`evaluate`, and
+        :meth:`interval`, :meth:`evaluate`, and
         :meth:`to_frame`. See :meth:`_TSCPS.predict_distribution` for the
         complete input, output, and error contract.
         """
