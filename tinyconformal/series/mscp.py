@@ -56,6 +56,13 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             Number of backtesting windows used to extract calibration residuals.
         alpha : float, default=0.05
             Significance level applied in the regressor (target coverage = 1 - alpha).
+        nexcp : bool, default=False
+            Whether to weight calibration windows by exponential recency decay.
+        decay : float, default=0.99
+            Decay factor in ``(0, 1)`` used when ``nexcp=True``.
+        weighted_refit : bool, default=True
+            Whether to pass timestamp-level recency weights to ``learner.fit``
+            through ``weight_col`` when ``nexcp=True``.
         id_col : str, default="unique_id"
             Column name representing the unique identifier for each time series.
         time_col : str, default="ds"
@@ -73,6 +80,12 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             Number of backtesting windows.
         alpha : float
             Significance level.
+        nexcp : bool
+            Whether exponentially decayed calibration weights are enabled.
+        decay : float
+            Exponential recency-decay factor.
+        weighted_refit : bool
+            Whether recency weights are also used while fitting the learner.
         id_col : str
             Identifier column name.
         time_col : str

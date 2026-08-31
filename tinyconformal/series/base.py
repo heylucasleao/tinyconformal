@@ -65,6 +65,14 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             Forecast horizon step count (H).
         n_windows : int, default=10
             Number of backtesting windows used to extract calibration residuals.
+        nexcp : bool, default=False
+            Whether to weight calibration windows by exponential recency decay.
+        decay : float, default=0.99
+            Decay factor in ``(0, 1)`` used when ``nexcp=True``. The most
+            recent observations and calibration windows receive the most weight.
+        weighted_refit : bool, default=True
+            Whether to pass recency weights to ``learner.fit`` through
+            ``weight_col`` when ``nexcp=True``. Has no effect otherwise.
         id_col : str, default="unique_id"
             Column name representing the unique identifier for each time series.
         time_col : str, default="ds"
@@ -80,6 +88,12 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             Forecast horizon step count (H).
         n_windows : int
             Number of backtesting windows.
+        nexcp : bool
+            Whether exponentially decayed calibration weights are enabled.
+        decay : float
+            Exponential recency-decay factor.
+        weighted_refit : bool
+            Whether recency weights are also used while fitting the learner.
         id_col : str
             Identifier column name.
         time_col : str

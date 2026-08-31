@@ -56,6 +56,11 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
     series_ids : ndarray of shape (n_predictions,), optional
         Series identifier for every prediction. Required when ``residuals`` is
         a mapping.
+    scales : ndarray of shape (n_predictions,), optional
+        Positive conditional scale for each prediction. Defaults to one.
+    weights : ndarray of shape (n_calibration_trajectories,), optional
+        Non-negative calibration-window weights. They are normalized internally;
+        equal conformal ranks are used when omitted.
 
     Attributes
     ----------
@@ -65,6 +70,10 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         Sorted signed calibration residuals, either pooled or keyed by series.
     horizon_steps : ndarray of shape (n_predictions,)
         Horizon step used to select the residual distribution for each row.
+    scales : ndarray of shape (n_predictions,)
+        Conditional scales applied to the standardized residuals.
+    weights : ndarray or None
+        Normalized calibration-window weights.
 
     Notes
     -----
@@ -72,7 +81,8 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
     distribution for row ``i`` is the empirical distribution of
     ``locations[i] + r[:, horizon_steps[i]]``.  The CDF uses conformal ranks with
     denominator ``n_calibration_trajectories + 1`` and the PPF uses the
-    corresponding finite-sample ceiling rule.
+    corresponding finite-sample ceiling rule. When ``weights`` are supplied,
+    CDFs and quantiles use their normalized weighted empirical counterparts.
 
     Rows are positional.  Their order must remain identical to the associated
     Nixtla forecast DataFrame returned by ``predict_distribution``.
@@ -242,6 +252,13 @@ class DiscreteHorizonConformalDistribution(
     minimum : int or None, default=0
         Lower boundary of the integer support.  If ``None``, no lower boundary
         is imposed.
+    series_ids : ndarray of shape (n_predictions,), optional
+        Series identifier for every prediction. Required when ``residuals`` is
+        a mapping.
+    scales : ndarray of shape (n_predictions,), optional
+        Positive conditional scale for each prediction. Defaults to one.
+    weights : ndarray of shape (n_calibration_trajectories,), optional
+        Non-negative calibration-window weights, normalized internally.
 
     Notes
     -----
@@ -322,6 +339,13 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
     alpha : float, default=0.05
         Default significance level used by ``predict_interval`` and ``evaluate``.
         It does not restrict the quantiles available from the fitted CPS.
+    nexcp : bool, default=False
+        Whether to weight calibration windows by exponential recency decay.
+    decay : float, default=0.99
+        Decay factor in ``(0, 1)`` used when ``nexcp=True``.
+    weighted_refit : bool, default=True
+        Whether recency weights are also passed to the forecasting learner and,
+        when supported, the dispersion learner during fitting.
     discrete : bool, default=False
         Whether to construct integer-support predictive distributions.
     minimum : int or None, default=0
@@ -338,11 +362,23 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
     ----------
     learner : BaseEstimator
         Fitted forecasting learner after ``fit`` completes.
-    ncscores_ : dict of str to ndarray
-        Calibration residual matrices keyed first by model column and then by
-        series identifier. Each per-series matrix has shape
-        ``(n_windows, horizon)`` and stores ``y_hat - y``; signs are reversed
-        when CPS distributions are constructed.
+    dispersion_learner : BaseEstimator
+        Template estimator used to model conditional absolute-error scales.
+    nexcp : bool
+        Whether exponentially decayed calibration weights are enabled.
+    decay : float
+        Exponential recency-decay factor.
+    weighted_refit : bool
+        Whether recency weights are also used during model fitting.
+    raw_residuals_ : dict
+        Signed ``y_hat - y`` residual matrices keyed by model and series.
+    oof_scales_ : dict
+        Cross-fitted positive scale matrices keyed by model and series.
+    ncscores_ : dict
+        Standardized ``(y_hat - y) / scale`` matrices keyed by model and series.
+    dispersion_learners_ : dict
+        Final dispersion estimators fitted on all calibration windows, keyed by
+        forecast model column.
     n : int
         Number of calibration trajectories available per horizon step.
     exog_cols_ : list of str
@@ -722,6 +758,13 @@ class ContinuousTSCPS(_TSCPS):
         Number of sequential backtesting windows.
     alpha : float, default=0.05
         Default significance level for interval prediction and evaluation.
+    nexcp : bool, default=False
+        Whether to weight calibration windows by exponential recency decay.
+    decay : float, default=0.99
+        Decay factor in ``(0, 1)`` used when ``nexcp=True``.
+    weighted_refit : bool, default=True
+        Whether recency weights are also used while fitting the forecast and
+        dispersion learners.
     id_col : str, default="unique_id"
         Series identifier column.
     time_col : str, default="ds"
@@ -785,6 +828,13 @@ class DiscreteTSCPS(_TSCPS):
         Number of sequential backtesting windows.
     alpha : float, default=0.05
         Default significance level for interval prediction and evaluation.
+    nexcp : bool, default=False
+        Whether to weight calibration windows by exponential recency decay.
+    decay : float, default=0.99
+        Decay factor in ``(0, 1)`` used when ``nexcp=True``.
+    weighted_refit : bool, default=True
+        Whether recency weights are also used while fitting the forecast and
+        dispersion learners.
     minimum : int or None, default=0
         Lower boundary of the target support.  Set to ``None`` to allow all
         integers.
