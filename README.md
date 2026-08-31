@@ -62,12 +62,20 @@ uv pip install "tinyconformal[dev]"
 
 ## Submodules and usage
 
-TinyConformal is organized into two main submodules:
+TinyConformal is organized into six public submodules:
 
-- `tinyconformal.classifier`: conformal classifiers for binary classification.
-- `tinyconformal.regressor`: conformal regressors and exactness-bound utilities.
-- `tinyconformal.series`: multi-step conformal prediction for time series forecasting.
-- `tinyconformal.distribution`: cross-fitted conformal predictive distributions.
+- [`tinyconformal.classifier`](tinyconformal/classifier/README.md): conformal
+  prediction sets for binary classification.
+- [`tinyconformal.regressor`](tinyconformal/regressor/README.md): ICP and CQR
+  prediction intervals.
+- [`tinyconformal.distribution`](tinyconformal/distribution/README.md):
+  cross-fitted conformal predictive distributions.
+- [`tinyconformal.series`](tinyconformal/series/README.md): MSCP, TSCQR, and
+  complete predictive systems for time series.
+- [`tinyconformal.core`](tinyconformal/core/README.md): out-of-fold calibration
+  primitives.
+- [`tinyconformal.utils`](tinyconformal/utils/README.md): multi-quantile modeling
+  and Newsvendor decision utilities.
 
 ### Predictive distribution submodule
 
