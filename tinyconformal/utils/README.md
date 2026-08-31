@@ -30,12 +30,15 @@ quantile_predictions = learner.predict(X_test)
 from tinyconformal.utils import NewsvendorSolver
 
 result = NewsvendorSolver.optimize_distribution(
-    forecast_frame,
-    predictive_distribution,
+    time_series_predictive_forecast,
     underage_cost="shortage_cost",
     overage_cost="holding_cost",
 )
 ```
+
+For tabular CPS, pass the row-aligned DataFrame and NumPy-backed distribution as
+the first two arguments. For TSCPS, pass its self-contained panel forecast as
+the only forecast argument, as above.
 
 For discrete predictive distributions, `pmf_distribution` evaluates unit
 probabilities and `marginal_benefit_distribution` calculates whether each

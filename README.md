@@ -160,15 +160,18 @@ cps = ContinuousTimeSeriesConformalPredictiveSystem(
 )
 cps.fit(train_df, step_size=14, static_features=["store_type"])
 
-forecast_df, distributions = cps.predict_distribution(h=14, X_df=future_exog)
+forecast = cps.predict_distribution(h=14, X_df=future_exog)
+median_df = forecast.ppf(0.5)
+probability_df = forecast.cdf(values)
 quantile_df = cps.predict_quantiles([0.1, 0.5, 0.9], h=14, X_df=future_exog)
 interval_df = cps.predict_interval(h=14, X_df=future_exog, alpha=0.1)
 ```
 
 The scale estimator is cross-fitted on absolute rolling-origin errors using
-series identity and forecast horizon as conditional features. The returned
-distribution dictionary is keyed by the Nixtla model column, and
-each distribution is aligned row-for-row with `forecast_df`. Use
+series identity and forecast horizon as conditional features. TSCPS requires
+the Nixtla learner to contain exactly one model. The returned forecast owns its
+point-forecast panel and distribution, so `cdf`, `ppf`, `interval`, `sample`,
+and `pmf` return row-aligned DataFrames. Use
 `DiscreteTimeSeriesConformalPredictiveSystem` for ordered integer/count
 targets; those distributions additionally provide `pmf`.
 
@@ -328,7 +331,7 @@ conformal_ts = ContinuousTimeSeriesConformalPredictiveSystem(
 )
 
 conformal_ts.fit(df, step_size=7)
-forecast_df, distributions = conformal_ts.predict_distribution(h=7)
+forecast = conformal_ts.predict_distribution(h=7)
 intervals_df = conformal_ts.predict_interval(h=7)
 ```
 
@@ -356,7 +359,7 @@ conformal_count_ts = DiscreteTimeSeriesConformalPredictiveSystem(
 )
 
 conformal_count_ts.fit(df, step_size=7)
-forecast_df, distributions = conformal_count_ts.predict_distribution(h=7)
+forecast = conformal_count_ts.predict_distribution(h=7)
 ```
 
 #### Future features and evaluation data

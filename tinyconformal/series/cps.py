@@ -308,6 +308,106 @@ class DiscreteHorizonConformalDistribution(
         return np.where(np.broadcast_to(below, np.shape(result)), 0.0, result)
 
 
+class _PanelConformalForecast:
+    """Panel-aligned facade over one horizon-wise predictive distribution."""
+
+    def __init__(self, frame, distribution, model, id_col, time_col):
+        self._frame = frame.copy()
+        self._distribution = distribution
+        self.model = model
+        self.id_col = id_col
+        self.time_col = time_col
+
+    def __len__(self) -> int:
+        return len(self._distribution)
+
+    def to_frame(self) -> pd.DataFrame:
+        """Return the point-forecast panel without distributional columns."""
+        return self._frame.copy()
+
+    def _output_frame(self) -> pd.DataFrame:
+        return self._frame.copy()
+
+    @staticmethod
+    def _label(value) -> str:
+        return np.format_float_positional(float(value), precision=12, trim="-")
+
+    def _apply(self, method: str, inputs, prefix: str) -> pd.DataFrame:
+        inputs_array = np.asarray(inputs)
+        evaluated_inputs = inputs
+        if isinstance(inputs, (list, tuple)) and inputs_array.ndim == 1:
+            evaluated_inputs = np.broadcast_to(
+                inputs_array, (len(self), inputs_array.size)
+            )
+        values = np.asarray(getattr(self._distribution, method)(evaluated_inputs))
+        result = self._output_frame()
+        if values.ndim == 1:
+            if inputs_array.ndim == 0:
+                label = self._label(inputs_array)
+                column = f"{self.model}-{prefix}-{label}"
+            else:
+                column = f"{self.model}-{prefix}"
+            result[column] = values
+            return result
+        labels = np.ravel(inputs_array)
+        if labels.size != values.shape[1]:
+            labels = np.arange(values.shape[1])
+        for index, label in enumerate(labels):
+            result[f"{self.model}-{prefix}-{self._label(label)}"] = values[:, index]
+        return result
+
+    def cdf(self, values) -> pd.DataFrame:
+        """Evaluate CDF values and return them on the forecast panel grid."""
+        return self._apply("cdf", values, "cdf")
+
+    def ppf(self, quantiles) -> pd.DataFrame:
+        """Evaluate quantiles and return them on the forecast panel grid."""
+        quantiles_array = np.asarray(quantiles, dtype=float)
+        result = self._apply("ppf", quantiles, "q")
+        if quantiles_array.ndim == 0:
+            old = f"{self.model}-q-{self._label(quantiles_array)}"
+            new = f"{self.model}-q-{self._label(100.0 * quantiles_array)}"
+            return result.rename(columns={old: new})
+        if quantiles_array.ndim == 1 and quantiles_array.size != len(self):
+            return result.rename(
+                columns={
+                    f"{self.model}-q-{self._label(q)}":
+                    f"{self.model}-q-{self._label(100.0 * q)}"
+                    for q in quantiles_array
+                }
+            )
+        return result
+
+    def interval(self, coverage: float = 0.95) -> pd.DataFrame:
+        """Return a central interval on the forecast panel grid."""
+        bounds = np.asarray(self._distribution.interval(coverage))
+        level = self._label(100.0 * float(coverage))
+        result = self._output_frame()
+        result[f"{self.model}-lo-{level}"] = bounds[:, 0]
+        result[f"{self.model}-hi-{level}"] = bounds[:, 1]
+        return result
+
+    def sample(self, n_samples: int = 1, random_state=None) -> pd.DataFrame:
+        """Draw samples and return one panel column per draw."""
+        samples = np.asarray(self._distribution.sample(n_samples, random_state))
+        result = self._output_frame()
+        for index in range(samples.shape[1]):
+            result[f"{self.model}-sample-{index + 1}"] = samples[:, index]
+        return result
+
+    def evaluate(self, y, coverages=(0.5, 0.8, 0.9, 0.95)) -> pd.DataFrame:
+        """Evaluate the underlying predictive distribution."""
+        return self._distribution.evaluate(y, coverages=coverages)
+
+
+class _DiscretePanelConformalForecast(_PanelConformalForecast):
+    """Panel-aligned facade that additionally exposes integer probability mass."""
+
+    def pmf(self, values) -> pd.DataFrame:
+        """Evaluate PMF values and return them on the forecast panel grid."""
+        return self._apply("pmf", values, "pmf")
+
+
 class _TSCPS(ConformalDistributionTimeSeriesRegressor):
     """Conformal predictive system for multi-step panel forecasting.
 
@@ -318,9 +418,9 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
     those empirical distributions and can therefore return CDFs, arbitrary
     quantiles, samples, and intervals after a single calibration fit.
 
-    ``predict_distribution`` returns a dictionary because Nixtla estimators may
-    expose more than one model column. Each value is aligned row-for-row with the
-    DataFrame returned alongside it.
+    The Nixtla learner must expose exactly one model column. Consequently,
+    ``predict_distribution`` returns one self-contained forecast whose methods
+    produce pandas DataFrames aligned to the original panel grid.
 
     Parameters
     ----------
@@ -557,6 +657,11 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
         if self.n_windows < 2:
             raise ValueError("TSCPS requires at least two windows for scale cross-fitting.")
         self.raw_residuals_ = self.ncscores_
+        if len(self.raw_residuals_) != 1:
+            raise ValueError(
+                "TSCPS requires a Nixtla learner configured with exactly one model; "
+                f"found model columns {list(self.raw_residuals_)}."
+            )
         self.dispersion_learners_ = {}
         self.oof_scales_ = {}
         standardized = {}
@@ -581,6 +686,13 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
 
     def _validate_fit_configuration(self) -> None:
         super()._validate_fit_configuration()
+        configured_models = getattr(self.learner, "models", None)
+        if isinstance(configured_models, (Mapping, list, tuple)) and len(
+            configured_models
+        ) != 1:
+            raise ValueError(
+                "TSCPS requires a Nixtla learner configured with exactly one model."
+            )
         if not isinstance(self.discrete, (bool, np.bool_)):
             raise TypeError("discrete must be a boolean.")
         if (
@@ -617,79 +729,99 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
         h = self._get_horizon(h)
         self._check_is_fitted()
         X_df = self._validate_prediction_features(X_df, h)
-        pred_df = (
-            self._invoke(self.learner.predict, h=h, X_df=X_df)
-            .sort_values([self.id_col, self.time_col])
-            .reset_index(drop=True)
-        )
+        pred_df = self._invoke(self.learner.predict, h=h, X_df=X_df)
+        if X_df is not None:
+            extra_cols = [
+                column
+                for column in X_df.columns
+                if column not in pred_df.columns
+            ]
+            if extra_cols:
+                pred_df = pred_df.merge(
+                    X_df[[self.id_col, self.time_col, *extra_cols]],
+                    on=[self.id_col, self.time_col],
+                    how="left",
+                    validate="one_to_one",
+                )
+        pred_df = pred_df.sort_values(
+            [self.id_col, self.time_col]
+        ).reset_index(drop=True)
         model_cols = self._infer_model_cols(pred_df)
         n_series = self._validate_prediction_panel(pred_df, h)
         return pred_df, model_cols, n_series
 
-    def _build_distributions(
-        self, pred_df: pd.DataFrame, model_cols: list[str], h: int, n_series: int
-    ) -> dict[str, PredictiveDistribution]:
+    def _build_distribution(
+        self, pred_df: pd.DataFrame, model: str, h: int, n_series: int
+    ) -> PredictiveDistribution:
         horizon_steps = np.tile(np.arange(h), n_series)
-        distributions = {}
         weights = (
             temporal_decay_weights(self.n, self.decay) if self.nexcp else None
         )
-        for model in model_cols:
-            if model not in self.ncscores_:
-                raise ValueError(
-                    f"Model column '{model}' was not present during calibration. "
-                    f"Calibrated model columns: {list(self.ncscores_)}"
-                )
-            # MSCP stores y_hat - y; predictive distributions use y - y_hat.
-            residuals = {
-                series_id: -scores[:, :h]
-                for series_id, scores in self.ncscores_[model].items()
+        if model not in self.ncscores_:
+            raise ValueError(
+                f"Model column '{model}' was not present during calibration. "
+                f"Calibrated model columns: {list(self.ncscores_)}"
+            )
+        # MSCP stores y_hat - y; predictive distributions use y - y_hat.
+        residuals = {
+            series_id: -scores[:, :h]
+            for series_id, scores in self.ncscores_[model].items()
+        }
+        locations = pred_df[model].to_numpy(dtype=float)
+        series_ids = pred_df[self.id_col].to_numpy()
+        scale_features = pd.DataFrame(
+            {
+                "series_id": series_ids,
+                "horizon": horizon_steps + 1,
             }
-            locations = pred_df[model].to_numpy(dtype=float)
-            series_ids = pred_df[self.id_col].to_numpy()
-            scale_features = pd.DataFrame(
-                {
-                    "series_id": series_ids,
-                    "horizon": horizon_steps + 1,
-                }
+        )
+        scales = np.asarray(
+            self.dispersion_learners_[model].predict(scale_features), dtype=float
+        )
+        if not np.all(np.isfinite(scales)) or np.any(scales <= 0.0):
+            raise ValueError("Dispersion learner predictions must be positive and finite.")
+        if self.discrete:
+            return DiscreteHorizonConformalDistribution(
+                locations,
+                residuals,
+                horizon_steps,
+                minimum=self.minimum,
+                series_ids=series_ids,
+                scales=scales,
+                weights=weights,
             )
-            scales = np.asarray(
-                self.dispersion_learners_[model].predict(scale_features), dtype=float
-            )
-            if not np.all(np.isfinite(scales)) or np.any(scales <= 0.0):
-                raise ValueError("Dispersion learner predictions must be positive and finite.")
-            if self.discrete:
-                distributions[model] = DiscreteHorizonConformalDistribution(
-                    locations,
-                    residuals,
-                    horizon_steps,
-                    minimum=self.minimum,
-                    series_ids=series_ids,
-                    scales=scales,
-                    weights=weights,
-                )
-            else:
-                distributions[model] = HorizonConformalDistribution(
-                    locations,
-                    residuals,
-                    horizon_steps,
-                    series_ids=series_ids,
-                    scales=scales,
-                    weights=weights,
-                )
-        return distributions
+        return HorizonConformalDistribution(
+            locations,
+            residuals,
+            horizon_steps,
+            series_ids=series_ids,
+            scales=scales,
+            weights=weights,
+        )
 
     @requires_extra("series")
     def predict_distribution(
         self,
         h: int | None = None,
         X_df: pd.DataFrame | None = None,
-    ) -> tuple[pd.DataFrame, dict[str, PredictiveDistribution]]:
-        """Return the Nixtla forecast frame and aligned CPS distributions."""
+    ) -> _PanelConformalForecast:
+        """Return one predictive forecast aligned to the Nixtla panel grid."""
         h = self._get_horizon(h)
         pred_df, model_cols, n_series = self._prediction_frame(h, X_df)
-        return pred_df, self._build_distributions(
-            pred_df, model_cols, h=h, n_series=n_series
+        if len(model_cols) != 1:
+            raise ValueError(
+                "TSCPS requires exactly one forecast model column; "
+                f"found {model_cols}."
+            )
+        model = model_cols[0]
+        distribution = self._build_distribution(
+            pred_df, model, h=h, n_series=n_series
+        )
+        forecast_type = (
+            _DiscretePanelConformalForecast if self.discrete else _PanelConformalForecast
+        )
+        return forecast_type(
+            pred_df, distribution, model, self.id_col, self.time_col
         )
 
     @requires_extra("series")
@@ -710,18 +842,18 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
         ):
             raise ValueError("quantiles must contain finite values in [0, 1].")
 
-        pred_df, distributions = self.predict_distribution(h=h, X_df=X_df)
-        for model, distribution in distributions.items():
-            quantile_matrix = np.broadcast_to(
-                quantiles, (len(distribution), quantiles.size)
+        forecast = self.predict_distribution(h=h, X_df=X_df)
+        quantile_matrix = np.broadcast_to(
+            quantiles, (len(forecast), quantiles.size)
+        )
+        values = forecast._distribution.ppf(quantile_matrix)
+        result = forecast.to_frame()
+        for index, quantile in enumerate(quantiles):
+            label = np.format_float_positional(
+                quantile * 100.0, precision=12, trim="-"
             )
-            values = distribution.ppf(quantile_matrix)
-            for index, quantile in enumerate(quantiles):
-                label = np.format_float_positional(
-                    quantile * 100.0, precision=12, trim="-"
-                )
-                pred_df[f"{model}-q-{label}"] = values[:, index]
-        return pred_df
+            result[f"{forecast.model}-q-{label}"] = values[:, index]
+        return result
 
     @requires_extra("series")
     def predict_interval(
@@ -732,21 +864,16 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
     ) -> pd.DataFrame:
         """Return equal-tailed CPS intervals in the MSCP column convention."""
         alpha = self._get_alpha(alpha)
-        pred_df, distributions = self.predict_distribution(h=h, X_df=X_df)
-        level = self._coverage_label(alpha)
-        for model, distribution in distributions.items():
-            bounds = distribution.interval(1.0 - alpha)
-            pred_df[f"{model}-lo-{level}"] = bounds[:, 0]
-            pred_df[f"{model}-hi-{level}"] = bounds[:, 1]
-        return pred_df
+        forecast = self.predict_distribution(h=h, X_df=X_df)
+        return forecast.interval(1.0 - alpha)
 
 
 class ContinuousTimeSeriesConformalPredictiveSystem(_TSCPS):
     """Continuous-target CPS for multi-step Nixtla panel forecasts.
 
     This convenience class configures the internal CPS implementation with
-    ``discrete=False``. Predictive distributions retain their real-valued
-    support and expose CDF, PPF, interval, and sampling operations.
+    ``discrete=False``. Predictive forecasts retain their real-valued support;
+    CDF, PPF, interval, and sampling operations return panel-aligned DataFrames.
 
     Parameters
     ----------
@@ -777,7 +904,7 @@ class ContinuousTimeSeriesConformalPredictiveSystem(_TSCPS):
     Notes
     -----
     A continuous CPS does not define a probability mass function.  Use ``cdf``
-    and ``ppf`` on the distributions returned by ``predict_distribution``.
+    and ``ppf`` on the forecast returned by ``predict_distribution``.
     """
 
     def __init__(

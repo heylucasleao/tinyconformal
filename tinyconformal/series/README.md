@@ -56,13 +56,17 @@ cps = ContinuousTimeSeriesConformalPredictiveSystem(
     n_windows=5,
 ).fit(train_df, step_size=14)
 
-forecast, distributions = cps.predict_distribution(h=14, X_df=future_exog)
+forecast = cps.predict_distribution(h=14, X_df=future_exog)
+median = forecast.ppf(0.5)
+probabilities = forecast.cdf(values)
 quantiles = cps.predict_quantiles([0.1, 0.5, 0.9], h=14, X_df=future_exog)
 intervals = cps.predict_interval(h=14, X_df=future_exog)
 ```
 
-The discrete system has the same workflow and adds `pmf` to each returned
-distribution. Its `minimum` parameter defines the integer support boundary.
+TSCPS accepts a Nixtla learner configured with exactly one forecast model. Its
+`cdf`, `ppf`, `interval`, and `sample` methods return long pandas DataFrames on
+the original panel grid. The discrete system has the same workflow and adds
+`pmf`; its `minimum` parameter defines the integer support boundary.
 
 Set `nexcp=True` to apply exponential recency weights controlled by `decay`.
 When `weighted_refit=True`, compatible forecasting and dispersion learners also

@@ -146,6 +146,23 @@ def _validate_distribution_batch(distribution, n_rows: int, method: str) -> None
         raise TypeError(f"distribution must implement a callable {method}() method.")
 
 
+def _resolve_distribution_inputs(df, distribution):
+    """Resolve tabular CPS inputs or a self-contained time-series forecast."""
+    if distribution is not None:
+        if not isinstance(df, pd.DataFrame):
+            raise TypeError("df must be a pandas DataFrame.")
+        return df, distribution
+    to_frame = getattr(df, "to_frame", None)
+    underlying = getattr(df, "_distribution", None)
+    frame = to_frame() if callable(to_frame) else None
+    if not isinstance(frame, pd.DataFrame) or underlying is None:
+        raise TypeError(
+            "Provide both a DataFrame and distribution, or a time-series "
+            "predictive forecast returned by predict_distribution()."
+        )
+    return frame, underlying
+
+
 def _resolve_unit_grid(max_k: int | None, units: Iterable[int] | None) -> np.ndarray:
     """Validate the unit selection and return its grid."""
     if max_k is not None and units is not None:
@@ -350,10 +367,10 @@ class NewsvendorSolver:
 
     @staticmethod
     def optimize_distribution(
-        df: pd.DataFrame,
-        distribution,
-        underage_cost: CostInput,
-        overage_cost: CostInput,
+        df,
+        distribution=None,
+        underage_cost: CostInput = None,
+        overage_cost: CostInput = None,
         id_col: str = "unique_id",
         time_col: str = "ds",
         ratio_col: str = "critical_ratio",
@@ -362,14 +379,13 @@ class NewsvendorSolver:
     ) -> pd.DataFrame:
         """Optimize inventory directly from a predictive distribution's inverse CDF.
 
-        ``distribution`` must implement ``len(distribution)`` and a row-wise
-        ``ppf(quantiles)`` method, as objects returned by
-        ``CrossConformalPredictiveSystem.predict_distribution`` do. Unlike
-        :meth:`optimize`, this method evaluates the exact requested critical
-        fractile instead of interpolating between two interval endpoints.
+        For tabular CPS, provide the row-aligned ``df`` and ``distribution``.
+        For TSCPS, pass its self-contained panel forecast as ``df`` and omit
+        ``distribution``. Unlike :meth:`optimize`, this method evaluates the
+        exact requested critical fractile instead of interpolating between two
+        interval endpoints.
         """
-        # Row order is significant: each distribution belongs to the DataFrame
-        # row at the same position.
+        df, distribution = _resolve_distribution_inputs(df, distribution)
         df_res = df.copy()
 
         n_rows = len(df_res)
@@ -399,8 +415,8 @@ class NewsvendorSolver:
 
     @staticmethod
     def pmf_distribution(
-        df: pd.DataFrame,
-        distribution: DiscretePredictiveDistribution,
+        df,
+        distribution: DiscretePredictiveDistribution | None = None,
         max_k: int | None = None,
         units: Iterable[int] | None = None,
         column_template: str = "P(Y={k})",
@@ -409,8 +425,10 @@ class NewsvendorSolver:
 
         Provide either ``max_k`` for the dense grid ``0, ..., max_k`` or
         ``units`` for an explicit sparse/stepped grid. If neither is provided,
-        ``max_k`` defaults to 10.
+        ``max_k`` defaults to 10. A TSCPS forecast can be passed directly with
+        ``distribution=None``.
         """
+        df, distribution = _resolve_distribution_inputs(df, distribution)
         if not isinstance(distribution, DiscretePredictiveDistribution):
             raise TypeError(
                 "pmf is available only for discrete predictive distributions."
@@ -444,10 +462,10 @@ class NewsvendorSolver:
 
     @staticmethod
     def marginal_benefit_distribution(
-        df: pd.DataFrame,
-        distribution: DiscretePredictiveDistribution,
-        underage_cost: CostInput,
-        overage_cost: CostInput,
+        df,
+        distribution: DiscretePredictiveDistribution | None = None,
+        underage_cost: CostInput = None,
+        overage_cost: CostInput = None,
         max_k: int | None = None,
         units: Iterable[int] | None = None,
         id_col: str = "unique_id",
@@ -509,6 +527,7 @@ class NewsvendorSolver:
         predictive distributions, where an individual inventory unit does not
         define a probability-mass increment.
         """
+        df, distribution = _resolve_distribution_inputs(df, distribution)
         if not isinstance(distribution, DiscretePredictiveDistribution):
             raise TypeError(
                 "marginal benefit is available only for discrete predictive "
