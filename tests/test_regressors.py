@@ -76,9 +76,6 @@ def _assert_interval_outputs(regressor, dataset):
     assert intervals.shape == (dataset["X_test"].shape[0], 2)
     assert np.all(intervals[:, 0] <= intervals[:, 1])
 
-    y_pred = regressor.predict(dataset["X_test"])
-    assert y_pred.shape == (dataset["X_test"].shape[0],)
-
     results = regressor.evaluate(dataset["X_test"], dataset["y_test"])
     assert isinstance(results, dict)
     expected_keys = {
@@ -87,9 +84,6 @@ def _assert_interval_outputs(regressor, dataset):
         "coverage_rate",
         "interval_width_mean",
         "mwis",
-        "mae",
-        "mbe",
-        "mse",
     }
     assert set(results.keys()) == expected_keys
 

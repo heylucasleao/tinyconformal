@@ -4,7 +4,7 @@
 
 
 import numpy as np
-from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.base import BaseEstimator
 
 from tinyconformal.utils.conformal import (
     absolute_residual_scores,
@@ -15,7 +15,7 @@ from tinyconformal.utils.conformal import (
 from .base import BaseConformalRegressor
 
 
-class ConformalizedRegressor(RegressorMixin, BaseEstimator, BaseConformalRegressor):
+class ConformalizedRegressor(BaseEstimator, BaseConformalRegressor):
     """
     ConformalizedRegressor
     This class implements a conformalized regressor that provides valid prediction intervals
@@ -69,16 +69,6 @@ class ConformalizedRegressor(RegressorMixin, BaseEstimator, BaseConformalRegress
         return self.fit_from_scores(
             absolute_residual_scores(y, self.decision_function_)
         )
-
-    def predict(self, X_test, alpha=None):
-        """
-        Generate prediction intervals for the given model and calibration data.
-        """
-
-        alpha = self._get_alpha(alpha)
-        y_pred = self.predict_interval(X_test, alpha)
-
-        return np.sum(y_pred, axis=1) / 2
 
     def predict_interval(self, X_test, alpha=None):
         """
