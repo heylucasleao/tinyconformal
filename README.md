@@ -135,12 +135,15 @@ sequential rolling-origin backtesting machinery and panel contract used by MSCP
 and TSCQR:
 
 ```python
+from sklearn.ensemble import RandomForestRegressor
+
 from tinyconformal.series import (
     ContinuousTSCPS,
 )
 
 cps = ContinuousTSCPS(
     learner=mlforecast_or_statsforecast,
+    dispersion_learner=RandomForestRegressor(min_samples_leaf=5),
     horizon=14,
     n_windows=5,
 )
@@ -151,7 +154,9 @@ quantile_df = cps.predict_quantiles([0.1, 0.5, 0.9], h=14, X_df=future_exog)
 interval_df = cps.predict_interval(h=14, X_df=future_exog, alpha=0.1)
 ```
 
-The returned distribution dictionary is keyed by the Nixtla model column, and
+The scale estimator is cross-fitted on absolute rolling-origin errors using
+series identity and forecast horizon as conditional features. The returned
+distribution dictionary is keyed by the Nixtla model column, and
 each distribution is aligned row-for-row with `forecast_df`. Use
 `DiscreteTSCPS` for ordered integer/count
 targets; those distributions additionally provide `pmf`.

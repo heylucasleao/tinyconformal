@@ -8,7 +8,10 @@ from collections.abc import Mapping
 
 import numpy as np
 import pandas as pd
-from sklearn.base import BaseEstimator
+from sklearn.base import BaseEstimator, clone
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder
 
 from tinyconformal.distribution.base import (
     DiscretePredictiveDistribution,
@@ -74,12 +77,25 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
     Nixtla forecast DataFrame returned by ``predict_distribution``.
     """
 
-    def __init__(self, locations, residuals, horizon_steps, series_ids=None):
+    def __init__(
+        self, locations, residuals, horizon_steps, series_ids=None, scales=None
+    ):
         self.locations = self._validate_locations(locations)
         self.horizon_steps = self._validate_horizon_steps(horizon_steps)
         self.residuals, self.series_ids = self._prepare_residuals(residuals, series_ids)
+        self.scales = self._validate_scales(scales)
         self._n_calibration, calibrated_horizon = self._residual_shape()
         self._validate_calibrated_horizon(calibrated_horizon)
+
+    def _validate_scales(self, scales) -> np.ndarray:
+        if scales is None:
+            return np.ones_like(self.locations)
+        scales = np.asarray(scales, dtype=float)
+        if scales.shape != self.locations.shape or not np.all(np.isfinite(scales)):
+            raise ValueError("scales must be finite and match locations.")
+        if np.any(scales <= 0.0):
+            raise ValueError("scales must be strictly positive.")
+        return scales
 
     @staticmethod
     def _validate_locations(locations) -> np.ndarray:
@@ -143,7 +159,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
 
     def _row_residuals(self) -> np.ndarray:
         if self.series_ids is not None:
-            return np.vstack(
+            residuals = np.vstack(
                 [
                     self.residuals[series_id][:, horizon_step]
                     for series_id, horizon_step in zip(
@@ -151,7 +167,9 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
                     )
                 ]
             )
-        return self.residuals[:, self.horizon_steps].T
+        else:
+            residuals = self.residuals[:, self.horizon_steps].T
+        return self.scales[:, None] * residuals
 
 
 class DiscreteHorizonConformalDistribution(
@@ -190,8 +208,15 @@ class DiscreteHorizonConformalDistribution(
         horizon_steps,
         minimum: int | None = 0,
         series_ids=None,
+        scales=None,
     ):
-        super().__init__(locations, residuals, horizon_steps, series_ids=series_ids)
+        super().__init__(
+            locations,
+            residuals,
+            horizon_steps,
+            series_ids=series_ids,
+            scales=scales,
+        )
         if minimum is not None and not isinstance(minimum, (int, np.integer)):
             raise TypeError("minimum must be an integer or None.")
         self.minimum = None if minimum is None else int(minimum)
@@ -235,6 +260,9 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
         Unfitted Nixtla-compatible forecasting estimator.  Its ``fit`` method
         must accept a long-format panel and its ``predict`` method must return
         ``id_col``, ``time_col``, and one or more model forecast columns.
+    dispersion_learner : BaseEstimator
+        Regression estimator for the positive conditional scale. It is
+        cross-fitted on absolute rolling-origin errors using series and horizon.
     horizon : int
         Maximum forecast horizon calibrated during rolling-origin backtesting.
     n_windows : int, default=10
@@ -287,6 +315,7 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
     def __init__(
         self,
         learner: BaseEstimator,
+        dispersion_learner: BaseEstimator,
         horizon: int,
         n_windows: int = 10,
         alpha: float = 0.05,
@@ -307,6 +336,73 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
         )
         self.discrete = discrete
         self.minimum = minimum
+        self.dispersion_learner = dispersion_learner
+
+    def _scale_features(self, series_ids) -> pd.DataFrame:
+        series_ids = list(series_ids)
+        return pd.DataFrame(
+            {
+                "series_id": np.repeat(series_ids, self.horizon),
+                "horizon": np.tile(np.arange(1, self.horizon + 1), len(series_ids)),
+            }
+        )
+
+    def _new_dispersion_pipeline(self) -> Pipeline:
+        return Pipeline(
+            [
+                (
+                    "features",
+                    ColumnTransformer(
+                        [
+                            (
+                                "series",
+                                OneHotEncoder(handle_unknown="ignore", sparse_output=False),
+                                ["series_id"],
+                            ),
+                            ("horizon", "passthrough", ["horizon"]),
+                        ]
+                    ),
+                ),
+                ("learner", clone(self.dispersion_learner)),
+            ]
+        )
+
+    def _fit_conditional_scales(self) -> None:
+        if self.n_windows < 2:
+            raise ValueError("TSCPS requires at least two windows for scale cross-fitting.")
+        self.raw_residuals_ = self.ncscores_
+        self.dispersion_learners_ = {}
+        self.oof_scales_ = {}
+        standardized = {}
+        for model, scores_by_id in self.raw_residuals_.items():
+            series_ids = list(scores_by_id)
+            features = self._scale_features(series_ids)
+            raw = np.stack([scores_by_id[sid] for sid in series_ids], axis=1)
+            oof_scales = np.empty_like(raw, dtype=float)
+            for window in range(self.n_windows):
+                train = np.delete(raw, window, axis=0)
+                train_X = pd.concat([features] * len(train), ignore_index=True)
+                scale_model = self._new_dispersion_pipeline().fit(
+                    train_X, np.maximum(np.abs(train).reshape(-1), 1e-6)
+                )
+                oof_scales[window] = np.asarray(
+                    scale_model.predict(features), dtype=float
+                ).reshape(len(series_ids), self.horizon)
+            if not np.all(np.isfinite(oof_scales)) or np.any(oof_scales <= 0.0):
+                raise ValueError("Dispersion learner predictions must be positive and finite.")
+            standardized[model] = {
+                sid: raw[:, row, :] / oof_scales[:, row, :]
+                for row, sid in enumerate(series_ids)
+            }
+            self.oof_scales_[model] = {
+                sid: oof_scales[:, row, :]
+                for row, sid in enumerate(series_ids)
+            }
+            final_X = pd.concat([features] * self.n_windows, ignore_index=True)
+            self.dispersion_learners_[model] = self._new_dispersion_pipeline().fit(
+                final_X, np.maximum(np.abs(raw).reshape(-1), 1e-6)
+            )
+        self.ncscores_ = standardized
 
     def _validate_fit_configuration(self) -> None:
         super()._validate_fit_configuration()
@@ -331,12 +427,14 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
                 raise ValueError(
                     f"Discrete time-series CPS targets must be >= {self.minimum}."
                 )
-        return super().fit(
+        super().fit(
             df,
             step_size=step_size,
             static_features=static_features,
             n_jobs=n_jobs,
         )
+        self._fit_conditional_scales()
+        return self
 
     def _prediction_frame(
         self, h: int | None, X_df: pd.DataFrame | None
@@ -371,6 +469,17 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
             }
             locations = pred_df[model].to_numpy(dtype=float)
             series_ids = pred_df[self.id_col].to_numpy()
+            scale_features = pd.DataFrame(
+                {
+                    "series_id": series_ids,
+                    "horizon": horizon_steps + 1,
+                }
+            )
+            scales = np.asarray(
+                self.dispersion_learners_[model].predict(scale_features), dtype=float
+            )
+            if not np.all(np.isfinite(scales)) or np.any(scales <= 0.0):
+                raise ValueError("Dispersion learner predictions must be positive and finite.")
             if self.discrete:
                 distributions[model] = DiscreteHorizonConformalDistribution(
                     locations,
@@ -378,10 +487,15 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
                     horizon_steps,
                     minimum=self.minimum,
                     series_ids=series_ids,
+                    scales=scales,
                 )
             else:
                 distributions[model] = HorizonConformalDistribution(
-                    locations, residuals, horizon_steps, series_ids=series_ids
+                    locations,
+                    residuals,
+                    horizon_steps,
+                    series_ids=series_ids,
+                    scales=scales,
                 )
         return distributions
 
@@ -458,6 +572,8 @@ class ContinuousTSCPS(_TSCPS):
     ----------
     learner : BaseEstimator
         Unfitted Nixtla-compatible forecasting estimator.
+    dispersion_learner : BaseEstimator
+        Estimator used to cross-fit conditional absolute-error scales.
     horizon : int
         Maximum forecast horizon to calibrate.
     n_windows : int, default=10
@@ -480,6 +596,7 @@ class ContinuousTSCPS(_TSCPS):
     def __init__(
         self,
         learner: BaseEstimator,
+        dispersion_learner: BaseEstimator,
         horizon: int,
         n_windows: int = 10,
         alpha: float = 0.05,
@@ -489,6 +606,7 @@ class ContinuousTSCPS(_TSCPS):
     ):
         super().__init__(
             learner=learner,
+            dispersion_learner=dispersion_learner,
             horizon=horizon,
             n_windows=n_windows,
             alpha=alpha,
@@ -511,6 +629,8 @@ class DiscreteTSCPS(_TSCPS):
     ----------
     learner : BaseEstimator
         Unfitted Nixtla-compatible forecasting estimator.
+    dispersion_learner : BaseEstimator
+        Estimator used to cross-fit conditional absolute-error scales.
     horizon : int
         Maximum forecast horizon to calibrate.
     n_windows : int, default=10
@@ -538,6 +658,7 @@ class DiscreteTSCPS(_TSCPS):
     def __init__(
         self,
         learner: BaseEstimator,
+        dispersion_learner: BaseEstimator,
         horizon: int,
         n_windows: int = 10,
         alpha: float = 0.05,
@@ -548,6 +669,7 @@ class DiscreteTSCPS(_TSCPS):
     ):
         super().__init__(
             learner=learner,
+            dispersion_learner=dispersion_learner,
             horizon=horizon,
             n_windows=n_windows,
             alpha=alpha,

@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.dummy import DummyRegressor
 
 from tinyconformal.distribution.cross import ContinuousConformalDistribution
 from tinyconformal.series import (
@@ -44,16 +45,27 @@ def nixtla_learner():
     return learner
 
 
+@pytest.fixture
+def dispersion_learner():
+    return DummyRegressor(strategy="mean")
+
+
 def test_series_cps_uses_sequential_backtesting_and_horizon_residuals(
-    nixtla_learner, panel
+    nixtla_learner, dispersion_learner, panel
 ):
     cps = ContinuousTSCPS(
-        nixtla_learner, horizon=2, n_windows=2
+        nixtla_learner, dispersion_learner, horizon=2, n_windows=2
     )
     cps.fit(panel, n_jobs=1)
 
     assert set(cps.ncscores_["Model"]) == {"a", "b"}
     assert all(scores.shape == (2, 2) for scores in cps.ncscores_["Model"].values())
+    for series_id in ("a", "b"):
+        np.testing.assert_allclose(
+            cps.ncscores_["Model"][series_id],
+            cps.raw_residuals_["Model"][series_id]
+            / cps.oof_scales_["Model"][series_id],
+        )
     frame, distributions = cps.predict_distribution(h=2)
     assert list(distributions) == ["Model"]
     assert len(distributions["Model"]) == len(frame) == 4
@@ -77,15 +89,19 @@ def test_split_and_single_horizon_cps_share_distribution_semantics():
 
 
 def test_series_cps_distributions_are_calibrated_by_unique_id(
-    nixtla_learner, panel
+    nixtla_learner, dispersion_learner, panel
 ):
     cps = ContinuousTSCPS(
-        nixtla_learner, horizon=2, n_windows=2
+        nixtla_learner, dispersion_learner, horizon=2, n_windows=2
     ).fit(panel, n_jobs=1)
     cps.ncscores_["Model"] = {
         "a": np.array([[-1.0, -2.0], [1.0, 2.0]]),
         "b": np.array([[-10.0, -20.0], [10.0, 20.0]]),
     }
+    scale_features = cps._scale_features(["a", "b"])
+    cps.dispersion_learners_["Model"] = cps._new_dispersion_pipeline().fit(
+        scale_features, np.ones(len(scale_features))
+    )
 
     frame, distributions = cps.predict_distribution(h=2)
     medians = distributions["Model"].ppf(0.5)
@@ -94,9 +110,11 @@ def test_series_cps_distributions_are_calibrated_by_unique_id(
     np.testing.assert_array_equal(medians, [11.0, 13.0, 20.0, 31.0])
 
 
-def test_series_cps_quantiles_intervals_and_evaluation(nixtla_learner, panel):
+def test_series_cps_quantiles_intervals_and_evaluation(
+    nixtla_learner, dispersion_learner, panel
+):
     cps = ContinuousTSCPS(
-        nixtla_learner, horizon=2, n_windows=2, alpha=0.1
+        nixtla_learner, dispersion_learner, horizon=2, n_windows=2, alpha=0.1
     ).fit(panel, n_jobs=1)
 
     quantiles = cps.predict_quantiles([0.1, 0.25, 0.5, 0.9], h=2)
@@ -115,10 +133,10 @@ def test_series_cps_quantiles_intervals_and_evaluation(nixtla_learner, panel):
 
 
 def test_discrete_series_cps_supports_pmf_and_integer_quantiles(
-    nixtla_learner, panel
+    nixtla_learner, dispersion_learner, panel
 ):
     cps = DiscreteTSCPS(
-        nixtla_learner, horizon=2, n_windows=2
+        nixtla_learner, dispersion_learner, horizon=2, n_windows=2
     ).fit(panel, n_jobs=1)
 
     _, distributions = cps.predict_distribution(h=2)
@@ -128,10 +146,12 @@ def test_discrete_series_cps_supports_pmf_and_integer_quantiles(
     assert np.all(distribution.pmf(np.array([10, 11, 10, 11])) >= 0)
 
 
-def test_discrete_series_cps_rejects_noninteger_target(nixtla_learner, panel):
+def test_discrete_series_cps_rejects_noninteger_target(
+    nixtla_learner, dispersion_learner, panel
+):
     panel.loc[0, "y"] = 0.5
     cps = DiscreteTSCPS(
-        nixtla_learner, horizon=2, n_windows=2
+        nixtla_learner, dispersion_learner, horizon=2, n_windows=2
     )
     with pytest.raises(ValueError, match="finite integers"):
         cps.fit(panel, n_jobs=1)
