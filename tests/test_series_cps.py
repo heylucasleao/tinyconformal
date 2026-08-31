@@ -50,13 +50,32 @@ def test_series_cps_uses_sequential_backtesting_and_horizon_residuals(
     )
     cps.fit(panel, n_jobs=1)
 
-    assert cps.ncscores_["Model"].shape == (4, 2)
+    assert set(cps.ncscores_["Model"]) == {"a", "b"}
+    assert all(scores.shape == (2, 2) for scores in cps.ncscores_["Model"].values())
     frame, distributions = cps.predict_distribution(h=2)
     assert list(distributions) == ["Model"]
     assert len(distributions["Model"]) == len(frame) == 4
     np.testing.assert_array_equal(
         distributions["Model"].horizon_steps, np.array([0, 1, 0, 1])
     )
+
+
+def test_series_cps_distributions_are_calibrated_by_unique_id(
+    nixtla_learner, panel
+):
+    cps = ContinuousConformalPredictiveSystemTimeSeriesRegressor(
+        nixtla_learner, horizon=2, n_windows=2
+    ).fit(panel, n_jobs=1)
+    cps.ncscores_["Model"] = {
+        "a": np.array([[-1.0, -2.0], [1.0, 2.0]]),
+        "b": np.array([[-10.0, -20.0], [10.0, 20.0]]),
+    }
+
+    frame, distributions = cps.predict_distribution(h=2)
+    medians = distributions["Model"].ppf(0.5)
+
+    np.testing.assert_array_equal(frame["unique_id"], ["a", "a", "b", "b"])
+    np.testing.assert_array_equal(medians, [11.0, 13.0, 20.0, 31.0])
 
 
 def test_series_cps_quantiles_intervals_and_evaluation(nixtla_learner, panel):

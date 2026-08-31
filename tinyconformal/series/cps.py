@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
@@ -39,17 +41,23 @@ class HorizonConformalDistribution(PredictiveDistribution):
     ----------
     locations : ndarray of shape (n_predictions,)
         Point forecasts in sorted Nixtla panel order.
-    residuals : ndarray of shape (n_calibration_trajectories, horizon)
-        Signed residuals ``y - y_hat`` from sequential backtesting.
+    residuals : ndarray or mapping
+        Signed residuals ``y - y_hat`` from sequential backtesting. A matrix
+        applies the same calibration distribution to every prediction. A
+        mapping associates each series identifier with its own matrix of shape
+        ``(n_calibration_trajectories, horizon)``.
     horizon_steps : ndarray of shape (n_predictions,)
         Zero-based horizon index associated with every point forecast.
+    series_ids : ndarray of shape (n_predictions,), optional
+        Series identifier for every prediction. Required when ``residuals`` is
+        a mapping.
 
     Attributes
     ----------
     locations : ndarray of shape (n_predictions,)
         Point forecasts defining the location of each predictive distribution.
-    residuals : ndarray of shape (n_calibration_trajectories, horizon)
-        Sorted signed calibration residuals for every horizon step.
+    residuals : ndarray or dict
+        Sorted signed calibration residuals, either pooled or keyed by series.
     horizon_steps : ndarray of shape (n_predictions,)
         Horizon step used to select the residual distribution for each row.
 
@@ -65,17 +73,66 @@ class HorizonConformalDistribution(PredictiveDistribution):
     Nixtla forecast DataFrame returned by ``predict_distribution``.
     """
 
-    def __init__(self, locations, residuals, horizon_steps):
-        self.locations = np.asarray(locations, dtype=float)
-        if self.locations.ndim != 1 or not np.all(np.isfinite(self.locations)):
+    def __init__(self, locations, residuals, horizon_steps, series_ids=None):
+        self.locations = self._validate_locations(locations)
+        self.horizon_steps = self._validate_horizon_steps(horizon_steps)
+        self.residuals, self.series_ids = self._prepare_residuals(
+            residuals, series_ids
+        )
+        self._n_calibration, calibrated_horizon = self._residual_shape()
+        self._validate_calibrated_horizon(calibrated_horizon)
+
+    @staticmethod
+    def _validate_locations(locations) -> np.ndarray:
+        locations = np.asarray(locations, dtype=float)
+        if locations.ndim != 1 or not np.all(np.isfinite(locations)):
             raise ValueError("locations must be a finite one-dimensional array.")
-        self.residuals = np.sort(_validate_matrix(residuals, "residuals"), axis=0)
-        self.horizon_steps = np.asarray(horizon_steps, dtype=int)
-        if self.horizon_steps.shape != self.locations.shape:
+        return locations
+
+    def _validate_horizon_steps(self, horizon_steps) -> np.ndarray:
+        horizon_steps = np.asarray(horizon_steps, dtype=int)
+        if horizon_steps.shape != self.locations.shape:
             raise ValueError("horizon_steps and locations must have the same shape.")
+        return horizon_steps
+
+    def _prepare_residuals(self, residuals, series_ids):
+        if isinstance(residuals, Mapping):
+            return self._prepare_series_residuals(residuals, series_ids)
+        residuals = np.sort(_validate_matrix(residuals, "residuals"), axis=0)
+        return residuals, None
+
+    def _prepare_series_residuals(self, residuals, series_ids):
+        if series_ids is None:
+            raise ValueError("series_ids is required when residuals is a mapping.")
+        series_ids = np.asarray(series_ids)
+        if series_ids.shape != self.locations.shape:
+            raise ValueError("series_ids and locations must have the same shape.")
+        missing_ids = sorted(set(series_ids) - set(residuals), key=str)
+        if missing_ids:
+            raise ValueError(
+                "No CPS calibration residuals are available for series: "
+                f"{missing_ids}"
+            )
+        prepared = {
+            series_id: np.sort(
+                _validate_matrix(values, f"residuals[{series_id!r}]"), axis=0
+            )
+            for series_id, values in residuals.items()
+        }
+        return prepared, series_ids
+
+    def _residual_shape(self) -> tuple[int, int]:
+        if not isinstance(self.residuals, Mapping):
+            return self.residuals.shape
+        shapes = {values.shape for values in self.residuals.values()}
+        if len(shapes) != 1:
+            raise ValueError("All series residual matrices must have the same shape.")
+        return next(iter(shapes))
+
+    def _validate_calibrated_horizon(self, calibrated_horizon: int) -> None:
         if np.any(
             (self.horizon_steps < 0)
-            | (self.horizon_steps >= self.residuals.shape[1])
+            | (self.horizon_steps >= calibrated_horizon)
         ):
             raise ValueError("horizon_steps contains an uncalibrated horizon index.")
 
@@ -100,6 +157,15 @@ class HorizonConformalDistribution(PredictiveDistribution):
         )
 
     def _row_residuals(self) -> np.ndarray:
+        if self.series_ids is not None:
+            return np.vstack(
+                [
+                    self.residuals[series_id][:, horizon_step]
+                    for series_id, horizon_step in zip(
+                        self.series_ids, self.horizon_steps
+                    )
+                ]
+            )
         return self.residuals[:, self.horizon_steps].T
 
     def cdf(self, values):
@@ -109,7 +175,7 @@ class HorizonConformalDistribution(PredictiveDistribution):
         ranks = np.sum(
             row_residuals[:, :, None] <= scores[:, None, :], axis=1
         )
-        n = self.residuals.shape[0]
+        n = self._n_calibration
         result = ranks.astype(float) / (n + 1)
         result[ranks == n] = 1.0
         return result[:, 0] if squeeze else result
@@ -118,7 +184,7 @@ class HorizonConformalDistribution(PredictiveDistribution):
         quantiles, squeeze = self._rowwise_or_grid(quantiles, "quantiles")
         if np.any((quantiles < 0.0) | (quantiles > 1.0)):
             raise ValueError("quantiles must lie in [0, 1].")
-        n = self.residuals.shape[0]
+        n = self._n_calibration
         ranks = np.ceil((n + 1) * quantiles).astype(int)
         ranks = np.clip(ranks, 1, n) - 1
         selected = np.take_along_axis(self._row_residuals(), ranks, axis=1)
@@ -155,8 +221,15 @@ class DiscreteHorizonConformalDistribution(
     object and is not equivalent to a continuous CPS.
     """
 
-    def __init__(self, locations, residuals, horizon_steps, minimum: int | None = 0):
-        super().__init__(locations, residuals, horizon_steps)
+    def __init__(
+        self,
+        locations,
+        residuals,
+        horizon_steps,
+        minimum: int | None = 0,
+        series_ids=None,
+    ):
+        super().__init__(locations, residuals, horizon_steps, series_ids=series_ids)
         if minimum is not None and not isinstance(minimum, (int, np.integer)):
             raise TypeError("minimum must be an integer or None.")
         self.minimum = None if minimum is None else int(minimum)
@@ -188,7 +261,7 @@ class ConformalPredictiveSystemTimeSeriesRegressor(
     The regressor calibrates complete residual distributions for each forecast
     horizon of a Nixtla-compatible learner, such as ``MLForecast`` or
     ``StatsForecast``.  Sequential rolling-origin backtesting produces signed
-    residual trajectories.  Unlike an interval-only conformal method, CPS keeps
+        residual trajectories.  Unlike an interval-only conformal method, CPS keeps
     those empirical distributions and can therefore return CDFs, arbitrary
     quantiles, samples, and intervals after a single calibration fit.
 
@@ -227,9 +300,10 @@ class ConformalPredictiveSystemTimeSeriesRegressor(
     learner : BaseEstimator
         Fitted forecasting learner after ``fit`` completes.
     ncscores_ : dict of str to ndarray
-        Calibration residual matrices keyed by model column.  Each matrix has
-        shape ``(n_series * n_windows, horizon)`` and stores ``y_hat - y``;
-        signs are reversed when CPS distributions are constructed.
+        Calibration residual matrices keyed first by model column and then by
+        series identifier. Each per-series matrix has shape
+        ``(n_windows, horizon)`` and stores ``y_hat - y``; signs are reversed
+        when CPS distributions are constructed.
     n : int
         Number of calibration trajectories available per horizon step.
     exog_cols_ : list of str
@@ -327,18 +401,23 @@ class ConformalPredictiveSystemTimeSeriesRegressor(
                     f"Calibrated model columns: {list(self.ncscores_)}"
                 )
             # MSCP stores y_hat - y; predictive distributions use y - y_hat.
-            residuals = -self.ncscores_[model][:, :h]
+            residuals = {
+                series_id: -scores[:, :h]
+                for series_id, scores in self.ncscores_[model].items()
+            }
             locations = pred_df[model].to_numpy(dtype=float)
+            series_ids = pred_df[self.id_col].to_numpy()
             if self.discrete:
                 distributions[model] = DiscreteHorizonConformalDistribution(
                     locations,
                     residuals,
                     horizon_steps,
                     minimum=self.minimum,
+                    series_ids=series_ids,
                 )
             else:
                 distributions[model] = HorizonConformalDistribution(
-                    locations, residuals, horizon_steps
+                    locations, residuals, horizon_steps, series_ids=series_ids
                 )
         return distributions
 
