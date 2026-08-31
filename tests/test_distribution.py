@@ -10,6 +10,23 @@ from tinyconformal.distribution import (
 from tinyconformal.utils.solver import NewsvendorSolver
 
 
+def test_distribution_public_api_only_exports_modeling_classes():
+    import tinyconformal.distribution as distribution
+
+    assert distribution.__all__ == [
+        "ContinuousCrossConformalPredictiveSystem",
+        "DiscreteCrossConformalPredictiveSystem",
+    ]
+    assert not hasattr(distribution, "PredictiveDistribution")
+    assert not hasattr(distribution, "CrossConformalPredictiveSystem")
+
+
+def test_distribution_models_do_not_expose_predict_alias():
+    cps = ContinuousCrossConformalPredictiveSystem(_fitted_dummy(), _fitted_scale())
+
+    assert not hasattr(cps, "predict")
+
+
 def _fitted_dummy(value=10.0):
     model = DummyRegressor(strategy="constant", constant=value)
     model.fit(np.arange(8).reshape(-1, 1), np.full(8, value))

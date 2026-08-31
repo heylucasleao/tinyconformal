@@ -1,20 +1,11 @@
-"""Conformal predictive distributions for continuous and discrete regression."""
+"""Public conformal predictive-system models for tabular regression."""
 
-from .base import DiscretePredictiveDistribution, PredictiveDistribution
 from .cross import (
-    ContinuousConformalDistribution,
     ContinuousCrossConformalPredictiveSystem,
-    CrossConformalPredictiveSystem,
-    DiscreteConformalDistribution,
     DiscreteCrossConformalPredictiveSystem,
 )
 
 __all__ = [
-    "ContinuousConformalDistribution",
     "ContinuousCrossConformalPredictiveSystem",
-    "CrossConformalPredictiveSystem",
-    "DiscreteConformalDistribution",
     "DiscreteCrossConformalPredictiveSystem",
-    "DiscretePredictiveDistribution",
-    "PredictiveDistribution",
 ]

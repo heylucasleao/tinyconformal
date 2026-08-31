@@ -263,11 +263,6 @@ class CrossConformalPredictiveSystem(BaseEstimator):
         """
         return self.predict_distribution(X).interval(coverage)
 
-    def predict(self, X):
-        """Return the conformal predictive median."""
-        return self.predict_distribution(X).ppf(0.5)
-
-
 class ContinuousCrossConformalPredictiveSystem(CrossConformalPredictiveSystem):
     """Cross-fitted predictive system for continuous targets.
 
@@ -308,7 +303,9 @@ class DiscreteCrossConformalPredictiveSystem(CrossConformalPredictiveSystem):
     n_jobs : int or None, default=None
         Parallel jobs passed to scikit-learn cross-validation.
     minimum : int or None, default=0
-        Lower boundary of the integer support. ``None`` allows all integers.
+        Lower boundary of the integer support. Use ``0`` for counts, ``1`` for
+        strictly positive outcomes, another integer for a known lower bound,
+        or ``None`` when negative integers are valid.
     """
 
     def __init__(

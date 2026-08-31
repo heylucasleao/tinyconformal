@@ -13,6 +13,18 @@ from tinyconformal.series import (
 from tinyconformal.series.cps import HorizonConformalDistribution
 
 
+def test_series_public_api_only_exports_modeling_classes():
+    import tinyconformal.series as series
+
+    assert series.__all__ == [
+        "ConformalDistributionTimeSeriesRegressor",
+        "ConformalQuantileTimeSeriesRegressor",
+        "ContinuousTimeSeriesConformalPredictiveSystem",
+        "DiscreteTimeSeriesConformalPredictiveSystem",
+    ]
+    assert not hasattr(series, "HorizonConformalDistribution")
+
+
 @pytest.fixture
 def panel():
     dates = pd.date_range("2026-01-01", periods=12, freq="D")

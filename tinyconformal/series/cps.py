@@ -349,8 +349,10 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
     discrete : bool, default=False
         Whether to construct integer-support predictive distributions.
     minimum : int or None, default=0
-        Lower support boundary used when ``discrete=True``.  Ignored for
-        continuous distributions.
+        Lower support boundary used when ``discrete=True``. Use ``0`` for
+        counts, ``1`` for strictly positive outcomes, another integer for a
+        known lower bound, or ``None`` when negative integers are valid.
+        Ignored for continuous distributions.
     id_col : str, default="unique_id"
         Column identifying the individual time series.
     time_col : str, default="ds"
@@ -836,8 +838,9 @@ class DiscreteTimeSeriesConformalPredictiveSystem(_TSCPS):
         Whether recency weights are also used while fitting the forecast and
         dispersion learners.
     minimum : int or None, default=0
-        Lower boundary of the target support.  Set to ``None`` to allow all
-        integers.
+        Lower boundary of the target support. Use ``0`` for counts, ``1`` for
+        strictly positive outcomes, another integer for a known lower bound,
+        or ``None`` when negative integers are valid.
     id_col : str, default="unique_id"
         Series identifier column.
     time_col : str, default="ds"
