@@ -21,7 +21,8 @@ class MultiQuantileRegressor(BaseEstimator, RegressorMixin):
     base_estimator : BaseEstimator
         The base scikit-learn compatible estimator instance to clone.
     quantiles : tuple of float, default=(0.025, 0.5, 0.975)
-        The target quantiles to fit during training.
+        The target quantiles to fit during training. At least two quantiles are
+        required.
     """
 
     def __init__(self, base_estimator: BaseEstimator, quantiles=(0.025, 0.5, 0.975)):
@@ -31,16 +32,8 @@ class MultiQuantileRegressor(BaseEstimator, RegressorMixin):
         self._validate_quantiles(self.quantiles)
 
     def _validate_quantiles(self, quantiles):
-        n_q = len(quantiles)
-        if n_q < 2 or n_q > 3:
-            raise ValueError(
-                f"MultiQuantileRegressor accepts only 2 or 3 quantiles, but received {n_q}."
-            )
-        if n_q == 3 and 0.5 not in quantiles:
-            raise ValueError(
-                f"If 3 quantiles are provided, 0.5 (median) must be included. "
-                f"Got quantiles: {quantiles}."
-            )
+        if len(quantiles) < 2:
+            raise ValueError("At least two quantiles are required.")
         if not all(
             isinstance(q, (int, float, np.integer, np.floating)) for q in quantiles
         ):

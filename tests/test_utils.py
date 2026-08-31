@@ -30,11 +30,26 @@ def test_mqr_fit_and_predict_requested_quantiles():
     assert set(regressor.models_) == {0.1, 0.5, 0.9}
 
 
+def test_mqr_supports_quantile_grid():
+    X = np.arange(30, dtype=float).reshape(-1, 1)
+    y = np.sin(X[:, 0] / 5.0)
+    quantiles = (0.01, 0.1, 0.5, 0.9, 0.99)
+    regressor = MultiQuantileRegressor(
+        GradientBoostingRegressor(loss="quantile", random_state=42),
+        quantiles=quantiles,
+    ).fit(X, y)
+
+    predictions = regressor.predict(X[:4])
+
+    assert predictions.shape == (4, len(quantiles))
+    assert tuple(regressor.models_) == quantiles
+
+
 @pytest.mark.parametrize(
     ("quantiles", "error", "message"),
     [
-        ((0.1,), ValueError, "only 2 or 3"),
-        ((0.1, 0.2, 0.9), ValueError, "median"),
+        ((), ValueError, "At least two"),
+        ((0.1,), ValueError, "At least two"),
         ((0.0, 0.9), ValueError, "between 0 and 1"),
         ((0.9, 0.1), ValueError, "increasing order"),
         ((0.1, 0.1), ValueError, "increasing order"),

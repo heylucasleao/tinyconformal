@@ -5,6 +5,10 @@ Related project: [tinyshift](https://github.com/HeyLucasLeao/tinyshift)
 TinyConformal is a Python library for conformal prediction in classification and regression.
 It provides tools to build valid prediction sets and prediction intervals with a target significance level (`alpha`).
 
+It also provides conformal predictive systems (CPS) that turn fitted point
+regressors into complete predictive distributions for continuous or ordered
+discrete outcomes.
+
 For more information on a previous project related to Out-of-Bag (OOB) solutions, visit [this link](https://github.com/HeyLucasLeao/cp-study).
 
 ## Recent updates
@@ -63,6 +67,97 @@ TinyConformal is organized into two main submodules:
 - `tinyconformal.classifier`: conformal classifiers for binary classification.
 - `tinyconformal.regressor`: conformal regressors and exactness-bound utilities.
 - `tinyconformal.series`: multi-step conformal prediction for time series forecasting.
+- `tinyconformal.distribution`: split conformal predictive distributions and CPS wrappers.
+
+### Predictive distribution submodule
+
+Calibrate a fitted regressor with labeled out-of-sample data, then request any
+quantile, central interval, CDF value, or random sample:
+
+```python
+from tinyconformal.distribution import ContinuousConformalPredictiveSystem
+
+cps = ContinuousConformalPredictiveSystem(fitted_regressor)
+cps.fit(X_cal, y_cal)
+predictive = cps.predict_distribution(X_test)
+
+median = predictive.ppf(0.5)
+intervals = predictive.interval(coverage=0.90)
+probabilities = predictive.cdf(values)
+```
+
+For ordered integer targets such as demand counts, use
+`DiscreteConformalPredictiveSystem`. Its predictive object additionally exposes
+`pmf(values)` and returns integer quantiles. For nominal, unordered labels, use
+the classifiers in `tinyconformal.classifier` instead.
+
+The complete distribution can be passed directly to the Newsvendor solver:
+
+```python
+from tinyconformal.utils import NewsvendorSolver
+
+result = NewsvendorSolver.optimize_distribution(
+    forecast_frame,
+    predictive,
+    underage_cost="shortage_cost",
+    overage_cost="holding_cost",
+)
+```
+
+For a discrete predictive distribution, the solver can also report the expected
+net benefit of adding each inventory unit. The calculation uses the conformal
+CDF directly and accepts either ``max_k`` or an explicit unit grid:
+
+```python
+marginal_benefit = NewsvendorSolver.marginal_benefit_distribution(
+    forecast_frame,
+    predictive,
+    underage_cost="shortage_cost",
+    overage_cost="holding_cost",
+    units=[0, 5, 10, 15],
+)
+```
+
+Standard split CPS calibration assumes exchangeability. For time series, build
+the calibration set with rolling-origin predictions and choose a windowing or
+weighting scheme appropriate to the temporal dependence and drift.
+Forecasting wrappers that do not implement `predict(X)` can use
+`fit_from_predictions(y_cal, y_pred_cal)` followed by
+`predict_distribution_from_predictions(y_pred_test)`.
+
+For Nixtla-compatible estimators, use the horizon-wise series CPS. It shares the
+sequential rolling-origin backtesting machinery and panel contract used by MSCP
+and TSCQR:
+
+```python
+from tinyconformal.series import (
+    ContinuousConformalPredictiveSystemTimeSeriesRegressor,
+)
+
+cps = ContinuousConformalPredictiveSystemTimeSeriesRegressor(
+    learner=mlforecast_or_statsforecast,
+    horizon=14,
+    n_windows=5,
+)
+cps.fit(train_df, step_size=14, static_features=["store_type"])
+
+forecast_df, distributions = cps.predict_distribution(h=14, X_df=future_exog)
+quantile_df = cps.predict_quantiles([0.1, 0.5, 0.9], h=14, X_df=future_exog)
+interval_df = cps.predict_interval(h=14, X_df=future_exog, alpha=0.1)
+```
+
+The returned distribution dictionary is keyed by the Nixtla model column, and
+each distribution is aligned row-for-row with `forecast_df`. Use
+`DiscreteConformalPredictiveSystemTimeSeriesRegressor` for ordered integer/count
+targets; those distributions additionally provide `pmf`.
+
+Runnable distribution examples are organized in `examples/distribution/`:
+
+- `cps_continuous.ipynb`
+- `cps_discrete.ipynb`
+
+They cover CDF, PMF where applicable, PPF, arbitrary quantiles, empirical
+coverage, and Newsvendor optimization.
 
 ### Classifier submodule
 
