@@ -66,13 +66,25 @@ class _ResidualPredictiveDistribution(EmpiricalResidualDistribution):
 
 
 class ContinuousConformalDistribution(_ResidualPredictiveDistribution):
-    """Batch of continuous split conformal predictive distributions."""
+    """Batch of continuous cross-fitted conformal predictive distributions."""
 
 
 class DiscreteConformalDistribution(
     _ResidualPredictiveDistribution, DiscretePredictiveDistribution
 ):
-    """Batch of split conformal predictive distributions for integer counts."""
+    """Batch of cross-fitted conformal distributions for integer counts.
+
+    Parameters
+    ----------
+    locations : ndarray of shape (n_predictions,)
+        Point predictions defining the location of each distribution.
+    residuals : ndarray of shape (n_calibration,)
+        Signed standardized out-of-fold calibration residuals.
+    scales : ndarray of shape (n_predictions,), optional
+        Positive conditional scale for each prediction. Defaults to one.
+    minimum : int or None, default=0
+        Lower boundary of the integer support. ``None`` allows all integers.
+    """
 
     def __init__(
         self,
@@ -127,6 +139,21 @@ class CrossConformalPredictiveSystem(BaseEstimator):
         If true, produce an ordered integer distribution with ``pmf`` support.
     minimum : int or None, default=0
         Lower support bound for discrete outcomes. Ignored for continuous outcomes.
+
+    Attributes
+    ----------
+    learner_ : estimator
+        Location estimator refitted on all observations.
+    dispersion_learner_ : estimator
+        Dispersion estimator refitted on all absolute OOF location errors.
+    residuals_ : ndarray of shape (n_samples,)
+        Signed out-of-fold location residuals ``y - y_hat``.
+    scales_ : ndarray of shape (n_samples,)
+        Out-of-fold conditional scale predictions.
+    standardized_residuals_ : ndarray of shape (n_samples,)
+        Cross-fitted residuals ``residuals_ / scales_``.
+    n_calibration_ : int
+        Number of cross-fitted calibration scores.
     """
 
     def __init__(
@@ -146,7 +173,20 @@ class CrossConformalPredictiveSystem(BaseEstimator):
         self.minimum = minimum
 
     def fit(self, X, y):
-        """Cross-fit standardized scores, then refit both models on all data."""
+        """Cross-fit standardized scores, then refit both models on all data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training features used by both estimators.
+        y : array-like of shape (n_samples,)
+            Observed targets.
+
+        Returns
+        -------
+        self
+            Fitted predictive system.
+        """
         y = _as_1d_finite(y, "y")
         if self.discrete and np.any(y != np.floor(y)):
             raise ValueError("Discrete CPS targets must be integer-valued.")
@@ -174,7 +214,18 @@ class CrossConformalPredictiveSystem(BaseEstimator):
         return self
 
     def predict_distribution(self, X) -> PredictiveDistribution:
-        """Return one calibrated predictive distribution per input row."""
+        """Return one calibrated predictive distribution per input row.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Features used by the refitted location and dispersion estimators.
+
+        Returns
+        -------
+        PredictiveDistribution
+            Row-aligned continuous or discrete predictive distributions.
+        """
         check_is_fitted(
             self, attributes=["standardized_residuals_", "n_calibration_"]
         )
@@ -196,7 +247,20 @@ class CrossConformalPredictiveSystem(BaseEstimator):
         )
 
     def predict_interval(self, X, coverage: float = 0.95) -> np.ndarray:
-        """Convenience shortcut for ``predict_distribution(X).interval(...)``."""
+        """Return equal-tailed intervals from the predictive distributions.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Features for which intervals are requested.
+        coverage : float, default=0.95
+            Desired central coverage strictly between zero and one.
+
+        Returns
+        -------
+        ndarray of shape (n_samples, 2)
+            Lower and upper predictive bounds.
+        """
         return self.predict_distribution(X).interval(coverage)
 
     def predict(self, X):
@@ -205,7 +269,19 @@ class CrossConformalPredictiveSystem(BaseEstimator):
 
 
 class ContinuousCrossConformalPredictiveSystem(CrossConformalPredictiveSystem):
-    """Cross-fitted predictive system for continuous targets."""
+    """Cross-fitted predictive system for continuous targets.
+
+    Parameters
+    ----------
+    learner : estimator
+        Unfitted location estimator implementing ``fit`` and ``predict``.
+    dispersion_learner : estimator
+        Unfitted estimator producing strictly positive conditional scales.
+    cv : int or cross-validation splitter, default=5
+        Cross-fitting strategy for location and dispersion predictions.
+    n_jobs : int or None, default=None
+        Parallel jobs passed to scikit-learn cross-validation.
+    """
 
     def __init__(self, learner, dispersion_learner, cv=5, n_jobs=None):
         super().__init__(
@@ -219,7 +295,21 @@ class ContinuousCrossConformalPredictiveSystem(CrossConformalPredictiveSystem):
 
 
 class DiscreteCrossConformalPredictiveSystem(CrossConformalPredictiveSystem):
-    """Cross-fitted predictive system for ordered integer outcomes."""
+    """Cross-fitted predictive system for ordered integer outcomes.
+
+    Parameters
+    ----------
+    learner : estimator
+        Unfitted location estimator implementing ``fit`` and ``predict``.
+    dispersion_learner : estimator
+        Unfitted estimator producing strictly positive conditional scales.
+    cv : int or cross-validation splitter, default=5
+        Cross-fitting strategy for location and dispersion predictions.
+    n_jobs : int or None, default=None
+        Parallel jobs passed to scikit-learn cross-validation.
+    minimum : int or None, default=0
+        Lower boundary of the integer support. ``None`` allows all integers.
+    """
 
     def __init__(
         self,

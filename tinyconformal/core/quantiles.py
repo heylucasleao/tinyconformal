@@ -17,7 +17,21 @@ def validate_alpha(alpha: float) -> float:
 
 
 def temporal_decay_weights(n: int, decay: float = 0.99) -> np.ndarray:
-    """Return normalized exponential weights from oldest to newest observation."""
+    """Return normalized exponential weights from oldest to newest observation.
+
+    Parameters
+    ----------
+    n : int
+        Number of chronologically ordered observations.
+    decay : float, default=0.99
+        Multiplicative decay in ``(0, 1)``. The newest observation has unit
+        unnormalized weight and older observations receive successive powers.
+
+    Returns
+    -------
+    ndarray of shape (n,)
+        Positive weights summing to one, ordered oldest to newest.
+    """
     n = _validate_sample_size(n)
     if not isinstance(decay, (int, float, np.integer, np.floating)) or not (
         0.0 < decay < 1.0
@@ -28,7 +42,25 @@ def temporal_decay_weights(n: int, decay: float = 0.99) -> np.ndarray:
 
 
 def weighted_quantile(values, quantile: float, weights, axis=None):
-    """Compute a higher-style weighted quantile along the calibration axis."""
+    """Compute a higher-style weighted quantile along the calibration axis.
+
+    Parameters
+    ----------
+    values : array-like
+        Values whose weighted quantile is requested.
+    quantile : float
+        Quantile level in ``[0, 1]``.
+    weights : array-like of shape (values.shape[axis],)
+        Finite non-negative weights with positive total mass.
+    axis : int or None, default=None
+        Calibration axis. ``None`` flattens ``values``.
+
+    Returns
+    -------
+    scalar or ndarray
+        Smallest sorted value whose cumulative normalized weight reaches the
+        requested quantile.
+    """
     values = np.asarray(values, dtype=float)
     weights = np.asarray(weights, dtype=float)
     if not 0.0 <= quantile <= 1.0:

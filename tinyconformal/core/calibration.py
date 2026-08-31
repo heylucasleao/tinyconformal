@@ -18,7 +18,17 @@ from tinyconformal.core.conformal import (
 
 @dataclass(frozen=True)
 class CrossFittedCPSCalibration:
-    """Out-of-fold location errors, scales, and standardized CPS residuals."""
+    """Out-of-fold inputs for a conditionally normalized CPS.
+
+    Attributes
+    ----------
+    residuals : ndarray of shape (n_samples,)
+        Signed location residuals ``y - y_hat``.
+    scales : ndarray of shape (n_samples,)
+        Strictly positive out-of-fold conditional scale predictions.
+    standardized_residuals : ndarray of shape (n_samples,)
+        Signed scores ``residuals / scales``.
+    """
 
     residuals: np.ndarray
     scales: np.ndarray
@@ -58,7 +68,26 @@ class CrossValidationCalibration:
     def icp_scores(
         cls, learner: BaseEstimator, X, y, *, cv=5, n_jobs: int | None = None
     ) -> np.ndarray:
-        """Return OOF absolute-residual scores for ICP."""
+        """Return OOF absolute-residual scores for ICP.
+
+        Parameters
+        ----------
+        learner : estimator
+            Unfitted point estimator.
+        X : array-like
+            Features used for cross-validation.
+        y : array-like of shape (n_samples,)
+            Observed targets.
+        cv : int or cross-validation splitter, default=5
+            Cross-validation strategy.
+        n_jobs : int or None, default=None
+            Parallel jobs passed to ``cross_val_predict``.
+
+        Returns
+        -------
+        ndarray of shape (n_samples,)
+            Out-of-fold scores ``|y - y_hat|``.
+        """
         predictions = cls._predictions(learner, X, y, cv=cv, n_jobs=n_jobs)
         if predictions.ndim != 1:
             raise ValueError(
@@ -70,7 +99,17 @@ class CrossValidationCalibration:
     def cqr_scores(
         cls, learner: BaseEstimator, X, y, *, cv=5, n_jobs: int | None = None
     ) -> np.ndarray:
-        """Return OOF CQR scores from lower and upper quantile predictions."""
+        """Return OOF CQR scores from lower and upper quantile predictions.
+
+        ``learner.predict`` must return at least two columns; the first and last
+        are interpreted as the lower and upper quantiles. ``cv`` and ``n_jobs``
+        follow :meth:`icp_scores`.
+
+        Returns
+        -------
+        ndarray of shape (n_samples,)
+            Scores ``max(q_low - y, y - q_high)``.
+        """
         predictions = cls._predictions(learner, X, y, cv=cv, n_jobs=n_jobs)
         if predictions.ndim != 2 or predictions.shape[1] < 2:
             raise ValueError(
@@ -91,7 +130,35 @@ class CrossValidationCalibration:
         n_jobs: int | None = None,
         min_scale: float = 1e-6,
     ) -> CrossFittedCPSCalibration:
-        """Return cross-fitted residuals and locally standardized CPS scores."""
+        """Return cross-fitted residuals and locally standardized CPS scores.
+
+        The location estimator first produces OOF predictions. Their absolute
+        errors become targets for a second OOF fit of ``dispersion_learner``.
+        Thus neither component of a standardized score is predicted by a model
+        fitted on that score's observation.
+
+        Parameters
+        ----------
+        learner : estimator
+            Unfitted location estimator.
+        dispersion_learner : estimator
+            Unfitted estimator of positive conditional absolute-error scale.
+        X : array-like
+            Features used by both estimators.
+        y : array-like of shape (n_samples,)
+            Observed targets.
+        cv : int or cross-validation splitter, default=5
+            Cross-fitting strategy used in both stages.
+        n_jobs : int or None, default=None
+            Parallel jobs passed to ``cross_val_predict``.
+        min_scale : float, default=1e-6
+            Positive floor applied to dispersion training targets.
+
+        Returns
+        -------
+        CrossFittedCPSCalibration
+            Raw residuals, OOF scales, and standardized residuals.
+        """
         if not isinstance(min_scale, (int, float)) or min_scale <= 0:
             raise ValueError("min_scale must be strictly positive.")
         predictions = cls._predictions(learner, X, y, cv=cv, n_jobs=n_jobs)
@@ -118,7 +185,16 @@ class CrossValidationCalibration:
     def classification_probabilities(
         cls, learner: BaseEstimator, X, y, *, cv=5, n_jobs: int | None = None
     ) -> np.ndarray:
-        """Return OOF class probabilities for conformal classification."""
+        """Return OOF probabilities from a binary classifier.
+
+        Parameters are equivalent to :meth:`icp_scores`; ``learner`` must
+        implement ``predict_proba`` and produce exactly two columns.
+
+        Returns
+        -------
+        ndarray of shape (n_samples, 2)
+            Out-of-fold class probabilities.
+        """
         probabilities = cls._predictions(
             learner, X, y, cv=cv, n_jobs=n_jobs, method="predict_proba"
         )

@@ -46,7 +46,7 @@ class BaseConformalClassifier(ABC):
         Parameters
         ----------
         learner : BaseEstimator
-            The base learner to be used in the classifier.
+            Already-fitted binary classifier implementing ``predict_proba``.
         alpha : float, default=0.05
             The significance level applied in the classifier.
 
@@ -56,8 +56,8 @@ class BaseConformalClassifier(ABC):
             The base learner employed in the classifier.
         calibration_layer : VennAbers
             The calibration layer utilized in the classifier.
-        decision_function_ : callable or None
-            The decision function of the learner.
+        decision_function_ : ndarray or None
+            Out-of-sample class probabilities used for calibration.
         hinge : array-like of shape (n_samples,), default=None
             The non-conformity scores of the calibration samples.
         alpha : float, default=0.05
@@ -114,7 +114,21 @@ class BaseConformalClassifier(ABC):
         """Store marginal or class-conditional calibration scores."""
 
     def fit_from_probabilities(self, probabilities, y):
-        """Calibrate from out-of-sample probabilities and observed labels."""
+        """Calibrate from out-of-sample probabilities and observed labels.
+
+        Parameters
+        ----------
+        probabilities : array-like of shape (n_samples, 2)
+            Probabilities produced without fitting on the corresponding rows.
+            Columns must follow ``self.classes`` order.
+        y : array-like of shape (n_samples,)
+            Observed binary class labels.
+
+        Returns
+        -------
+        self
+            Fitted conformal classifier.
+        """
         probabilities = validate_probabilities(probabilities)
         y = np.asarray(y)
         if probabilities.shape != (y.size, len(self.classes)):
@@ -205,12 +219,14 @@ class BaseConformalClassifier(ABC):
         """
         Return Venn-Abers calibrated class probabilities.
 
-        Parameters:
-        X: array-like of shape (n_samples, n_features)
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
             The input samples.
 
-        Returns:
-        p_prime: array-like of shape (n_samples, n_classes)
+        Returns
+        -------
+        p_prime : ndarray of shape (n_samples, 2)
             The calibrated class probabilities.
         """
         y_score = self.learner.predict_proba(X)

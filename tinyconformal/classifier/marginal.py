@@ -32,8 +32,8 @@ class BinaryMarginalConformalClassifier(
         Constructs the classifier with a specified learner and a Venn-Abers calibration layer.
 
         Parameters:
-        learner: BaseEstimator
-            The base learner to be used in the classifier.
+        learner : BaseEstimator
+            Already-fitted binary classifier implementing ``predict_proba``.
         alpha: float, default=0.05
             The significance level applied in the classifier.
 
@@ -42,12 +42,9 @@ class BinaryMarginalConformalClassifier(
             The base learner employed in the classifier.
         calibration_layer: VennAbers
             The calibration layer utilized in the classifier.
-        feature_importances_: array-like of shape (n_features,)
-            The feature importances derived from the learner.
         hinge : array-like of shape (n_samples,), default=None
-            Nonconformity scores based on the predicted probabilities. Measures the confidence margin
-            between the predicted probability of the true class and the most likely incorrect class.
-        alpha: float, default=0.05
+            Marginal calibration scores ``1 - p_true``.
+        alpha : float, default=0.05
             The significance level applied in the classifier.
         """
 
@@ -55,7 +52,7 @@ class BinaryMarginalConformalClassifier(
 
     def fit(self, X=None, y=None, oob=False):
         """
-        Fits the classifier to the training data. Calculates the conformity score for each training instance.
+        Calibrate the classifier from out-of-sample nonconformity scores.
 
         Parameters:
         ----------
@@ -139,14 +136,16 @@ class BinaryMarginalConformalClassifier(
         """
         Predicts the possible set of classes for the instances in X based on the predefined significance level.
 
-        Parameters:
-        X: array-like of shape (n_samples, n_features)
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
             The input samples.
-        alpha: float, default=None
+        alpha : float or None, default=None
             The significance level. If None, the value of self.alpha is used.
 
-        Returns:
-        prediction_set: array-like of shape (n_samples, n_classes)
+        Returns
+        -------
+        prediction_set : ndarray of shape (n_samples, 2)
             The predicted set of classes. A class is included in the set if its non-conformity score is less
             than or equal to the quantile of the hinge loss distribution at the (n+1)*(1-alpha)/n level.
         """
