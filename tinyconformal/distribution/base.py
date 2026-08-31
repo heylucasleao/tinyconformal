@@ -85,7 +85,29 @@ class DiscretePredictiveDistribution(PredictiveDistribution):
     """Predictive distribution with an ordered integer support."""
 
     def pmf(self, values) -> np.ndarray:
-        """Evaluate probability masses as ``F(k) - F(k - 1)``."""
+        """Evaluate probability masses at integer support values.
+
+        Parameters
+        ----------
+        values : int or array-like of int
+            Support values at which to evaluate the PMF. A scalar is applied to
+            every distribution. A one-dimensional array defines a common grid.
+            A two-dimensional array with ``len(self)`` rows is evaluated
+            row-wise.
+
+        Returns
+        -------
+        ndarray
+            Probability masses computed as ``CDF(k) - CDF(k - 1)``. Scalar and
+            single-column row-wise inputs return shape ``(n_distributions,)``;
+            a grid of ``m`` values returns shape ``(n_distributions, m)``.
+
+        Raises
+        ------
+        ValueError
+            If any support value is non-finite or non-integer, or the input has
+            an unsupported shape.
+        """
         values = np.asarray(values)
         if not np.all(np.isfinite(values)) or np.any(values != np.floor(values)):
             raise ValueError("pmf values must be finite integers.")
@@ -125,6 +147,29 @@ class EmpiricalResidualDistribution(PredictiveDistribution):
         """Return the number of residuals available for every row."""
 
     def cdf(self, values):
+        """Evaluate each predictive cumulative distribution function.
+
+        Parameters
+        ----------
+        values : float or array-like
+            Target values at which to evaluate the CDF. A scalar is applied to
+            every distribution. A one-dimensional array defines a common grid.
+            A two-dimensional array with ``len(self)`` rows is evaluated
+            row-wise.
+
+        Returns
+        -------
+        ndarray
+            Cumulative probabilities in ``[0, 1]``. Scalar and single-column
+            row-wise inputs return shape ``(n_distributions,)``; a grid of ``m``
+            values returns shape ``(n_distributions, m)``.
+
+        Raises
+        ------
+        ValueError
+            If any value is non-finite or the input is not a scalar, a
+            one-dimensional grid, or a matrix with ``len(self)`` rows.
+        """
         values, squeeze = self._rowwise_or_grid(values, "values")
         scores = values - self.locations[:, None]
         residuals = self._row_residuals()
@@ -134,6 +179,35 @@ class EmpiricalResidualDistribution(PredictiveDistribution):
         return result[:, 0] if squeeze else result
 
     def ppf(self, quantiles):
+        """Evaluate the generalized inverse CDF for each distribution.
+
+        Parameters
+        ----------
+        quantiles : float or array-like
+            Probabilities in ``[0, 1]``. A scalar is applied to every
+            distribution. A one-dimensional array defines a common quantile
+            grid. A two-dimensional array with ``len(self)`` rows is evaluated
+            row-wise.
+
+        Returns
+        -------
+        ndarray
+            Predictive quantiles. Scalar and single-column row-wise inputs
+            return shape ``(n_distributions,)``; a grid of ``m`` quantiles
+            returns shape ``(n_distributions, m)``.
+
+        Raises
+        ------
+        ValueError
+            If any quantile is non-finite or outside ``[0, 1]``, or the input is
+            not a scalar, a one-dimensional grid, or a matrix with ``len(self)``
+            rows.
+
+        Notes
+        -----
+        Quantiles use the finite-sample conformal rank
+        ``ceil((n_calibration + 1) * q)``.
+        """
         quantiles, squeeze = self._rowwise_or_grid(quantiles, "quantiles")
         if np.any((quantiles < 0.0) | (quantiles > 1.0)):
             raise ValueError("quantiles must lie in [0, 1].")

@@ -99,12 +99,58 @@ class DiscreteConformalDistribution(
         self.minimum = None if minimum is None else int(minimum)
 
     def ppf(self, quantiles):
+        """Evaluate integer predictive quantiles.
+
+        Parameters
+        ----------
+        quantiles : float or array-like
+            Probabilities in ``[0, 1]``. A scalar is applied to every prediction
+            row, a one-dimensional array defines a common grid, and a matrix
+            with ``len(self)`` rows is evaluated row-wise.
+
+        Returns
+        -------
+        ndarray of int
+            Integer predictive quantiles, truncated at ``minimum`` when a lower
+            support boundary is configured. Scalar and single-column row-wise
+            inputs have shape ``(n_predictions,)``; a grid of ``m`` quantiles
+            has shape ``(n_predictions, m)``.
+
+        Raises
+        ------
+        ValueError
+            If a quantile is non-finite or outside ``[0, 1]``, or the input has
+            an unsupported shape.
+        """
         result = np.ceil(super().ppf(quantiles))
         if self.minimum is not None:
             result = np.maximum(result, self.minimum)
         return result.astype(int)
 
     def cdf(self, values):
+        """Evaluate the discrete predictive cumulative distribution functions.
+
+        Parameters
+        ----------
+        values : float or array-like
+            Values at which to evaluate the CDF. Values are floored to the
+            nearest integer support point. A scalar is applied to every
+            prediction row, a one-dimensional array defines a common grid, and
+            a matrix with ``len(self)`` rows is evaluated row-wise.
+
+        Returns
+        -------
+        ndarray
+            Cumulative probabilities in ``[0, 1]``. Scalar and single-column
+            row-wise inputs have shape ``(n_predictions,)``; a grid of ``m``
+            values has shape ``(n_predictions, m)``. Values below ``minimum``
+            receive probability zero when a lower boundary is configured.
+
+        Raises
+        ------
+        ValueError
+            If a value is non-finite or the input has an unsupported shape.
+        """
         values = np.floor(np.asarray(values, dtype=float))
         result = super().cdf(values)
         if self.minimum is None:
@@ -224,7 +270,26 @@ class CrossConformalPredictiveSystem(BaseEstimator):
         Returns
         -------
         PredictiveDistribution
-            Row-aligned continuous or discrete predictive distributions.
+            Batch containing one distribution per row of ``X``. Its ``cdf`` and
+            ``ppf`` methods accept scalar, common-grid, or row-wise inputs and
+            return NumPy arrays whose first dimension follows the order of
+            ``X``. The result also exposes ``interval``, ``sample``, and
+            ``evaluate``. Discrete systems additionally expose ``pmf`` and
+            return integer quantiles.
+
+        Raises
+        ------
+        sklearn.exceptions.NotFittedError
+            If the predictive system has not been fitted.
+        ValueError
+            If either estimator returns non-finite predictions, the dispersion
+            estimator returns a non-positive scale, or the location and scale
+            predictions have different shapes.
+
+        Notes
+        -----
+        The returned batch is positionally aligned with ``X``. Reordering one
+        without the other invalidates that correspondence.
         """
         check_is_fitted(
             self, attributes=["standardized_residuals_", "n_calibration_"]
