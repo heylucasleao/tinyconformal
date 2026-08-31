@@ -138,10 +138,10 @@ and TSCQR:
 from sklearn.ensemble import RandomForestRegressor
 
 from tinyconformal.series import (
-    ContinuousTSCPS,
+    ContinuousTimeSeriesConformalPredictiveSystem,
 )
 
-cps = ContinuousTSCPS(
+cps = ContinuousTimeSeriesConformalPredictiveSystem(
     learner=mlforecast_or_statsforecast,
     dispersion_learner=RandomForestRegressor(min_samples_leaf=5),
     horizon=14,
@@ -161,7 +161,7 @@ The scale estimator is cross-fitted on absolute rolling-origin errors using
 series identity and forecast horizon as conditional features. The returned
 distribution dictionary is keyed by the Nixtla model column, and
 each distribution is aligned row-for-row with `forecast_df`. Use
-`DiscreteTSCPS` for ordered integer/count
+`DiscreteTimeSeriesConformalPredictiveSystem` for ordered integer/count
 targets; those distributions additionally provide `pmf`.
 
 MSCP, TSCQR, and TSCPS share the optional NexCP-style temporal weighting
@@ -481,9 +481,9 @@ produce multi-step intervals with `predict_interval(h=...)`.
 
 Import these classes from `tinyconformal.series`:
 
-- `ContinuousTSCPS`: produces a complete
+- `ContinuousTimeSeriesConformalPredictiveSystem`: produces a complete
   continuous predictive distribution for every series and forecast horizon.
-- `DiscreteTSCPS`: produces complete
+- `DiscreteTimeSeriesConformalPredictiveSystem`: produces complete
   predictive distributions for ordered integer or count time-series targets and
   supports PMF evaluation.
 - `HorizonConformalDistribution`: predictive-distribution object containing the

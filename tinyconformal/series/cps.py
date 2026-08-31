@@ -739,7 +739,7 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
         return pred_df
 
 
-class ContinuousTSCPS(_TSCPS):
+class ContinuousTimeSeriesConformalPredictiveSystem(_TSCPS):
     """Continuous-target CPS for multi-step Nixtla panel forecasts.
 
     This convenience class configures the internal CPS implementation with
@@ -809,7 +809,7 @@ class ContinuousTSCPS(_TSCPS):
         )
 
 
-class DiscreteTSCPS(_TSCPS):
+class DiscreteTimeSeriesConformalPredictiveSystem(_TSCPS):
     """Integer-target CPS for multi-step Nixtla panel forecasts.
 
     This convenience class validates integer training targets and constructs

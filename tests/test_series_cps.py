@@ -7,8 +7,8 @@ from sklearn.dummy import DummyRegressor
 
 from tinyconformal.distribution.cross import ContinuousConformalDistribution
 from tinyconformal.series import (
-    ContinuousTSCPS,
-    DiscreteTSCPS,
+    ContinuousTimeSeriesConformalPredictiveSystem,
+    DiscreteTimeSeriesConformalPredictiveSystem,
 )
 from tinyconformal.series.cps import HorizonConformalDistribution
 
@@ -53,7 +53,7 @@ def dispersion_learner():
 def test_series_cps_uses_sequential_backtesting_and_horizon_residuals(
     nixtla_learner, dispersion_learner, panel
 ):
-    cps = ContinuousTSCPS(
+    cps = ContinuousTimeSeriesConformalPredictiveSystem(
         nixtla_learner, dispersion_learner, horizon=2, n_windows=2
     )
     cps.fit(panel, n_jobs=1)
@@ -103,7 +103,7 @@ def test_horizon_distribution_supports_temporal_decay_weights():
 def test_series_cps_distributions_are_calibrated_by_unique_id(
     nixtla_learner, dispersion_learner, panel
 ):
-    cps = ContinuousTSCPS(
+    cps = ContinuousTimeSeriesConformalPredictiveSystem(
         nixtla_learner, dispersion_learner, horizon=2, n_windows=2
     ).fit(panel, n_jobs=1)
     cps.ncscores_["Model"] = {
@@ -125,7 +125,7 @@ def test_series_cps_distributions_are_calibrated_by_unique_id(
 def test_series_cps_quantiles_intervals_and_evaluation(
     nixtla_learner, dispersion_learner, panel
 ):
-    cps = ContinuousTSCPS(
+    cps = ContinuousTimeSeriesConformalPredictiveSystem(
         nixtla_learner, dispersion_learner, horizon=2, n_windows=2, alpha=0.1
     ).fit(panel, n_jobs=1)
 
@@ -147,7 +147,7 @@ def test_series_cps_quantiles_intervals_and_evaluation(
 def test_discrete_series_cps_supports_pmf_and_integer_quantiles(
     nixtla_learner, dispersion_learner, panel
 ):
-    cps = DiscreteTSCPS(
+    cps = DiscreteTimeSeriesConformalPredictiveSystem(
         nixtla_learner, dispersion_learner, horizon=2, n_windows=2
     ).fit(panel, n_jobs=1)
 
@@ -162,7 +162,7 @@ def test_discrete_series_cps_rejects_noninteger_target(
     nixtla_learner, dispersion_learner, panel
 ):
     panel.loc[0, "y"] = 0.5
-    cps = DiscreteTSCPS(
+    cps = DiscreteTimeSeriesConformalPredictiveSystem(
         nixtla_learner, dispersion_learner, horizon=2, n_windows=2
     )
     with pytest.raises(ValueError, match="finite integers"):
