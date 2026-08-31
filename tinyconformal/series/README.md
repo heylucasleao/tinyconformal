@@ -71,3 +71,50 @@ the original panel grid. The discrete system has the same workflow and adds
 Set `nexcp=True` to apply exponential recency weights controlled by `decay`.
 When `weighted_refit=True`, compatible forecasting and dispersion learners also
 receive those weights during refitting.
+
+## CPS retraining flow
+
+Calling `fit` performs calibration and final refitting in one operation. Each
+rolling-origin window fits a temporary clone of the forecasting learner on the
+history available at that origin and forecasts the next `horizon` steps. These
+window models are used only to collect out-of-sample residuals; they are not
+retained for future prediction.
+
+The dispersion learner is cross-fitted by leaving out one complete calibration
+window at a time. Its held-out scale estimates standardize the residuals without
+using the same window for fitting and scoring. After calibration, one final
+dispersion model is fitted on all calibration windows, and the forecasting
+learner is fitted once on the complete training panel.
+
+```text
+fit(train_df)
+|
++-- rolling-origin calibration
+|   |
+|   +-- window 1: fit forecaster clone -> forecast -> residuals
+|   +-- window 2: fit forecaster clone -> forecast -> residuals
+|   +-- ...
+|   +-- window N: fit forecaster clone -> forecast -> residuals
+|
++-- conditional scale calibration
+|   |
+|   +-- leave one window out -> held-out scales
+|   +-- standardize residuals by series and horizon
+|   +-- refit final dispersion model on all windows
+|
++-- refit forecasting learner on the complete training panel
+|
+`-- fitted CPS
+    |
+    `-- predict_distribution(h, X_df)
+        +-- point forecast from the final forecasting learner
+        +-- scale from the final dispersion model
+        `-- calibrated distribution from stored standardized residuals
+```
+
+`predict_distribution` does not refit either learner. When new observations
+must become part of the training or calibration data, call `fit` again with the
+updated panel; this reruns the complete flow above. With `nexcp=True`, recency
+weights affect the stored calibration distribution. With both `nexcp=True` and
+`weighted_refit=True`, compatible learners also receive recency weights in the
+calibration-window fits and the final fits.
