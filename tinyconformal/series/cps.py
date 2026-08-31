@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 
 import numpy as np
@@ -303,8 +304,8 @@ class DiscreteHorizonConformalDistribution(
         below = values < self.minimum
         if values.ndim == 0:
             return np.zeros_like(result) if bool(below) else result
-        if values.ndim == 1 and values.size == len(self):
-            return np.where(below, 0.0, result)
+        if result.ndim == 1:
+            return np.where(np.ravel(below), 0.0, result)
         return np.where(np.broadcast_to(below, np.shape(result)), 0.0, result)
 
 
@@ -334,12 +335,7 @@ class _PanelConformalForecast:
 
     def _apply(self, method: str, inputs, prefix: str) -> pd.DataFrame:
         inputs_array = np.asarray(inputs)
-        evaluated_inputs = inputs
-        if isinstance(inputs, (list, tuple)) and inputs_array.ndim == 1:
-            evaluated_inputs = np.broadcast_to(
-                inputs_array, (len(self), inputs_array.size)
-            )
-        values = np.asarray(getattr(self._distribution, method)(evaluated_inputs))
+        values = np.asarray(getattr(self._distribution, method)(inputs))
         result = self._output_frame()
         if values.ndim == 1:
             if inputs_array.ndim == 0:
@@ -368,7 +364,7 @@ class _PanelConformalForecast:
             old = f"{self.model}-q-{self._label(quantiles_array)}"
             new = f"{self.model}-q-{self._label(100.0 * quantiles_array)}"
             return result.rename(columns={old: new})
-        if quantiles_array.ndim == 1 and quantiles_array.size != len(self):
+        if quantiles_array.ndim == 1:
             return result.rename(
                 columns={
                     f"{self.model}-q-{self._label(q)}":
@@ -437,8 +433,8 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
         Number of backtesting windows.  Each series contributes one residual
         trajectory per window.
     alpha : float, default=0.05
-        Default significance level used by ``predict_interval`` and ``evaluate``.
-        It does not restrict the quantiles available from the fitted CPS.
+        Default significance level used by ``evaluate``. It does not restrict
+        the intervals or quantiles available from the fitted CPS.
     nexcp : bool, default=False
         Whether to weight calibration windows by exponential recency decay.
     decay : float, default=0.99
@@ -824,49 +820,65 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
             pred_df, distribution, model, self.id_col, self.time_col
         )
 
-    @requires_extra("series")
-    def predict_quantiles(
-        self,
-        quantiles,
-        h: int | None = None,
-        X_df: pd.DataFrame | None = None,
-    ) -> pd.DataFrame:
-        """Return arbitrary CPS quantiles in a Nixtla long-format DataFrame."""
-        quantiles = np.asarray(quantiles, dtype=float)
-        if quantiles.ndim == 0:
-            quantiles = quantiles.reshape(1)
-        if quantiles.ndim != 1 or quantiles.size == 0:
-            raise ValueError("quantiles must be a non-empty scalar or 1D sequence.")
-        if not np.all(np.isfinite(quantiles)) or np.any(
-            (quantiles < 0.0) | (quantiles > 1.0)
-        ):
-            raise ValueError("quantiles must contain finite values in [0, 1].")
-
-        forecast = self.predict_distribution(h=h, X_df=X_df)
-        quantile_matrix = np.broadcast_to(
-            quantiles, (len(forecast), quantiles.size)
+    @property
+    def predict_interval(self):
+        """Intervals are available from the predictive forecast object."""
+        raise AttributeError(
+            "TSCPS does not expose predict_interval; call "
+            "predict_distribution(...).interval(coverage) instead."
         )
-        values = forecast._distribution.ppf(quantile_matrix)
-        result = forecast.to_frame()
-        for index, quantile in enumerate(quantiles):
-            label = np.format_float_positional(
-                quantile * 100.0, precision=12, trim="-"
-            )
-            result[f"{forecast.model}-q-{label}"] = values[:, index]
-        return result
 
     @requires_extra("series")
-    def predict_interval(
+    def evaluate(
         self,
+        df_test: pd.DataFrame,
         h: int | None = None,
-        X_df: pd.DataFrame | None = None,
         alpha: float | None = None,
     ) -> pd.DataFrame:
-        """Return equal-tailed CPS intervals in the MSCP column convention."""
+        """Evaluate an interval obtained from the predictive forecast object."""
         alpha = self._get_alpha(alpha)
-        forecast = self.predict_distribution(h=h, X_df=X_df)
-        return forecast.interval(1.0 - alpha)
+        forecast = self.predict_distribution(
+            h=h, X_df=self._prediction_features(df_test)
+        )
+        eval_df = self._merge_predictions_with_targets(
+            forecast.interval(1.0 - alpha), df_test
+        )
 
+        y_true = eval_df[self.target_col].to_numpy()
+        bound_pattern = re.compile(r"^(?P<model>.+)-lo-(?P<level>\d+(?:\.\d+)?)$")
+        records = []
+        for column in eval_df.columns:
+            match = bound_pattern.match(column)
+            if not match:
+                continue
+            model = match.group("model")
+            level = match.group("level")
+            high_column = f"{model}-hi-{level}"
+            if high_column not in eval_df.columns:
+                continue
+            lower = eval_df[column].to_numpy()
+            upper = eval_df[high_column].to_numpy()
+            records.append(
+                {
+                    "model": model,
+                    "level": f"{level}%",
+                    "alpha": alpha,
+                    "coverage_rate": np.round(
+                        self._coverage_rate(y_true, lower, upper), 3
+                    ),
+                    "interval_width_mean": np.round(
+                        self._interval_width_mean(lower, upper), 3
+                    ),
+                    "mwis": np.round(
+                        self._mwi_score(y_true, lower, upper, alpha), 3
+                    ),
+                }
+            )
+        return (
+            pd.DataFrame(records)
+            .sort_values(by=["model", "level"])
+            .reset_index(drop=True)
+        )
 
 class ContinuousTimeSeriesConformalPredictiveSystem(_TSCPS):
     """Continuous-target CPS for multi-step Nixtla panel forecasts.
@@ -886,7 +898,7 @@ class ContinuousTimeSeriesConformalPredictiveSystem(_TSCPS):
     n_windows : int, default=10
         Number of sequential backtesting windows.
     alpha : float, default=0.05
-        Default significance level for interval prediction and evaluation.
+        Default significance level for evaluation.
     nexcp : bool, default=False
         Whether to weight calibration windows by exponential recency decay.
     decay : float, default=0.99
@@ -956,7 +968,7 @@ class DiscreteTimeSeriesConformalPredictiveSystem(_TSCPS):
     n_windows : int, default=10
         Number of sequential backtesting windows.
     alpha : float, default=0.05
-        Default significance level for interval prediction and evaluation.
+        Default significance level for evaluation.
     nexcp : bool, default=False
         Whether to weight calibration windows by exponential recency decay.
     decay : float, default=0.99

@@ -163,8 +163,8 @@ cps.fit(train_df, step_size=14, static_features=["store_type"])
 forecast = cps.predict_distribution(h=14, X_df=future_exog)
 median_df = forecast.ppf(0.5)
 probability_df = forecast.cdf(values)
-quantile_df = cps.predict_quantiles([0.1, 0.5, 0.9], h=14, X_df=future_exog)
-interval_df = cps.predict_interval(h=14, X_df=future_exog, alpha=0.1)
+quantile_df = forecast.ppf([0.1, 0.5, 0.9])
+interval_df = forecast.interval(coverage=0.9)
 ```
 
 The scale estimator is cross-fitted on absolute rolling-origin errors using
@@ -490,8 +490,8 @@ Import these classes from `tinyconformal.series`:
   predictive distributions for ordered integer or count time-series targets and
   supports PMF evaluation.
 The time-series CPS classes use rolling-origin calibration with
-`fit(df, step_size=...)`. They expose `predict_distribution`, `predict_quantiles`,
-and `predict_interval` for multi-step forecasts.
+`fit(df, step_size=...)`. TSCPS exposes `predict_distribution` for multi-step
+forecasts; the returned object provides quantiles, intervals, CDFs, and samples.
 
 ## License
 

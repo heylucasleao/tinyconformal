@@ -401,7 +401,7 @@ class NewsvendorSolver:
                 )
 
         q_star = _compute_critical_quantile(cu=cu_arr, co=co_arr)
-        y_final = np.asarray(distribution.ppf(q_star), dtype=float)
+        y_final = np.asarray(distribution.ppf(q_star[:, None]), dtype=float)
         if y_final.shape != (n_rows,):
             raise ValueError(
                 "distribution.ppf(row_wise_quantiles) must return one value per row."
@@ -440,10 +440,7 @@ class NewsvendorSolver:
         unit_grid = _resolve_unit_grid(max_k=max_k, units=units)
         _validate_column_template(column_template)
 
-        # Always use a matrix to avoid the row-wise/grid ambiguity when both
-        # dimensions happen to have the same length.
-        values = np.broadcast_to(unit_grid, (n_rows, unit_grid.size))
-        pmf_matrix = np.asarray(distribution.pmf(values), dtype=float)
+        pmf_matrix = np.asarray(distribution.pmf(unit_grid), dtype=float)
         expected_shape = (n_rows, unit_grid.size)
         if pmf_matrix.shape != expected_shape:
             raise ValueError(

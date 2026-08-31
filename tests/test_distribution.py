@@ -44,7 +44,9 @@ def test_continuous_cps_cdf_ppf_interval_and_sample():
     cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
     distribution = cps.predict_distribution(np.array([[20], [21]]))
 
-    np.testing.assert_allclose(distribution.cdf([10, 11]), [0.5, 2 / 3])
+    np.testing.assert_allclose(
+        distribution.cdf(np.array([[10], [11]])), [0.5, 2 / 3]
+    )
     np.testing.assert_allclose(distribution.ppf(0.5), [10, 10])
     assert distribution.ppf([0.25, 0.50, 0.75]).shape == (2, 3)
     assert distribution.interval(0.8).shape == (2, 2)
@@ -66,7 +68,7 @@ def test_discrete_cps_has_integer_nonnegative_support_and_pmf():
     assert np.issubdtype(quantiles.dtype, np.integer)
     assert np.all(quantiles >= 0)
     masses = distribution.pmf(np.array([0, 1]))
-    assert masses.shape == (2,)
+    assert masses.shape == (2, 2)
     assert np.all(masses >= 0)
     np.testing.assert_array_equal(distribution.cdf(-1), [0.0, 0.0])
 
@@ -102,7 +104,7 @@ def test_newsvendor_uses_distribution_ppf_row_wise():
 
     np.testing.assert_allclose(result["critical_ratio"], [0.5, 0.9])
     np.testing.assert_allclose(
-        result["y_optimal"], distribution.ppf(np.array([0.5, 0.9]))
+        result["y_optimal"], distribution.ppf(np.array([[0.5], [0.9]]))
     )
 
 

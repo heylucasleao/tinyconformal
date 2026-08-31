@@ -12,8 +12,9 @@ class PredictiveDistribution(ABC):
     """A batch of one-dimensional predictive distributions.
 
     Implementations contain one predictive distribution for each input row. Scalar
-    arguments are applied to every row; one-dimensional arguments with ``len(self)``
-    are interpreted row-wise.
+    arguments are applied to every row; one-dimensional arguments define a common
+    evaluation grid. Two-dimensional arguments with ``len(self)`` rows are
+    interpreted row-wise.
     """
 
     @abstractmethod
@@ -106,14 +107,12 @@ class EmpiricalResidualDistribution(PredictiveDistribution):
         if array.ndim == 0:
             return np.full((len(self), 1), float(array)), True
         if array.ndim == 1:
-            if array.size == len(self):
-                return array[:, None], True
             return np.broadcast_to(array[None, :], (len(self), array.size)), False
         if array.ndim == 2 and array.shape[0] == len(self):
-            return array, False
+            return array, array.shape[1] == 1
         raise ValueError(
-            f"{name} must be a scalar, a one-dimensional grid, a row-wise vector "
-            f"of length {len(self)}, or a matrix with {len(self)} rows."
+            f"{name} must be a scalar, a one-dimensional grid, or a matrix with "
+            f"{len(self)} rows."
         )
 
     @abstractmethod

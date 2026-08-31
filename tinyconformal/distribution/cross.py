@@ -112,8 +112,8 @@ class DiscreteConformalDistribution(
         below = values < self.minimum
         if np.ndim(values) == 0:
             return np.zeros_like(result) if bool(below) else result
-        if values.ndim == 1 and values.size == len(self):
-            return np.where(below, 0.0, result)
+        if result.ndim == 1:
+            return np.where(np.ravel(below), 0.0, result)
         return np.where(np.broadcast_to(below, np.shape(result)), 0.0, result)
 
 
@@ -245,23 +245,6 @@ class CrossConformalPredictiveSystem(BaseEstimator):
         return ContinuousConformalDistribution(
             locations, self.standardized_residuals_, scales=scales
         )
-
-    def predict_interval(self, X, coverage: float = 0.95) -> np.ndarray:
-        """Return equal-tailed intervals from the predictive distributions.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Features for which intervals are requested.
-        coverage : float, default=0.95
-            Desired central coverage strictly between zero and one.
-
-        Returns
-        -------
-        ndarray of shape (n_samples, 2)
-            Lower and upper predictive bounds.
-        """
-        return self.predict_distribution(X).interval(coverage)
 
 class ContinuousCrossConformalPredictiveSystem(CrossConformalPredictiveSystem):
     """Cross-fitted predictive system for continuous targets.

@@ -59,8 +59,8 @@ cps = ContinuousTimeSeriesConformalPredictiveSystem(
 forecast = cps.predict_distribution(h=14, X_df=future_exog)
 median = forecast.ppf(0.5)
 probabilities = forecast.cdf(values)
-quantiles = cps.predict_quantiles([0.1, 0.5, 0.9], h=14, X_df=future_exog)
-intervals = cps.predict_interval(h=14, X_df=future_exog)
+quantiles = forecast.ppf([0.1, 0.5, 0.9])
+intervals = forecast.interval(coverage=0.95)
 ```
 
 TSCPS accepts a Nixtla learner configured with exactly one forecast model. Its

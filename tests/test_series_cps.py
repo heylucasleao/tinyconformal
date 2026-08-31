@@ -145,12 +145,15 @@ def test_series_cps_quantiles_intervals_and_evaluation(
         nixtla_learner, dispersion_learner, horizon=2, n_windows=2, alpha=0.1
     ).fit(panel, n_jobs=1)
 
-    quantiles = cps.predict_quantiles([0.1, 0.25, 0.5, 0.9], h=2)
+    forecast = cps.predict_distribution(h=2)
+    assert not hasattr(cps, "predict_quantiles")
+    assert not hasattr(cps, "predict_interval")
+    quantiles = forecast.ppf([0.1, 0.25, 0.5, 0.9])
     assert {"Model-q-10", "Model-q-25", "Model-q-50", "Model-q-90"} <= set(
         quantiles
     )
 
-    intervals = cps.predict_interval(h=2)
+    intervals = forecast.interval(0.9)
     assert {"Model-lo-90", "Model-hi-90"} <= set(intervals)
 
     test = intervals[["unique_id", "ds"]].copy()
@@ -159,9 +162,10 @@ def test_series_cps_quantiles_intervals_and_evaluation(
     assert evaluation.loc[0, "model"] == "Model"
     assert evaluation.loc[0, "level"] == "90%"
 
-    forecast = cps.predict_distribution(h=2)
     direct_quantiles = forecast.ppf([0.1, 0.5, 0.9])
-    direct_cdf = forecast.cdf(forecast.to_frame()["Model"].to_numpy())
+    direct_cdf = forecast.cdf(
+        forecast.to_frame()["Model"].to_numpy()[:, None]
+    )
     assert {"Model-q-10", "Model-q-50", "Model-q-90"} <= set(direct_quantiles)
     assert "Model-cdf" in direct_cdf
 
@@ -176,10 +180,10 @@ def test_discrete_series_cps_supports_pmf_and_integer_quantiles(
     forecast = cps.predict_distribution(h=2)
     median = forecast.ppf(0.5)
     lower = forecast.ppf(0.01)
-    masses = forecast.pmf(np.array([10, 11, 10, 11]))
+    masses = forecast.pmf(np.array([10, 11]))
     assert np.issubdtype(median["Model-q-50"].dtype, np.integer)
     assert np.all(lower["Model-q-1"] >= 0)
-    assert np.all(masses["Model-pmf"] >= 0)
+    assert np.all(masses[["Model-pmf-10", "Model-pmf-11"]] >= 0)
 
 
 def test_discrete_series_cps_rejects_noninteger_target(
