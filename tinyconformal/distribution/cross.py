@@ -162,6 +162,31 @@ class DiscreteConformalDistribution(
             return np.where(np.ravel(below), 0.0, result)
         return np.where(np.broadcast_to(below, np.shape(result)), 0.0, result)
 
+    def pmf(self, values) -> np.ndarray:
+        """Evaluate probability masses at integer support values.
+
+        Parameters
+        ----------
+        values : int or array-like of int
+            Support values at which to evaluate the PMF. A scalar is applied to
+            every prediction row, a one-dimensional array defines a common
+            grid, and a matrix with ``len(self)`` rows is evaluated row-wise.
+
+        Returns
+        -------
+        ndarray
+            Probability masses computed as ``CDF(k) - CDF(k - 1)``. Scalar and
+            single-column row-wise inputs have shape ``(n_predictions,)``; a
+            grid of ``m`` values has shape ``(n_predictions, m)``.
+
+        Raises
+        ------
+        ValueError
+            If any support value is non-finite or non-integer, or the input has
+            an unsupported shape.
+        """
+        return super().pmf(values)
+
 
 class CrossConformalPredictiveSystem(BaseEstimator):
     """Build locally scaled predictive distributions from cross-fitted scores.
@@ -372,3 +397,13 @@ class DiscreteCrossConformalPredictiveSystem(CrossConformalPredictiveSystem):
             discrete=True,
             minimum=minimum,
         )
+
+    def predict_distribution(self, X) -> DiscreteConformalDistribution:
+        """Return one discrete predictive distribution per row of ``X``.
+
+        The returned object exposes :meth:`cdf`, :meth:`ppf`, :meth:`pmf`,
+        :meth:`interval`, :meth:`sample`, and :meth:`evaluate`. See
+        :meth:`CrossConformalPredictiveSystem.predict_distribution` for the
+        complete input, output, and error contract.
+        """
+        return super().predict_distribution(X)

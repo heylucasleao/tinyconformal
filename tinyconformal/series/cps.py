@@ -1162,3 +1162,17 @@ class DiscreteTimeSeriesConformalPredictiveSystem(_TSCPS):
             time_col=time_col,
             target_col=target_col,
         )
+
+    def predict_distribution(
+        self,
+        h: int | None = None,
+        X_df: pd.DataFrame | None = None,
+    ) -> _DiscretePanelConformalForecast:
+        """Return a discrete predictive forecast on the Nixtla panel grid.
+
+        The returned object exposes :meth:`cdf`, :meth:`ppf`, :meth:`pmf`,
+        :meth:`interval`, :meth:`sample`, :meth:`evaluate`, and
+        :meth:`to_frame`. See :meth:`_TSCPS.predict_distribution` for the
+        complete input, output, and error contract.
+        """
+        return super().predict_distribution(h=h, X_df=X_df)
