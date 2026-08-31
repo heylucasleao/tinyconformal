@@ -13,6 +13,64 @@ def validate_calibration_values(values, name: str) -> np.ndarray:
     return values
 
 
+def validate_probabilities(probabilities, name: str = "probabilities") -> np.ndarray:
+    """Return a finite two-dimensional probability matrix."""
+    probabilities = np.asarray(probabilities, dtype=float)
+    if probabilities.ndim != 2 or probabilities.shape[0] == 0:
+        raise ValueError(f"{name} must be a non-empty two-dimensional array.")
+    if not np.all(np.isfinite(probabilities)):
+        raise ValueError(f"{name} must contain only finite values.")
+    if np.any((probabilities < 0.0) | (probabilities > 1.0)):
+        raise ValueError(f"{name} must contain values in [0, 1].")
+    return probabilities
+
+
+def class_indices(labels, classes) -> np.ndarray:
+    """Map arbitrary class labels to their probability-column positions."""
+    labels = np.asarray(labels)
+    classes = np.asarray(classes)
+    mapping = {label: index for index, label in enumerate(classes)}
+    unknown = sorted(set(labels) - set(mapping), key=str)
+    if unknown:
+        raise ValueError(f"Unknown class labels: {unknown}")
+    return np.asarray([mapping[label] for label in labels], dtype=int)
+
+
+def probability_scores(probabilities) -> np.ndarray:
+    """Return classification nonconformity scores ``1 - probability``."""
+    return 1.0 - validate_probabilities(probabilities)
+
+
+def true_class_probability_scores(probabilities, labels, classes) -> np.ndarray:
+    """Return one probability nonconformity score for each observed label."""
+    probabilities = validate_probabilities(probabilities)
+    indices = class_indices(labels, classes)
+    if probabilities.shape[0] != indices.size:
+        raise ValueError("probabilities and labels must have the same number of rows.")
+    return probability_scores(probabilities)[np.arange(indices.size), indices]
+
+
+def threshold_prediction_set(scores, thresholds) -> np.ndarray:
+    """Include classes whose nonconformity score does not exceed its threshold."""
+    return (np.asarray(scores) <= np.asarray(thresholds)).astype(int)
+
+
+def conformal_p_values(calibration_scores, test_scores) -> np.ndarray:
+    """Compute smoothed conformal p-values for a matrix of test scores."""
+    calibration_scores = validate_calibration_values(
+        calibration_scores, "calibration_scores"
+    )
+    test_scores = np.asarray(test_scores, dtype=float)
+    if not np.all(np.isfinite(test_scores)):
+        raise ValueError("test_scores must contain only finite values.")
+    counts = np.sum(
+        calibration_scores.reshape((-1,) + (1,) * test_scores.ndim)
+        >= test_scores,
+        axis=0,
+    )
+    return (counts + 1.0) / (calibration_scores.size + 1.0)
+
+
 def absolute_residual_scores(y_true, y_pred) -> np.ndarray:
     """Return the symmetric ICP nonconformity score ``|y - y_hat|``."""
     return np.abs(np.asarray(y_true) - np.asarray(y_pred))

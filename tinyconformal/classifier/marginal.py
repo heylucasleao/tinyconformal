@@ -3,16 +3,16 @@
 # Licensed under the MIT License
 
 
-import warnings
-
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
 
+from tinyconformal.utils.conformal import (
+    conformal_p_values,
+    threshold_prediction_set,
+)
 from tinyconformal.utils.quantiles import conformal_quantile_level
 
 from .base import BaseConformalClassifier
-
-warnings.filterwarnings("ignore", category=RuntimeWarning, module="venn_abers")
 
 
 class BinaryMarginalConformalClassifier(
@@ -53,53 +53,6 @@ class BinaryMarginalConformalClassifier(
 
         super().__init__(learner, alpha)
 
-    def unlabeled_fit(
-        self,
-        X=None,
-        beta=None,
-    ):
-        """Fits the class-conditional conformal layer using unlabeled data via
-        pseudo-labels (Flechsig & Pilz, 2025).
-
-        Standard CP guarantees coverage >= 1 - alpha using labeled data.
-        With unlabeled data, the model exactness error (beta) degrades the bound:
-        Coverage >= 1 - alpha - beta
-
-        Parameters:
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Unlabeled calibration features.
-        beta : float, optional (default=None)
-            Base model error rate (1 - accuracy). Used to adjust the expected
-            theoretical coverage bound (1 - alpha - beta).
-
-        Returns:
-        -------
-        self : object
-            The fitted classifier.
-        """
-        if X is None:
-            raise ValueError("Unlabeled calibration data (X) must be provided.")
-
-        if beta is None:
-            warnings.warn(
-                "The parameter 'beta' (base model error rate, 1 - accuracy) was not provided. "
-                "Without 'beta', the nominal target coverage (1 - alpha) will not hold, "
-                "and the actual lower coverage bound (1 - alpha - beta) cannot be interpreted correctly. "
-                "Consider estimating accuracy beforehand, e.g., via: "
-                "`beta = 1 - cross_val_score(learner, X_train, y_train, cv=5, scoring='accuracy', n_jobs=-1).mean()`",
-                UserWarning,
-                stacklevel=2,
-            )
-
-        self.beta = beta
-        self.is_unlabeled = True
-        y_prob = self.learner.predict_proba(X)
-        self.hinge = 1.0 - np.max(y_prob, axis=1)
-        self.n = len(X)
-
-        return self
-
     def fit(self, X=None, y=None, oob=False):
         """
         Fits the classifier to the training data. Calculates the conformity score for each training instance.
@@ -128,9 +81,6 @@ class BinaryMarginalConformalClassifier(
         if y is None:
             raise ValueError("The true labels (y) must be provided.")
 
-        self.is_unlabeled = False
-        self.beta = None
-
         if oob:
             if (
                 not hasattr(self.learner, "oob_decision_function_")
@@ -155,16 +105,11 @@ class BinaryMarginalConformalClassifier(
             # Use predict_proba for training data
             self.decision_function_ = self.learner.predict_proba(X)
 
-        self.calibration_layer.fit(self.decision_function_, y)
+        return self.fit_from_probabilities(self.decision_function_, y)
 
-        y_prob, _ = self.calibration_layer.predict_proba(self.decision_function_)
-
-        y_prob = y_prob[np.arange(len(y)), y]
-
-        self.hinge = self.generate_non_conformity_score(y_prob)
-        self.n = len(y)
-
-        return self
+    def _store_calibration_scores(self, scores, labels):
+        self.hinge = np.asarray(scores, dtype=float)
+        self.n = self.hinge.size
 
     def _compute_qhat(self, ncscore, q_level):
         """
@@ -188,7 +133,7 @@ class BinaryMarginalConformalClassifier(
         """
         Compute a predict set based on the given ncscore and qhat.
         """
-        return (ncscore <= qhat).astype(int)
+        return threshold_prediction_set(ncscore, qhat)
 
     def predict_set(self, X, alpha=None):
         """
@@ -231,12 +176,4 @@ class BinaryMarginalConformalClassifier(
         """
         y_prob = self.predict_proba(X)
         ncscore = self.generate_non_conformity_score(y_prob)
-        p_values = np.zeros_like(ncscore)
-
-        for i in range(ncscore.shape[0]):
-            for j in range(ncscore.shape[1]):
-                numerator = np.sum(self.hinge >= ncscore[i][j]) + 1
-                denumerator = self.n + 1
-                p_values[i, j] = numerator / denumerator
-
-        return p_values
+        return conformal_p_values(self.hinge, ncscore)

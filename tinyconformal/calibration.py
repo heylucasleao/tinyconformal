@@ -1,4 +1,4 @@
-"""Cross-validated calibration data for conformal regression methods."""
+"""Cross-validated inputs for conformal calibration."""
 
 import numpy as np
 from sklearn.base import BaseEstimator
@@ -27,9 +27,13 @@ class CrossValidationCalibration:
         *,
         cv=5,
         n_jobs: int | None = None,
+        method: str = "predict",
     ) -> np.ndarray:
         predictions = np.asarray(
-            cross_val_predict(learner, X, y, cv=cv, n_jobs=n_jobs), dtype=float
+            cross_val_predict(
+                learner, X, y, cv=cv, n_jobs=n_jobs, method=method
+            ),
+            dtype=float,
         )
         if predictions.size == 0 or not np.all(np.isfinite(predictions)):
             raise ValueError("Cross-validation predictions must be non-empty and finite.")
@@ -67,3 +71,17 @@ class CrossValidationCalibration:
         if predictions.ndim != 1:
             raise ValueError("CPS cross-validation predictions must be one-dimensional.")
         return np.asarray(y, dtype=float) - predictions
+
+    @classmethod
+    def classification_probabilities(
+        cls, learner: BaseEstimator, X, y, *, cv=5, n_jobs: int | None = None
+    ) -> np.ndarray:
+        """Return OOF class probabilities for conformal classification."""
+        probabilities = cls._predictions(
+            learner, X, y, cv=cv, n_jobs=n_jobs, method="predict_proba"
+        )
+        if probabilities.ndim != 2 or probabilities.shape[1] != 2:
+            raise ValueError(
+                "Classification cross-validation must produce two probability columns."
+            )
+        return probabilities

@@ -14,7 +14,7 @@ For more information on a previous project related to Out-of-Bag (OOB) solutions
 ## Recent updates
 - Added out-of-fold regression calibration through `CrossValidationCalibration`.
 - Added `fit_from_scores` for ICP/CQR and `fit_from_residuals` for CPS.
-- Classifiers can now be calibrated from unlabeled data using pseudo-labels derived from model predictions, while regressors can use a pre-estimated exactness bound to build the conformity scores.
+- Classifiers and regressors can now reuse out-of-fold cross-validation outputs for conformal calibration without reserving a separate calibration split.
 - Added `tinyconformal.series` support with `ConformalDistributionTimeSeriesRegressor` and `ConformalQuantileTimeSeriesRegressor` for multi-step time series interval forecasting with customizable backtesting strides (`step_size`).
 - Added support for Conformalized Quantile Regression (CQR) on multi-step time series using base estimators producing quantile forecasts.
 
@@ -159,6 +159,9 @@ Runnable distribution examples are organized in `examples/distribution/`:
 They cover CDF, PMF where applicable, PPF, arbitrary quantiles, empirical
 coverage, and Newsvendor optimization.
 
+The complete OOF workflow for ICP, CQR, CPS, and both binary classification
+strategies is available in `examples/calibration/cross_validation.ipynb`.
+
 ### Classifier submodule
 
 Import from `tinyconformal.classifier`:
@@ -207,23 +210,24 @@ X_test = ...  # your test data
 predictions = conformal_classifier.predict(X_test)
 ```
 
-### Unlabeled calibration example
+### Cross-validation calibration example
 
-For settings where labeled calibration data are unavailable, you can fit the conformal model directly on unlabeled data:
+Use out-of-fold probabilities to calibrate a classifier without reserving a
+separate calibration split:
 
 ```python
 from sklearn.ensemble import RandomForestClassifier
+from tinyconformal.calibration import CrossValidationCalibration
 from tinyconformal.classifier import BinaryMarginalConformalClassifier
-from sklearn.model_selection import cross_val_score
 
 learner = RandomForestClassifier(n_estimators=100, oob_score=True)
+probabilities = CrossValidationCalibration.classification_probabilities(
+    learner, X_train, y_train, cv=5
+)
 learner.fit(X_train, y_train)
 
-score = cross_val_score(rf, X_train, y_train, cv=5, scoring='accuracy', n_jobs=-1)
-beta = round(np.mean(1 - score), 3)
-
 conformal_classifier = BinaryMarginalConformalClassifier(learner)
-conformal_classifier.unlabeled_fit(X_unlabeled, beta)
+conformal_classifier.fit_from_probabilities(probabilities, y_train)
 
 predictions = conformal_classifier.predict(X_test)
 ```
@@ -415,9 +419,9 @@ Import these classes from `tinyconformal.classifier`:
 - `BinaryClassConditionalConformalClassifier`: constructs binary prediction sets
   with coverage calibrated separately for each class.
 
-Both classifiers support labeled calibration with `fit(X, y)`, OOB calibration
-with `fit(y=y_train, oob=True)`, and unlabeled calibration with
-`unlabeled_fit(X, beta=...)`.
+Both classifiers support split calibration with `fit(X, y)`, OOB calibration
+with `fit(y=y_train, oob=True)`, and precomputed OOF calibration with
+`fit_from_probabilities(probabilities, y)`.
 
 ### Distribution
 
