@@ -367,7 +367,77 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
             ]
         )
 
+    def _prepare_scale_calibration(self, scores_by_id):
+        """Align one model's residuals as ``(window, series, horizon)``."""
+        series_ids = list(scores_by_id)
+        features = self._scale_features(series_ids)
+        residuals = np.stack([scores_by_id[sid] for sid in series_ids], axis=1)
+        return series_ids, features, residuals
+
+    @staticmethod
+    def _scale_targets(residuals: np.ndarray) -> np.ndarray:
+        """Return positive absolute-error targets for the dispersion learner."""
+        return np.maximum(np.abs(residuals).reshape(-1), 1e-6)
+
+    def _fit_oof_scales(
+        self,
+        residuals: np.ndarray,
+        features: pd.DataFrame,
+        n_series: int,
+    ) -> np.ndarray:
+        """Predict each window's scales with a model fitted on all other windows."""
+        oof_scales = np.empty_like(residuals, dtype=float)
+        for window in range(self.n_windows):
+            train_residuals = np.delete(residuals, window, axis=0)
+            train_features = pd.concat(
+                [features] * len(train_residuals), ignore_index=True
+            )
+            scale_model = self._new_dispersion_pipeline().fit(
+                train_features, self._scale_targets(train_residuals)
+            )
+            oof_scales[window] = np.asarray(
+                scale_model.predict(features), dtype=float
+            ).reshape(n_series, self.horizon)
+        return oof_scales
+
+    @staticmethod
+    def _validate_scale_predictions(scales: np.ndarray) -> None:
+        """Reject scale predictions that cannot normalize residuals safely."""
+        if not np.all(np.isfinite(scales)) or np.any(scales <= 0.0):
+            raise ValueError(
+                "Dispersion learner predictions must be positive and finite."
+            )
+
+    @staticmethod
+    def _matrices_by_series(values: np.ndarray, series_ids) -> dict:
+        """Convert a ``(window, series, horizon)`` tensor to keyed matrices."""
+        return {
+            series_id: values[:, row, :]
+            for row, series_id in enumerate(series_ids)
+        }
+
+    def _fit_final_dispersion_model(
+        self, residuals: np.ndarray, features: pd.DataFrame
+    ) -> Pipeline:
+        """Refit the scale pipeline on residuals from every backtesting window."""
+        final_features = pd.concat(
+            [features] * self.n_windows, ignore_index=True
+        )
+        return self._new_dispersion_pipeline().fit(
+            final_features, self._scale_targets(residuals)
+        )
+
     def _fit_conditional_scales(self) -> None:
+        """Cross-fit and apply conditional scales to rolling-origin residuals.
+
+        For each forecast model, raw residuals are aligned in a tensor shaped
+        ``(n_windows, n_series, horizon)``. A dispersion pipeline is fitted in a
+        leave-one-window-out loop using series identity and horizon as features;
+        its held-out predictions form ``oof_scales_``. Dividing raw residuals by
+        those scales produces the standardized matrices stored in ``ncscores_``.
+        Finally, one dispersion pipeline per forecast model is refitted on every
+        window and retained in ``dispersion_learners_`` for future distributions.
+        """
         if self.n_windows < 2:
             raise ValueError("TSCPS requires at least two windows for scale cross-fitting.")
         self.raw_residuals_ = self.ncscores_
@@ -375,32 +445,21 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
         self.oof_scales_ = {}
         standardized = {}
         for model, scores_by_id in self.raw_residuals_.items():
-            series_ids = list(scores_by_id)
-            features = self._scale_features(series_ids)
-            raw = np.stack([scores_by_id[sid] for sid in series_ids], axis=1)
-            oof_scales = np.empty_like(raw, dtype=float)
-            for window in range(self.n_windows):
-                train = np.delete(raw, window, axis=0)
-                train_X = pd.concat([features] * len(train), ignore_index=True)
-                scale_model = self._new_dispersion_pipeline().fit(
-                    train_X, np.maximum(np.abs(train).reshape(-1), 1e-6)
-                )
-                oof_scales[window] = np.asarray(
-                    scale_model.predict(features), dtype=float
-                ).reshape(len(series_ids), self.horizon)
-            if not np.all(np.isfinite(oof_scales)) or np.any(oof_scales <= 0.0):
-                raise ValueError("Dispersion learner predictions must be positive and finite.")
-            standardized[model] = {
-                sid: raw[:, row, :] / oof_scales[:, row, :]
-                for row, sid in enumerate(series_ids)
-            }
-            self.oof_scales_[model] = {
-                sid: oof_scales[:, row, :]
-                for row, sid in enumerate(series_ids)
-            }
-            final_X = pd.concat([features] * self.n_windows, ignore_index=True)
-            self.dispersion_learners_[model] = self._new_dispersion_pipeline().fit(
-                final_X, np.maximum(np.abs(raw).reshape(-1), 1e-6)
+            series_ids, features, residuals = self._prepare_scale_calibration(
+                scores_by_id
+            )
+            oof_scales = self._fit_oof_scales(
+                residuals, features, len(series_ids)
+            )
+            self._validate_scale_predictions(oof_scales)
+            standardized[model] = self._matrices_by_series(
+                residuals / oof_scales, series_ids
+            )
+            self.oof_scales_[model] = self._matrices_by_series(
+                oof_scales, series_ids
+            )
+            self.dispersion_learners_[model] = self._fit_final_dispersion_model(
+                residuals, features
             )
         self.ncscores_ = standardized
 
