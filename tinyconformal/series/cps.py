@@ -354,11 +354,70 @@ class _PanelConformalForecast:
         return result
 
     def cdf(self, values) -> pd.DataFrame:
-        """Evaluate CDF values and return them on the forecast panel grid."""
+        """Evaluate the cumulative distribution function on the forecast panel.
+
+        Parameters
+        ----------
+        values : float or array-like
+            Target values at which to evaluate each predictive CDF. A scalar is
+            applied to every forecast row. A one-dimensional array defines a
+            common evaluation grid for every row. A two-dimensional array with
+            ``len(self)`` rows is evaluated row-wise.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Forecast panel sorted by ``id_col`` and ``time_col``, including the
+            original point-forecast columns and the evaluated probabilities. A
+            scalar produces ``<model>-cdf-<value>``; a common grid produces one
+            such column per value. Row-wise input produces one output column per
+            input column, numbered when no common value labels are available.
+
+        Raises
+        ------
+        ValueError
+            If a value is non-finite or the input shape is not a scalar, a
+            one-dimensional grid, or a matrix with ``len(self)`` rows.
+
+        Notes
+        -----
+        Output rows remain positionally aligned with the rows returned by
+        :meth:`to_frame`. CDF values lie in ``[0, 1]``.
+        """
         return self._apply("cdf", values, "cdf")
 
     def ppf(self, quantiles) -> pd.DataFrame:
-        """Evaluate quantiles and return them on the forecast panel grid."""
+        """Evaluate predictive quantiles on the forecast panel.
+
+        Parameters
+        ----------
+        quantiles : float or array-like
+            Probabilities in ``[0, 1]``. A scalar is applied to every forecast
+            row. A one-dimensional array defines common quantile levels for
+            every row. A two-dimensional array with ``len(self)`` rows specifies
+            row-wise quantile levels.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Forecast panel sorted by ``id_col`` and ``time_col``, including the
+            original point-forecast columns and the requested quantiles. Scalar
+            and common-grid columns are named ``<model>-q-<percentage>``; for
+            example, quantile ``0.9`` produces ``<model>-q-90``. Row-wise input
+            produces one output column per input column, numbered when no common
+            quantile labels are available.
+
+        Raises
+        ------
+        ValueError
+            If any quantile lies outside ``[0, 1]`` or the input shape is not a
+            scalar, a one-dimensional grid, or a matrix with ``len(self)`` rows.
+
+        Notes
+        -----
+        Output rows remain positionally aligned with the rows returned by
+        :meth:`to_frame`. Discrete CPS forecasts return integer quantiles.
+        """
         quantiles_array = np.asarray(quantiles, dtype=float)
         result = self._apply("ppf", quantiles, "q")
         if quantiles_array.ndim == 0:
@@ -401,7 +460,37 @@ class _DiscretePanelConformalForecast(_PanelConformalForecast):
     """Panel-aligned facade that additionally exposes integer probability mass."""
 
     def pmf(self, values) -> pd.DataFrame:
-        """Evaluate PMF values and return them on the forecast panel grid."""
+        """Evaluate probability masses on a discrete forecast panel.
+
+        Parameters
+        ----------
+        values : int or array-like of int
+            Integer support values at which to evaluate each predictive PMF. A
+            scalar is applied to every forecast row. A one-dimensional array
+            defines a common support grid for every row. A two-dimensional array
+            with ``len(self)`` rows is evaluated row-wise.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Forecast panel sorted by ``id_col`` and ``time_col``, including the
+            original point-forecast columns and the probability masses. A scalar
+            produces ``<model>-pmf-<value>``; a common grid produces one such
+            column per value. Row-wise input produces one output column per input
+            column, numbered when no common value labels are available.
+
+        Raises
+        ------
+        ValueError
+            If a value is non-finite or non-integer, or if the input shape is not
+            a scalar, a one-dimensional grid, or a matrix with ``len(self)``
+            rows.
+
+        Notes
+        -----
+        This method is available only on forecasts returned by a discrete CPS.
+        Each mass is computed as ``CDF(k) - CDF(k - 1)``.
+        """
         return self._apply("pmf", values, "pmf")
 
 
@@ -812,7 +901,44 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
         h: int | None = None,
         X_df: pd.DataFrame | None = None,
     ) -> _PanelConformalForecast:
-        """Return one predictive forecast aligned to the Nixtla panel grid."""
+        """Return predictive distributions aligned to the Nixtla panel grid.
+
+        Parameters
+        ----------
+        h : int or None, default=None
+            Number of future steps to forecast for each series. If ``None``, the
+            horizon supplied when constructing the estimator is used. ``h``
+            cannot exceed the calibrated horizon.
+        X_df : pandas.DataFrame or None, default=None
+            Future exogenous features in Nixtla long format. It must contain
+            ``id_col`` and ``time_col``, one row per series and forecast step,
+            and every exogenous column used during fitting. Pass ``None`` when
+            the forecasting learner does not require future exogenous features.
+
+        Returns
+        -------
+        _PanelConformalForecast
+            Row-aligned predictive forecast sorted by ``id_col`` and
+            ``time_col``. :meth:`cdf`, :meth:`ppf`, :meth:`interval`,
+            :meth:`sample`, and :meth:`to_frame` return pandas DataFrames on the
+            same panel grid. Forecasts from a discrete CPS additionally expose
+            :meth:`pmf` and return integer quantiles.
+
+        Raises
+        ------
+        ValueError
+            If ``h`` is outside the calibrated horizon, the future-feature panel
+            is incomplete or malformed, the learner returns an invalid panel,
+            or its prediction contains other than exactly one model column.
+
+        Notes
+        -----
+        The result contains one predictive distribution for each series-step
+        pair. Its base frame contains ``id_col``, ``time_col``, the learner's
+        point-forecast column, and any future-feature columns merged from
+        ``X_df``. Rows must not be reordered independently of distributional
+        results because calibration is positionally aligned.
+        """
         h = self._get_horizon(h)
         pred_df, model_cols, n_series = self._prediction_frame(h, X_df)
         if len(model_cols) != 1:
