@@ -77,9 +77,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
     def __init__(self, locations, residuals, horizon_steps, series_ids=None):
         self.locations = self._validate_locations(locations)
         self.horizon_steps = self._validate_horizon_steps(horizon_steps)
-        self.residuals, self.series_ids = self._prepare_residuals(
-            residuals, series_ids
-        )
+        self.residuals, self.series_ids = self._prepare_residuals(residuals, series_ids)
         self._n_calibration, calibrated_horizon = self._residual_shape()
         self._validate_calibrated_horizon(calibrated_horizon)
 
@@ -132,8 +130,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
 
     def _validate_calibrated_horizon(self, calibrated_horizon: int) -> None:
         if np.any(
-            (self.horizon_steps < 0)
-            | (self.horizon_steps >= calibrated_horizon)
+            (self.horizon_steps < 0) | (self.horizon_steps >= calibrated_horizon)
         ):
             raise ValueError("horizon_steps contains an uncalibrated horizon index.")
 
@@ -155,6 +152,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
                 ]
             )
         return self.residuals[:, self.horizon_steps].T
+
 
 class DiscreteHorizonConformalDistribution(
     HorizonConformalDistribution, DiscretePredictiveDistribution
@@ -217,15 +215,13 @@ class DiscreteHorizonConformalDistribution(
         return np.where(np.broadcast_to(below, np.shape(result)), 0.0, result)
 
 
-class ConformalPredictiveSystemTimeSeriesRegressor(
-    ConformalDistributionTimeSeriesRegressor
-):
+class _TSCPS(ConformalDistributionTimeSeriesRegressor):
     """Conformal predictive system for multi-step panel forecasting.
 
     The regressor calibrates complete residual distributions for each forecast
     horizon of a Nixtla-compatible learner, such as ``MLForecast`` or
     ``StatsForecast``.  Sequential rolling-origin backtesting produces signed
-        residual trajectories.  Unlike an interval-only conformal method, CPS keeps
+    residual trajectories. Unlike an interval-only conformal method, CPS keeps
     those empirical distributions and can therefore return CDFs, arbitrary
     quantiles, samples, and intervals after a single calibration fit.
 
@@ -316,8 +312,10 @@ class ConformalPredictiveSystemTimeSeriesRegressor(
         super()._validate_fit_configuration()
         if not isinstance(self.discrete, (bool, np.bool_)):
             raise TypeError("discrete must be a boolean.")
-        if self.discrete and self.minimum is not None and not isinstance(
-            self.minimum, (int, np.integer)
+        if (
+            self.discrete
+            and self.minimum is not None
+            and not isinstance(self.minimum, (int, np.integer))
         ):
             raise TypeError("minimum must be an integer or None.")
 
@@ -326,7 +324,9 @@ class ConformalPredictiveSystemTimeSeriesRegressor(
             self._validate_columns(df)
             target = np.asarray(df[self.target_col], dtype=float)
             if not np.all(np.isfinite(target)) or np.any(target != np.floor(target)):
-                raise ValueError("Discrete time-series CPS targets must be finite integers.")
+                raise ValueError(
+                    "Discrete time-series CPS targets must be finite integers."
+                )
             if self.minimum is not None and np.any(target < self.minimum):
                 raise ValueError(
                     f"Discrete time-series CPS targets must be >= {self.minimum}."
@@ -447,14 +447,11 @@ class ConformalPredictiveSystemTimeSeriesRegressor(
         return pred_df
 
 
-class ContinuousConformalPredictiveSystemTimeSeriesRegressor(
-    ConformalPredictiveSystemTimeSeriesRegressor
-):
+class ContinuousTSCPS(_TSCPS):
     """Continuous-target CPS for multi-step Nixtla panel forecasts.
 
-    This convenience class configures
-    :class:`ConformalPredictiveSystemTimeSeriesRegressor` with
-    ``discrete=False``.  Predictive distributions retain their real-valued
+    This convenience class configures the internal CPS implementation with
+    ``discrete=False``. Predictive distributions retain their real-valued
     support and expose CDF, PPF, interval, and sampling operations.
 
     Parameters
@@ -503,9 +500,7 @@ class ContinuousConformalPredictiveSystemTimeSeriesRegressor(
         )
 
 
-class DiscreteConformalPredictiveSystemTimeSeriesRegressor(
-    ConformalPredictiveSystemTimeSeriesRegressor
-):
+class DiscreteTSCPS(_TSCPS):
     """Integer-target CPS for multi-step Nixtla panel forecasts.
 
     This convenience class validates integer training targets and constructs

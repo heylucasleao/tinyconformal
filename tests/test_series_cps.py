@@ -6,8 +6,8 @@ import pytest
 
 from tinyconformal.distribution.cross import ContinuousConformalDistribution
 from tinyconformal.series import (
-    ContinuousConformalPredictiveSystemTimeSeriesRegressor,
-    DiscreteConformalPredictiveSystemTimeSeriesRegressor,
+    ContinuousTSCPS,
+    DiscreteTSCPS,
 )
 from tinyconformal.series.cps import HorizonConformalDistribution
 
@@ -47,7 +47,7 @@ def nixtla_learner():
 def test_series_cps_uses_sequential_backtesting_and_horizon_residuals(
     nixtla_learner, panel
 ):
-    cps = ContinuousConformalPredictiveSystemTimeSeriesRegressor(
+    cps = ContinuousTSCPS(
         nixtla_learner, horizon=2, n_windows=2
     )
     cps.fit(panel, n_jobs=1)
@@ -79,7 +79,7 @@ def test_split_and_single_horizon_cps_share_distribution_semantics():
 def test_series_cps_distributions_are_calibrated_by_unique_id(
     nixtla_learner, panel
 ):
-    cps = ContinuousConformalPredictiveSystemTimeSeriesRegressor(
+    cps = ContinuousTSCPS(
         nixtla_learner, horizon=2, n_windows=2
     ).fit(panel, n_jobs=1)
     cps.ncscores_["Model"] = {
@@ -95,7 +95,7 @@ def test_series_cps_distributions_are_calibrated_by_unique_id(
 
 
 def test_series_cps_quantiles_intervals_and_evaluation(nixtla_learner, panel):
-    cps = ContinuousConformalPredictiveSystemTimeSeriesRegressor(
+    cps = ContinuousTSCPS(
         nixtla_learner, horizon=2, n_windows=2, alpha=0.1
     ).fit(panel, n_jobs=1)
 
@@ -117,7 +117,7 @@ def test_series_cps_quantiles_intervals_and_evaluation(nixtla_learner, panel):
 def test_discrete_series_cps_supports_pmf_and_integer_quantiles(
     nixtla_learner, panel
 ):
-    cps = DiscreteConformalPredictiveSystemTimeSeriesRegressor(
+    cps = DiscreteTSCPS(
         nixtla_learner, horizon=2, n_windows=2
     ).fit(panel, n_jobs=1)
 
@@ -130,7 +130,7 @@ def test_discrete_series_cps_supports_pmf_and_integer_quantiles(
 
 def test_discrete_series_cps_rejects_noninteger_target(nixtla_learner, panel):
     panel.loc[0, "y"] = 0.5
-    cps = DiscreteConformalPredictiveSystemTimeSeriesRegressor(
+    cps = DiscreteTSCPS(
         nixtla_learner, horizon=2, n_windows=2
     )
     with pytest.raises(ValueError, match="finite integers"):

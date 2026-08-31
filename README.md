@@ -136,10 +136,10 @@ and TSCQR:
 
 ```python
 from tinyconformal.series import (
-    ContinuousConformalPredictiveSystemTimeSeriesRegressor,
+    ContinuousTSCPS,
 )
 
-cps = ContinuousConformalPredictiveSystemTimeSeriesRegressor(
+cps = ContinuousTSCPS(
     learner=mlforecast_or_statsforecast,
     horizon=14,
     n_windows=5,
@@ -153,7 +153,7 @@ interval_df = cps.predict_interval(h=14, X_df=future_exog, alpha=0.1)
 
 The returned distribution dictionary is keyed by the Nixtla model column, and
 each distribution is aligned row-for-row with `forecast_df`. Use
-`DiscreteConformalPredictiveSystemTimeSeriesRegressor` for ordered integer/count
+`DiscreteTSCPS` for ordered integer/count
 targets; those distributions additionally provide `pmf`.
 
 Runnable distribution examples are organized in `examples/distribution/`:
@@ -412,8 +412,8 @@ Import these classes from `tinyconformal.regressor`:
   calibration.
 - `ConformalizedQuantileRegressor`: implements conformalized quantile regression
   (CQR) for learners that produce lower and upper quantile predictions.
-- `CrossValidationCalibration`: generates OOF ICP/CQR scores and signed CPS
-  residuals from labeled historical data.
+- `CrossValidationCalibration`: generates OOF ICP/CQR scores and cross-fitted
+  CPS location residuals, scales, and standardized residuals.
 
 ### Classification
 
@@ -464,13 +464,11 @@ produce multi-step intervals with `predict_interval(h=...)`.
 
 Import these classes from `tinyconformal.series`:
 
-- `ContinuousConformalPredictiveSystemTimeSeriesRegressor`: produces a complete
+- `ContinuousTSCPS`: produces a complete
   continuous predictive distribution for every series and forecast horizon.
-- `DiscreteConformalPredictiveSystemTimeSeriesRegressor`: produces complete
+- `DiscreteTSCPS`: produces complete
   predictive distributions for ordered integer or count time-series targets and
   supports PMF evaluation.
-- `ConformalPredictiveSystemTimeSeriesRegressor`: common horizon-wise CPS
-  implementation used by the continuous and discrete time-series systems.
 - `HorizonConformalDistribution`: predictive-distribution object containing the
   continuous horizon-wise calibration residuals.
 - `DiscreteHorizonConformalDistribution`: discrete horizon-wise predictive
