@@ -80,7 +80,7 @@ TinyConformal is organized into six public submodules:
 ### Predictive distribution submodule
 
 Cross-fit location and scale estimators on the training data, then request any
-quantile, central interval, CDF value, or random sample:
+quantile, central interval, or CDF value:
 
 ```python
 from tinyconformal.distribution import ContinuousCrossConformalPredictiveSystem
@@ -170,8 +170,8 @@ interval_df = forecast.interval(coverage=0.9)
 The scale estimator is cross-fitted on absolute rolling-origin errors using
 series identity and forecast horizon as conditional features. TSCPS requires
 the Nixtla learner to contain exactly one model. The returned forecast owns its
-point-forecast panel and distribution, so `cdf`, `ppf`, `interval`, `sample`,
-and `pmf` return row-aligned DataFrames. Use
+point-forecast panel and distribution, so `cdf`, `ppf`, and `interval` return
+row-aligned DataFrames. Use
 `DiscreteTimeSeriesConformalPredictiveSystem` for ordered integer/count
 targets; those distributions additionally provide `pmf`.
 
@@ -491,7 +491,7 @@ Import these classes from `tinyconformal.series`:
   supports PMF evaluation.
 The time-series CPS classes use rolling-origin calibration with
 `fit(df, step_size=...)`. TSCPS exposes `predict_distribution` for multi-step
-forecasts; the returned object provides quantiles, intervals, CDFs, and samples.
+forecasts; the returned object provides quantiles, intervals, and CDFs.
 
 ## License
 
