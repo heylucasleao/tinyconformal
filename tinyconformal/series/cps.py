@@ -9,6 +9,7 @@ from collections.abc import Mapping
 
 import numpy as np
 import pandas as pd
+from joblib import Parallel, delayed
 from sklearn.base import BaseEstimator, clone
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
@@ -575,10 +576,10 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
         residuals: np.ndarray,
         features: pd.DataFrame,
         n_series: int,
+        n_jobs: int = -1,
     ) -> np.ndarray:
         """Predict each window's scales with a model fitted on all other windows."""
-        oof_scales = np.empty_like(residuals, dtype=float)
-        for window in range(self.n_windows):
+        def process_window(window):
             train_windows = np.delete(np.arange(self.n_windows), window)
             train_residuals = residuals[train_windows]
             train_features = pd.concat(
@@ -589,9 +590,19 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
                 self._scale_targets(train_residuals),
                 train_windows,
             )
-            oof_scales[window] = np.asarray(
+            scales = np.asarray(
                 scale_model.predict(features), dtype=float
             ).reshape(n_series, self.horizon)
+            return window, scales
+
+        results = Parallel(n_jobs=n_jobs)(
+            delayed(process_window)(window)
+            for window in range(self.n_windows)
+        )
+
+        oof_scales = np.empty_like(residuals, dtype=float)
+        for window, scales in results:
+            oof_scales[window] = scales
         return oof_scales
 
     @staticmethod
@@ -639,7 +650,7 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
             )
         return pipeline.fit(features, targets, **fit_kwargs)
 
-    def _fit_conditional_scales(self) -> None:
+    def _fit_conditional_scales(self, n_jobs: int = -1) -> None:
         """Cross-fit and apply conditional scales to rolling-origin residuals.
 
         For each forecast model, raw residuals are aligned in a tensor shaped
@@ -666,7 +677,7 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
                 scores_by_id
             )
             oof_scales = self._fit_oof_scales(
-                residuals, features, len(series_ids)
+                residuals, features, len(series_ids), n_jobs=n_jobs
             )
             self._validate_scale_predictions(oof_scales)
             standardized[model] = self._matrices_by_series(
@@ -716,7 +727,7 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
             static_features=static_features,
             n_jobs=n_jobs,
         )
-        self._fit_conditional_scales()
+        self._fit_conditional_scales(n_jobs=n_jobs)
         return self
 
     def _prediction_frame(
