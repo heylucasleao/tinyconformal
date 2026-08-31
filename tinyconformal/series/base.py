@@ -10,8 +10,12 @@ import pandas as pd
 from joblib import Parallel, delayed
 from sklearn.base import BaseEstimator, RegressorMixin
 
+from tinyconformal.core.quantiles import (
+    temporal_decay_weights,
+    validate_alpha,
+    weighted_quantile,
+)
 from tinyconformal.utils.imports import requires_extra
-from tinyconformal.core.quantiles import validate_alpha
 
 
 class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
@@ -43,6 +47,8 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         learner: BaseEstimator,
         horizon: int,
         n_windows: int = 10,
+        nexcp: bool = False,
+        decay: float = 0.99,
         id_col: str = "unique_id",
         time_col: str = "ds",
         target_col: str = "y",
@@ -92,6 +98,8 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         self.learner = learner
         self.h = horizon
         self.n_windows = n_windows
+        self.nexcp = nexcp
+        self.decay = decay
         self.id_col = id_col
         self.time_col = time_col
         self.target_col = target_col
@@ -163,7 +171,16 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         """
         Compute the q-hat quantile value based on nonconformity scores and the quantile level.
         """
-        return np.quantile(ncscore, q_level, method="higher", axis=axis)
+        if not self.nexcp:
+            return np.quantile(ncscore, q_level, method="higher", axis=axis)
+        weights = temporal_decay_weights(np.asarray(ncscore).shape[0], self.decay)
+        return weighted_quantile(ncscore, q_level, weights, axis=axis)
+
+    def _validate_nexcp(self) -> None:
+        """Validate shared NexCP-style temporal weighting parameters."""
+        if not isinstance(self.nexcp, (bool, np.bool_)):
+            raise TypeError("nexcp must be a boolean.")
+        temporal_decay_weights(1, self.decay)
 
     def _infer_model_cols(self, df: pd.DataFrame) -> list[str]:
         """
@@ -192,6 +209,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
 
     def _validate_fit_configuration(self) -> None:
         """Validate subclass-specific calibration configuration before fitting."""
+        self._validate_nexcp()
 
     def _get_horizon(self, h: int | None = None) -> int:
         """Helper to retrieve and validate the forecast horizon."""

@@ -13,6 +13,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
+from tinyconformal.core.quantiles import temporal_decay_weights
 from tinyconformal.distribution.base import (
     DiscretePredictiveDistribution,
     EmpiricalResidualDistribution,
@@ -78,13 +79,20 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
     """
 
     def __init__(
-        self, locations, residuals, horizon_steps, series_ids=None, scales=None
+        self,
+        locations,
+        residuals,
+        horizon_steps,
+        series_ids=None,
+        scales=None,
+        weights=None,
     ):
         self.locations = self._validate_locations(locations)
         self.horizon_steps = self._validate_horizon_steps(horizon_steps)
         self.residuals, self.series_ids = self._prepare_residuals(residuals, series_ids)
         self.scales = self._validate_scales(scales)
         self._n_calibration, calibrated_horizon = self._residual_shape()
+        self.weights = self._validate_weights(weights)
         self._validate_calibrated_horizon(calibrated_horizon)
 
     def _validate_scales(self, scales) -> np.ndarray:
@@ -96,6 +104,16 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         if np.any(scales <= 0.0):
             raise ValueError("scales must be strictly positive.")
         return scales
+
+    def _validate_weights(self, weights):
+        if weights is None:
+            return None
+        weights = np.asarray(weights, dtype=float)
+        if weights.shape != (self._n_calibration,):
+            raise ValueError("weights must match the number of calibration windows.")
+        if not np.all(np.isfinite(weights)) or np.any(weights < 0) or weights.sum() <= 0:
+            raise ValueError("weights must be finite, non-negative, and have positive mass.")
+        return weights / weights.sum()
 
     @staticmethod
     def _validate_locations(locations) -> np.ndarray:
@@ -113,7 +131,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
     def _prepare_residuals(self, residuals, series_ids):
         if isinstance(residuals, Mapping):
             return self._prepare_series_residuals(residuals, series_ids)
-        residuals = np.sort(_validate_matrix(residuals, "residuals"), axis=0)
+        residuals = _validate_matrix(residuals, "residuals")
         return residuals, None
 
     def _prepare_series_residuals(self, residuals, series_ids):
@@ -129,9 +147,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
                 f"{missing_ids}"
             )
         prepared = {
-            series_id: np.sort(
-                _validate_matrix(values, f"residuals[{series_id!r}]"), axis=0
-            )
+            series_id: _validate_matrix(values, f"residuals[{series_id!r}]")
             for series_id, values in residuals.items()
         }
         return prepared, series_ids
@@ -169,7 +185,40 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
             )
         else:
             residuals = self.residuals[:, self.horizon_steps].T
-        return self.scales[:, None] * residuals
+        residuals = self.scales[:, None] * residuals
+        return residuals if self.weights is not None else np.sort(residuals, axis=1)
+
+    def cdf(self, values):
+        if self.weights is None:
+            return super().cdf(values)
+        values, squeeze = self._rowwise_or_grid(values, "values")
+        scores = values - self.locations[:, None]
+        residuals = self._row_residuals()
+        result = np.sum(
+            self.weights[None, :, None]
+            * (residuals[:, :, None] <= scores[:, None, :]),
+            axis=1,
+        )
+        return result[:, 0] if squeeze else result
+
+    def ppf(self, quantiles):
+        if self.weights is None:
+            return super().ppf(quantiles)
+        quantiles, squeeze = self._rowwise_or_grid(quantiles, "quantiles")
+        if np.any((quantiles < 0.0) | (quantiles > 1.0)):
+            raise ValueError("quantiles must lie in [0, 1].")
+        residuals = self._row_residuals()
+        order = np.argsort(residuals, axis=1)
+        sorted_residuals = np.take_along_axis(residuals, order, axis=1)
+        row_weights = np.broadcast_to(self.weights, residuals.shape)
+        sorted_weights = np.take_along_axis(row_weights, order, axis=1)
+        cumulative = np.cumsum(sorted_weights, axis=1)
+        indices = np.argmax(
+            cumulative[:, :, None] >= quantiles[:, None, :], axis=1
+        )
+        selected = np.take_along_axis(sorted_residuals, indices, axis=1)
+        result = self.locations[:, None] + selected
+        return result[:, 0] if squeeze else result
 
 
 class DiscreteHorizonConformalDistribution(
@@ -209,6 +258,7 @@ class DiscreteHorizonConformalDistribution(
         minimum: int | None = 0,
         series_ids=None,
         scales=None,
+        weights=None,
     ):
         super().__init__(
             locations,
@@ -216,6 +266,7 @@ class DiscreteHorizonConformalDistribution(
             horizon_steps,
             series_ids=series_ids,
             scales=scales,
+            weights=weights,
         )
         if minimum is not None and not isinstance(minimum, (int, np.integer)):
             raise TypeError("minimum must be an integer or None.")
@@ -319,6 +370,8 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
         horizon: int,
         n_windows: int = 10,
         alpha: float = 0.05,
+        nexcp: bool = False,
+        decay: float = 0.99,
         discrete: bool = False,
         minimum: int | None = 0,
         id_col: str = "unique_id",
@@ -329,6 +382,8 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
             learner=learner,
             horizon=horizon,
             n_windows=n_windows,
+            nexcp=nexcp,
+            decay=decay,
             alpha=alpha,
             id_col=id_col,
             time_col=time_col,
@@ -515,6 +570,9 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
     ) -> dict[str, PredictiveDistribution]:
         horizon_steps = np.tile(np.arange(h), n_series)
         distributions = {}
+        weights = (
+            temporal_decay_weights(self.n, self.decay) if self.nexcp else None
+        )
         for model in model_cols:
             if model not in self.ncscores_:
                 raise ValueError(
@@ -547,6 +605,7 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
                     minimum=self.minimum,
                     series_ids=series_ids,
                     scales=scales,
+                    weights=weights,
                 )
             else:
                 distributions[model] = HorizonConformalDistribution(
@@ -555,6 +614,7 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
                     horizon_steps,
                     series_ids=series_ids,
                     scales=scales,
+                    weights=weights,
                 )
         return distributions
 
@@ -659,6 +719,8 @@ class ContinuousTSCPS(_TSCPS):
         horizon: int,
         n_windows: int = 10,
         alpha: float = 0.05,
+        nexcp: bool = False,
+        decay: float = 0.99,
         id_col: str = "unique_id",
         time_col: str = "ds",
         target_col: str = "y",
@@ -669,6 +731,8 @@ class ContinuousTSCPS(_TSCPS):
             horizon=horizon,
             n_windows=n_windows,
             alpha=alpha,
+            nexcp=nexcp,
+            decay=decay,
             discrete=False,
             minimum=None,
             id_col=id_col,
@@ -721,6 +785,8 @@ class DiscreteTSCPS(_TSCPS):
         horizon: int,
         n_windows: int = 10,
         alpha: float = 0.05,
+        nexcp: bool = False,
+        decay: float = 0.99,
         minimum: int | None = 0,
         id_col: str = "unique_id",
         time_col: str = "ds",
@@ -732,6 +798,8 @@ class DiscreteTSCPS(_TSCPS):
             horizon=horizon,
             n_windows=n_windows,
             alpha=alpha,
+            nexcp=nexcp,
+            decay=decay,
             discrete=True,
             minimum=minimum,
             id_col=id_col,

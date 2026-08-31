@@ -88,6 +88,18 @@ def test_split_and_single_horizon_cps_share_distribution_semantics():
     )
 
 
+def test_horizon_distribution_supports_temporal_decay_weights():
+    distribution = HorizonConformalDistribution(
+        locations=[10.0],
+        residuals=np.array([[-10.0], [0.0], [10.0]]),
+        horizon_steps=[0],
+        weights=np.array([0.01, 0.1, 1.0]),
+    )
+
+    np.testing.assert_allclose(distribution.ppf(0.5), [20.0])
+    np.testing.assert_allclose(distribution.cdf(10.0), [0.11 / 1.11])
+
+
 def test_series_cps_distributions_are_calibrated_by_unique_id(
     nixtla_learner, dispersion_learner, panel
 ):

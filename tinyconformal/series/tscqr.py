@@ -10,8 +10,8 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 
 from tinyconformal.core.conformal import cqr_bounds, cqr_scores
-from tinyconformal.utils.imports import requires_extra
 from tinyconformal.core.quantiles import conformal_quantile_level
+from tinyconformal.utils.imports import requires_extra
 
 from .base import BaseConformalTimeSeriesRegressor
 
@@ -143,6 +143,8 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         horizon: int,
         intervals: tuple[str, str] | list[tuple[str, str]],
         n_windows: int = 3,
+        nexcp: bool = False,
+        decay: float = 0.99,
         id_col: str = "unique_id",
         time_col: str = "ds",
         target_col: str = "y",
@@ -154,6 +156,8 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
             learner=learner,
             horizon=horizon,
             n_windows=n_windows,
+            nexcp=nexcp,
+            decay=decay,
             id_col=id_col,
             time_col=time_col,
             target_col=target_col,

@@ -146,6 +146,8 @@ cps = ContinuousTSCPS(
     dispersion_learner=RandomForestRegressor(min_samples_leaf=5),
     horizon=14,
     n_windows=5,
+    nexcp=True,
+    decay=0.99,
 )
 cps.fit(train_df, step_size=14, static_features=["store_type"])
 
@@ -160,6 +162,13 @@ distribution dictionary is keyed by the Nixtla model column, and
 each distribution is aligned row-for-row with `forecast_df`. Use
 `DiscreteTSCPS` for ordered integer/count
 targets; those distributions additionally provide `pmf`.
+
+MSCP, TSCQR, and TSCPS share the optional NexCP-style temporal weighting
+contract. With `nexcp=False` (the default), calibration windows have equal
+weight. With `nexcp=True`, weights decay exponentially from the newest window
+using `decay=0.99`, the value used in the NexCP paper experiments. This weights
+calibration scores only; it does not pass temporal weights into the underlying
+forecast learner.
 
 Runnable distribution examples are organized in `examples/distribution/`:
 

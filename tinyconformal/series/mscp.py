@@ -13,8 +13,8 @@ from tinyconformal.core.conformal import (
     signed_forecast_residuals,
     signed_residual_bounds,
 )
-from tinyconformal.utils.imports import requires_extra
 from tinyconformal.core.quantiles import central_conformal_quantile_levels
+from tinyconformal.utils.imports import requires_extra
 
 from .base import BaseConformalTimeSeriesRegressor
 
@@ -36,6 +36,8 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         horizon: int,
         n_windows: int = 10,
         alpha: float = 0.05,
+        nexcp: bool = False,
+        decay: float = 0.99,
         id_col: str = "unique_id",
         time_col: str = "ds",
         target_col: str = "y",
@@ -90,6 +92,8 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             learner=learner,
             horizon=horizon,
             n_windows=n_windows,
+            nexcp=nexcp,
+            decay=decay,
             id_col=id_col,
             time_col=time_col,
             target_col=target_col,
@@ -103,6 +107,7 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
     def _validate_fit_configuration(self) -> None:
         """Validate the global MSCP significance level before calibration."""
         self._get_alpha()
+        self._validate_nexcp()
 
     def _generate_residuals(self, y_hat: np.ndarray, y_true: np.ndarray) -> np.ndarray:
         """
