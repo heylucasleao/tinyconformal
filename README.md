@@ -5,6 +5,10 @@ Related project: [tinyshift](https://github.com/HeyLucasLeao/tinyshift)
 TinyConformal is a Python library for conformal prediction in classification and regression.
 It provides tools to build valid prediction sets and prediction intervals with a target significance level (`alpha`).
 
+It also provides conformal predictive systems (CPS) that turn fitted point
+regressors into complete predictive distributions for continuous or ordered
+discrete outcomes.
+
 For more information on a previous project related to Out-of-Bag (OOB) solutions, visit [this link](https://github.com/HeyLucasLeao/cp-study).
 
 ## Recent updates
@@ -63,6 +67,97 @@ TinyConformal is organized into two main submodules:
 - `tinyconformal.classifier`: conformal classifiers for binary classification.
 - `tinyconformal.regressor`: conformal regressors and exactness-bound utilities.
 - `tinyconformal.series`: multi-step conformal prediction for time series forecasting.
+- `tinyconformal.distribution`: split conformal predictive distributions and CPS wrappers.
+
+### Predictive distribution submodule
+
+Calibrate a fitted regressor with labeled out-of-sample data, then request any
+quantile, central interval, CDF value, or random sample:
+
+```python
+from tinyconformal.distribution import ContinuousConformalPredictiveSystem
+
+cps = ContinuousConformalPredictiveSystem(fitted_regressor)
+cps.fit(X_cal, y_cal)
+predictive = cps.predict_distribution(X_test)
+
+median = predictive.ppf(0.5)
+intervals = predictive.interval(coverage=0.90)
+probabilities = predictive.cdf(values)
+```
+
+For ordered integer targets such as demand counts, use
+`DiscreteConformalPredictiveSystem`. Its predictive object additionally exposes
+`pmf(values)` and returns integer quantiles. For nominal, unordered labels, use
+the classifiers in `tinyconformal.classifier` instead.
+
+The complete distribution can be passed directly to the Newsvendor solver:
+
+```python
+from tinyconformal.utils import NewsvendorSolver
+
+result = NewsvendorSolver.optimize_distribution(
+    forecast_frame,
+    predictive,
+    underage_cost="shortage_cost",
+    overage_cost="holding_cost",
+)
+```
+
+For a discrete predictive distribution, the solver can also report the expected
+net benefit of adding each inventory unit. The calculation uses the conformal
+CDF directly and accepts either ``max_k`` or an explicit unit grid:
+
+```python
+marginal_benefit = NewsvendorSolver.marginal_benefit_distribution(
+    forecast_frame,
+    predictive,
+    underage_cost="shortage_cost",
+    overage_cost="holding_cost",
+    units=[0, 5, 10, 15],
+)
+```
+
+Standard split CPS calibration assumes exchangeability. For time series, build
+the calibration set with rolling-origin predictions and choose a windowing or
+weighting scheme appropriate to the temporal dependence and drift.
+Forecasting wrappers that do not implement `predict(X)` can use
+`fit_from_predictions(y_cal, y_pred_cal)` followed by
+`predict_distribution_from_predictions(y_pred_test)`.
+
+For Nixtla-compatible estimators, use the horizon-wise series CPS. It shares the
+sequential rolling-origin backtesting machinery and panel contract used by MSCP
+and TSCQR:
+
+```python
+from tinyconformal.series import (
+    ContinuousConformalPredictiveSystemTimeSeriesRegressor,
+)
+
+cps = ContinuousConformalPredictiveSystemTimeSeriesRegressor(
+    learner=mlforecast_or_statsforecast,
+    horizon=14,
+    n_windows=5,
+)
+cps.fit(train_df, step_size=14, static_features=["store_type"])
+
+forecast_df, distributions = cps.predict_distribution(h=14, X_df=future_exog)
+quantile_df = cps.predict_quantiles([0.1, 0.5, 0.9], h=14, X_df=future_exog)
+interval_df = cps.predict_interval(h=14, X_df=future_exog, alpha=0.1)
+```
+
+The returned distribution dictionary is keyed by the Nixtla model column, and
+each distribution is aligned row-for-row with `forecast_df`. Use
+`DiscreteConformalPredictiveSystemTimeSeriesRegressor` for ordered integer/count
+targets; those distributions additionally provide `pmf`.
+
+Runnable distribution examples are organized in `examples/distribution/`:
+
+- `cps_continuous.ipynb`
+- `cps_discrete.ipynb`
+
+They cover CDF, PMF where applicable, PPF, arbitrary quantiles, empirical
+coverage, and Newsvendor optimization.
 
 ### Classifier submodule
 
@@ -297,61 +392,83 @@ Window 2:       [============ Expanded Train ============] [--- H=4 (t11 to t14)
 
 ## Classes
 
-### BinaryMarginalConformalClassifier
+### Regression
 
-`BinaryMarginalConformalClassifier` is a marginal-coverage conformal classifier that uses a classifier as the underlying learner.
+Import these classes from `tinyconformal.regressor`:
 
-- Training via labeled calibration: `fit(X, y)`
-- Training via OOB calibration: `fit(y=y_train, oob=True)`
-- Training via unlabeled calibration: `unlabeled_fit(X, beta=...)`
+- `ConformalizedRegressor`: conformalizes a fitted point regressor and produces
+  prediction intervals. It supports labeled, OOB, and exactness-bound-based
+  unlabeled calibration.
+- `ConformalizedQuantileRegressor`: implements conformalized quantile regression
+  (CQR) for learners that produce lower and upper quantile predictions.
+- `ExactnessBound`: estimates the bounds used to calibrate
+  `ConformalizedRegressor` and `ConformalizedQuantileRegressor` without labeled
+  calibration data.
 
-### BinaryClassConditionalConformalClassifier
+### Classification
 
-`BinaryClassConditionalConformalClassifier` is a class-conditional conformal classifier that uses a classifier as the underlying learner.
+Import these classes from `tinyconformal.classifier`:
 
-- Training via labeled calibration: `fit(X, y)`
-- Training via OOB calibration: `fit(y=y_train, oob=True)`
-- Training via unlabeled calibration: `unlabeled_fit(X, beta=...)` using pseudo-labels derived from the model probabilities
+- `BinaryMarginalConformalClassifier`: constructs binary prediction sets with
+  marginal coverage.
+- `BinaryClassConditionalConformalClassifier`: constructs binary prediction sets
+  with coverage calibrated separately for each class.
 
-### ConformalizedRegressor
+Both classifiers support labeled calibration with `fit(X, y)`, OOB calibration
+with `fit(y=y_train, oob=True)`, and unlabeled calibration with
+`unlabeled_fit(X, beta=...)`.
 
-`ConformalizedRegressor` is a conformal regressor built on a regression learner.
+### Distribution
 
-- Training via labeled calibration: `fit(X, y)`
-- Training via OOB calibration: `fit(X, y, oob=True)`
-- Training via unlabeled calibration: `unlabeled_fit(X, tilde_beta=..., beta=...)` using an exactness bound
+Import these classes from `tinyconformal.distribution`:
 
-### ConformalizedQuantileRegressor
+- `ContinuousConformalPredictiveSystem`: calibrates a fitted point regressor and
+  produces continuous conformal predictive distributions.
+- `DiscreteConformalPredictiveSystem`: produces conformal predictive
+  distributions for ordered integer or count targets.
+- `SplitConformalPredictiveSystem`: common split-calibration implementation used
+  by the continuous and discrete systems.
+- `ContinuousConformalDistribution`: continuous predictive-distribution object
+  returned by the continuous system.
+- `DiscreteConformalDistribution`: discrete predictive-distribution object
+  returned by the discrete system; it also provides `pmf(values)`.
+- `PredictiveDistribution`: base interface for CDF, PPF, interval, quantile, and
+  sampling operations.
+- `DiscretePredictiveDistribution`: base interface for discrete predictive
+  distributions, extending `PredictiveDistribution` with a PMF.
 
-`ConformalizedQuantileRegressor` is a conformal quantile regressor built on a quantile regressor.
+### Time Series
 
-- Training via labeled calibration: `fit(X, y)`
-- Training via OOB calibration: `fit(X, y, oob=True)`
-- Training via unlabeled calibration: `unlabeled_fit(X, tilde_beta=..., beta=...)` using an exactness bound
+Import these classes from `tinyconformal.series`:
 
-### ConformalDistributionTimeSeriesRegressor
-`ConformalDistributionTimeSeriesRegressor` is a multi-step time series conformal regressor compatible with Nixtla interface estimators (`MLForecast` or `StatsForecast`).
+- `ConformalDistributionTimeSeriesRegressor`: calibrates horizon-specific
+  intervals from signed backtesting residuals generated by a Nixtla-compatible
+  point forecaster.
+- `ConformalQuantileTimeSeriesRegressor`: applies CQR to horizon-specific
+  quantile forecasts generated by a Nixtla-compatible forecaster.
 
-Training & Residual extraction via backtesting: `fit(df, step_size=...)`
+Both classes use rolling-origin calibration through `fit(df, step_size=...)` and
+produce multi-step intervals with `predict_interval(h=...)`.
 
-The significance level is configured globally with `alpha` and may be overridden
-when predicting: `predict_interval(h=..., alpha=...)`.
+### Time Series Distribution
 
-Multi-step interval forecasting: `predict_interval(h=..., alpha=...)`
+Import these classes from `tinyconformal.series`:
 
-### ConformalQuantileTimeSeriesRegressor
-`ConformalQuantileTimeSeriesRegressor` is a multi-step time series conformal quantile regressor (CQR) compatible with Nixtla interface estimators that output quantile predictions.
+- `ContinuousConformalPredictiveSystemTimeSeriesRegressor`: produces a complete
+  continuous predictive distribution for every series and forecast horizon.
+- `DiscreteConformalPredictiveSystemTimeSeriesRegressor`: produces complete
+  predictive distributions for ordered integer or count time-series targets and
+  supports PMF evaluation.
+- `ConformalPredictiveSystemTimeSeriesRegressor`: common horizon-wise CPS
+  implementation used by the continuous and discrete time-series systems.
+- `HorizonConformalDistribution`: predictive-distribution object containing the
+  continuous horizon-wise calibration residuals.
+- `DiscreteHorizonConformalDistribution`: discrete horizon-wise predictive
+  distribution with integer quantiles and PMF evaluation.
 
-Training & Nonconformity score calculation via backtesting:` fit(df, step_size=...)`
-
-The significance level is inferred independently for each interval from its
-coverage suffix (`-90` means `alpha=0.10`, `-50` means `alpha=0.50`).
-
-Multi-step interval forecasting: `predict_interval(h=...)`
-
-### ExactnessBound
-
-`ExactnessBound` provides helper methods to estimate the exactness bound used in unlabeled conformal calibration for ICP and CQR workflows.
+The time-series CPS classes use rolling-origin calibration with
+`fit(df, step_size=...)`. They expose `predict_distribution`, `predict_quantiles`,
+and `predict_interval` for multi-step forecasts.
 
 ## License
 
