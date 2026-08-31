@@ -9,8 +9,12 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
 
+from tinyconformal.core.conformal import (
+    signed_forecast_residuals,
+    signed_residual_bounds,
+)
+from tinyconformal.core.quantiles import central_conformal_quantile_levels
 from tinyconformal.utils.imports import requires_extra
-from tinyconformal.utils.quantiles import central_conformal_quantile_levels
 
 from .base import BaseConformalTimeSeriesRegressor
 
@@ -32,6 +36,9 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         horizon: int,
         n_windows: int = 10,
         alpha: float = 0.05,
+        nexcp: bool = False,
+        decay: float = 0.99,
+        weighted_refit: bool = True,
         id_col: str = "unique_id",
         time_col: str = "ds",
         target_col: str = "y",
@@ -49,6 +56,13 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             Number of backtesting windows used to extract calibration residuals.
         alpha : float, default=0.05
             Significance level applied in the regressor (target coverage = 1 - alpha).
+        nexcp : bool, default=False
+            Whether to weight calibration windows by exponential recency decay.
+        decay : float, default=0.99
+            Decay factor in ``(0, 1)`` used when ``nexcp=True``.
+        weighted_refit : bool, default=True
+            Whether to pass timestamp-level recency weights to ``learner.fit``
+            through ``weight_col`` when ``nexcp=True``.
         id_col : str, default="unique_id"
             Column name representing the unique identifier for each time series.
         time_col : str, default="ds"
@@ -66,6 +80,12 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             Number of backtesting windows.
         alpha : float
             Significance level.
+        nexcp : bool
+            Whether exponentially decayed calibration weights are enabled.
+        decay : float
+            Exponential recency-decay factor.
+        weighted_refit : bool
+            Whether recency weights are also used while fitting the learner.
         id_col : str
             Identifier column name.
         time_col : str
@@ -86,6 +106,9 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             learner=learner,
             horizon=horizon,
             n_windows=n_windows,
+            nexcp=nexcp,
+            decay=decay,
+            weighted_refit=weighted_refit,
             id_col=id_col,
             time_col=time_col,
             target_col=target_col,
@@ -99,13 +122,14 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
     def _validate_fit_configuration(self) -> None:
         """Validate the global MSCP significance level before calibration."""
         self._get_alpha()
+        self._validate_nexcp()
 
     def _generate_residuals(self, y_hat: np.ndarray, y_true: np.ndarray) -> np.ndarray:
         """
         Computes nonconformity scores (residuals) via conformal distribution:
         R_{t,h} = \\hat{y}_{t,h} - y_{t,h}
         """
-        return y_hat - y_true
+        return signed_forecast_residuals(y_true, y_hat)
 
     def _finalize_residuals(
         self,
@@ -174,14 +198,7 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         """Fits a temporary model and predicts the validation horizon."""
         temp_model = copy.deepcopy(self.learner)
 
-        self._invoke(
-            temp_model.fit,
-            df=train_df,
-            id_col=self.id_col,
-            time_col=self.time_col,
-            target_col=self.target_col,
-            static_features=static_features,
-        )
+        self._fit_forecaster(temp_model, train_df, static_features=static_features)
 
         predict_cols = [self.id_col, self.time_col] + self.exog_cols_
         X_val = val_df[predict_cols] if self.exog_cols_ else None
@@ -264,8 +281,11 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
                 raise ValueError(
                     f"Forecast identifier {series_id!r} must contain exactly {h} rows."
                 )
-            lower_bound[row_mask] = y_hat[row_mask] - q_high_h
-            upper_bound[row_mask] = y_hat[row_mask] - q_low_h
+            lower, upper = signed_residual_bounds(
+                y_hat[row_mask], q_low_h, q_high_h
+            )
+            lower_bound[row_mask] = lower
+            upper_bound[row_mask] = upper
 
         return lower_bound, upper_bound
 

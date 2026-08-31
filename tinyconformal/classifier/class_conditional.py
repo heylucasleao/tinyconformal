@@ -3,23 +3,24 @@
 # Licensed under the MIT License
 
 
-import warnings
-
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
 
-from tinyconformal.utils.quantiles import conformal_quantile_level
+from tinyconformal.core.conformal import (
+    class_indices,
+    conformal_p_values,
+    threshold_prediction_set,
+)
+from tinyconformal.core.quantiles import conformal_quantile_level
 
 from .base import BaseConformalClassifier
-
-warnings.filterwarnings("ignore", category=RuntimeWarning, module="venn_abers")
 
 
 class BinaryClassConditionalConformalClassifier(
     ClassifierMixin, BaseEstimator, BaseConformalClassifier
 ):
     """
-    A modrian class conditional conformal classifier methodology utilizing a classifier as the underlying learner.
+    A Mondrian class-conditional conformal classifier using a binary learner.
     This class is inspired by the WrapperClassifier classes from the Crepes library.
     """
 
@@ -34,7 +35,7 @@ class BinaryClassConditionalConformalClassifier(
         Parameters:
         ----------
         learner : BaseEstimator
-            The base learner to be used in the classifier.
+            Already-fitted binary classifier implementing ``predict_proba``.
         alpha : float, default=0.05
             The significance level applied in the classifier.
 
@@ -47,7 +48,7 @@ class BinaryClassConditionalConformalClassifier(
         classes : array-like of shape (n_classes,), default=None
             The unique class labels identified during training.
         hinge : list of array-like, default=None
-            Nonconformity scores for each class based on the predicted probabilities.
+            Per-class calibration scores ``1 - p_true``.
         n : array-like of shape (n_classes,), default=None
             The number of calibration points for each class.
         alpha : float, default=0.05
@@ -56,64 +57,9 @@ class BinaryClassConditionalConformalClassifier(
 
         super().__init__(learner, alpha)
 
-    def unlabeled_fit(
-        self,
-        X=None,
-        beta=None,
-    ):
-        """Fits the class-conditional conformal layer using unlabeled data via
-        pseudo-labels (Flechsig & Pilz, 2025).
-
-        Standard CP guarantees coverage >= 1 - alpha using labeled data.
-        With unlabeled data, the model exactness error (beta) degrades the bound:
-        Coverage >= 1 - alpha - beta
-
-        Parameters:
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Unlabeled calibration features.
-        beta : float, optional (default=None)
-            Base model error rate (1 - accuracy). Used to adjust the expected
-            theoretical coverage bound (1 - alpha - beta).
-
-        Returns:
-        -------
-        self : object
-            The fitted classifier.
-        """
-        if X is None:
-            raise ValueError("Unlabeled calibration data (X) must be provided.")
-
-        if beta is None:
-            warnings.warn(
-                "The parameter 'beta' (base model error rate, 1 - accuracy) was not provided. "
-                "Without 'beta', the nominal target coverage (1 - alpha) will not hold, "
-                "and the actual lower coverage bound (1 - alpha - beta) cannot be interpreted correctly. "
-                "Consider estimating accuracy beforehand, e.g., via: "
-                "`beta = 1 - cross_val_score(learner, X_train, y_train, cv=5, scoring='accuracy', n_jobs=-1).mean()`",
-                UserWarning,
-                stacklevel=2,
-            )
-
-        self.is_unlabeled = True
-        self.beta = beta
-        y_prob = self.learner.predict_proba(X)
-        idx_max = np.argmax(y_prob, axis=1)
-        max_prob = y_prob[np.arange(len(X)), idx_max]
-        ncscore = self.generate_non_conformity_score(max_prob)
-        self.hinge = [ncscore[idx_max == c] for c in self.classes]
-        self.n = [np.sum(idx_max == c) for c in self.classes]
-
-        if any(n_c == 0 for n_c in self.n):
-            raise ValueError(
-                "Class-conditional calibration requires pseudo-labels from both classes."
-            )
-
-        return self
-
     def fit(self, X=None, y=None, oob=False):
         """
-        Fits the classifier to the training data. Calculates the conformity score for each training instance.
+        Calibrate the classifier from class-conditional nonconformity scores.
 
         Parameters:
         ----------
@@ -137,14 +83,6 @@ class BinaryClassConditionalConformalClassifier(
         """
         if y is None:
             raise ValueError("The true labels (y) must be provided.")
-
-        if any(not np.any(y == c) for c in self.classes):
-            raise ValueError(
-                "Class-conditional calibration requires samples from both classes."
-            )
-
-        self.is_unlabeled = False
-        self.beta = None
 
         if oob:
             if (
@@ -170,16 +108,16 @@ class BinaryClassConditionalConformalClassifier(
             # Use predict_proba for training data
             self.decision_function_ = self.learner.predict_proba(X)
 
-        self.calibration_layer.fit(self.decision_function_, y)
+        return self.fit_from_probabilities(self.decision_function_, y)
 
-        y_prob, _ = self.calibration_layer.predict_proba(self.decision_function_)
-
-        y_prob = y_prob[np.arange(len(y)), y]
-        hinge = self.generate_non_conformity_score(y_prob)
-        self.hinge = [hinge[y == c] for c in self.classes]
-        self.n = [np.sum(y == c) for c in self.classes]
-
-        return self
+    def _store_calibration_scores(self, scores, labels):
+        indices = class_indices(labels, self.classes)
+        self.hinge = [scores[indices == index] for index in range(len(self.classes))]
+        self.n = [values.size for values in self.hinge]
+        if any(size == 0 for size in self.n):
+            raise ValueError(
+                "Class-conditional calibration requires samples from both classes."
+            )
 
     def _compute_q_level(self, n, alpha):
         """
@@ -187,12 +125,12 @@ class BinaryClassConditionalConformalClassifier(
         """
         alpha = self._get_alpha(alpha)
         q_level = np.zeros(len(self.classes))
-        for c in self.classes:
-            q_level[c] = conformal_quantile_level(
-                n[c],
+        for index, label in enumerate(self.classes):
+            q_level[index] = conformal_quantile_level(
+                n[index],
                 alpha,
                 warning_registry=self._quantile_warning_registry,
-                context=f"{self.__class__.__name__} class {c!r}",
+                context=f"{self.__class__.__name__} class {label!r}",
             )
         return q_level
 
@@ -201,31 +139,32 @@ class BinaryClassConditionalConformalClassifier(
         Compute the q-hat value based on the nonconformity scores and the quantile level.
         """
         qhat = np.zeros(len(self.classes))
-        for c in self.classes:
-            qhat[c] = np.quantile(ncscore[c], q_level[c], method="higher")
+        for index in range(len(self.classes)):
+            qhat[index] = np.quantile(
+                ncscore[index], q_level[index], method="higher"
+            )
         return qhat
 
     def _compute_set(self, ncscore, qhat):
         """
         Compute a predict set based on the given ncscore and qhat.
         """
-        prediction_set = np.zeros((len(ncscore), len(self.classes)))
-        for c in self.classes:
-            prediction_set[:, c] = (ncscore <= qhat[c])[:, c]
-        return prediction_set
+        return threshold_prediction_set(ncscore, qhat)
 
     def predict_set(self, X, alpha=None):
         """
         Predicts the possible set of classes for the instances in X based on the predefined significance level.
 
-        Parameters:
-        X: array-like of shape (n_samples, n_features)
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
             The input samples.
-        alpha: float, default=None
+        alpha : float or None, default=None
             The significance level. If None, the value of self.alpha is used.
 
-        Returns:
-        prediction_set: array-like of shape (n_samples, n_classes)
+        Returns
+        -------
+        prediction_set : ndarray of shape (n_samples, 2)
             The predicted set of classes. A class is included in the set if its non-conformity score is less
             than or equal to the quantile of the hinge loss distribution at the (n+1)*(1-alpha)/n level.
         """
@@ -255,12 +194,9 @@ class BinaryClassConditionalConformalClassifier(
         """
         y_prob = self.predict_proba(X)
         ncscore = self.generate_non_conformity_score(y_prob)
-        p_values = np.zeros_like(ncscore)
-
-        for i in range(ncscore.shape[0]):
-            for j in range(ncscore.shape[1]):
-                numerator = np.sum(self.hinge[j] >= ncscore[i][j]) + 1
-                denumerator = self.n[j] + 1
-                p_values[i, j] = numerator / denumerator
-
-        return p_values
+        return np.column_stack(
+            [
+                conformal_p_values(self.hinge[index], ncscore[:, index])
+                for index in range(len(self.classes))
+            ]
+        )

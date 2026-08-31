@@ -10,8 +10,12 @@ import pandas as pd
 from joblib import Parallel, delayed
 from sklearn.base import BaseEstimator, RegressorMixin
 
+from tinyconformal.core.quantiles import (
+    temporal_decay_weights,
+    validate_alpha,
+    weighted_quantile,
+)
 from tinyconformal.utils.imports import requires_extra
-from tinyconformal.utils.quantiles import validate_alpha
 
 
 class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
@@ -43,6 +47,9 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         learner: BaseEstimator,
         horizon: int,
         n_windows: int = 10,
+        nexcp: bool = False,
+        decay: float = 0.99,
+        weighted_refit: bool = True,
         id_col: str = "unique_id",
         time_col: str = "ds",
         target_col: str = "y",
@@ -58,6 +65,14 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             Forecast horizon step count (H).
         n_windows : int, default=10
             Number of backtesting windows used to extract calibration residuals.
+        nexcp : bool, default=False
+            Whether to weight calibration windows by exponential recency decay.
+        decay : float, default=0.99
+            Decay factor in ``(0, 1)`` used when ``nexcp=True``. The most
+            recent observations and calibration windows receive the most weight.
+        weighted_refit : bool, default=True
+            Whether to pass recency weights to ``learner.fit`` through
+            ``weight_col`` when ``nexcp=True``. Has no effect otherwise.
         id_col : str, default="unique_id"
             Column name representing the unique identifier for each time series.
         time_col : str, default="ds"
@@ -73,6 +88,12 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             Forecast horizon step count (H).
         n_windows : int
             Number of backtesting windows.
+        nexcp : bool
+            Whether exponentially decayed calibration weights are enabled.
+        decay : float
+            Exponential recency-decay factor.
+        weighted_refit : bool
+            Whether recency weights are also used while fitting the learner.
         id_col : str
             Identifier column name.
         time_col : str
@@ -92,6 +113,9 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         self.learner = learner
         self.h = horizon
         self.n_windows = n_windows
+        self.nexcp = nexcp
+        self.decay = decay
+        self.weighted_refit = weighted_refit
         self.id_col = id_col
         self.time_col = time_col
         self.target_col = target_col
@@ -163,7 +187,54 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         """
         Compute the q-hat quantile value based on nonconformity scores and the quantile level.
         """
-        return np.quantile(ncscore, q_level, method="higher", axis=axis)
+        if not self.nexcp:
+            return np.quantile(ncscore, q_level, method="higher", axis=axis)
+        weights = temporal_decay_weights(np.asarray(ncscore).shape[0], self.decay)
+        return weighted_quantile(ncscore, q_level, weights, axis=axis)
+
+    def _validate_nexcp(self) -> None:
+        """Validate shared NexCP-style temporal weighting parameters."""
+        if not isinstance(self.nexcp, (bool, np.bool_)):
+            raise TypeError("nexcp must be a boolean.")
+        if not isinstance(self.weighted_refit, (bool, np.bool_)):
+            raise TypeError("weighted_refit must be a boolean.")
+        temporal_decay_weights(1, self.decay)
+
+    @staticmethod
+    def _accepts_parameter(method, parameter: str) -> bool:
+        signature = inspect.signature(method)
+        return parameter in signature.parameters or any(
+            item.kind == inspect.Parameter.VAR_KEYWORD
+            for item in signature.parameters.values()
+        )
+
+    def _fit_forecaster(self, learner, df, static_features=None) -> None:
+        """Fit a Nixtla learner, optionally applying NexCP recency weights."""
+        fit_df = df
+        weight_col = None
+        if self.nexcp and self.weighted_refit:
+            if not self._accepts_parameter(learner.fit, "weight_col"):
+                raise TypeError(
+                    f"{type(learner).__name__}.fit must accept weight_col when "
+                    "nexcp=True and weighted_refit=True."
+                )
+            weight_col = "_tinyconformal_weight"
+            if weight_col in df.columns:
+                raise ValueError(f"Training data already contains '{weight_col}'.")
+            times = np.sort(df[self.time_col].unique())
+            weights = temporal_decay_weights(len(times), self.decay)
+            time_weights = dict(zip(times, weights))
+            fit_df = df.copy()
+            fit_df[weight_col] = fit_df[self.time_col].map(time_weights)
+        self._invoke(
+            learner.fit,
+            df=fit_df,
+            id_col=self.id_col,
+            time_col=self.time_col,
+            target_col=self.target_col,
+            static_features=static_features,
+            weight_col=weight_col,
+        )
 
     def _infer_model_cols(self, df: pd.DataFrame) -> list[str]:
         """
@@ -192,6 +263,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
 
     def _validate_fit_configuration(self) -> None:
         """Validate subclass-specific calibration configuration before fitting."""
+        self._validate_nexcp()
 
     def _get_horizon(self, h: int | None = None) -> int:
         """Helper to retrieve and validate the forecast horizon."""
@@ -617,13 +689,8 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         first_model = next(iter(self.ncscores_))
         self.n = self._calibration_size(self.ncscores_[first_model])
 
-        self._invoke(
-            self.learner.fit,
-            df=df,
-            id_col=self.id_col,
-            time_col=self.time_col,
-            target_col=self.target_col,
-            static_features=self.static_features_ or None,
+        self._fit_forecaster(
+            self.learner, df, static_features=self.static_features_ or None
         )
 
         return self

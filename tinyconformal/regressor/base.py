@@ -7,10 +7,9 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 from sklearn.base import BaseEstimator
-from sklearn.metrics import mean_absolute_error
 from sklearn.utils.validation import check_is_fitted
 
-from tinyconformal.utils.quantiles import conformal_quantile_level, validate_alpha
+from tinyconformal.core.quantiles import conformal_quantile_level, validate_alpha
 
 
 class BaseConformalRegressor(ABC):
@@ -35,7 +34,7 @@ class BaseConformalRegressor(ABC):
         Parameters:
         ----------
         learner : BaseEstimator
-            The base learner to be used in the regressor.
+            Already-fitted base learner used by the conformal regressor.
         alpha : float, default=0.05
             The significance level applied in the regressor.
 
@@ -58,7 +57,6 @@ class BaseConformalRegressor(ABC):
         self.decision_function_ = None
         self.ncscore = None
         self.n = None
-        self.beta = None
         self._quantile_warning_registry = set()
 
         # Ensure the learner is fitted
@@ -66,22 +64,13 @@ class BaseConformalRegressor(ABC):
 
     @abstractmethod
     def fit(self, y):
-        """
-        Fits the classifier to the training data.
-        """
+        """Calibrate the regressor from targets or subclass-specific inputs."""
 
     @abstractmethod
     def predict_interval(self, X, alpha=None):
         """
         Generate prediction intervals for the input data.
         To be implemented by subclasses.
-        """
-
-    @abstractmethod
-    def predict(self, X):
-        """
-        Abstract method to retrieve point predictions (y_pred)
-        specific to the conformal strategy (ICP vs CQR).
         """
 
     def _compute_qhat(self, ncscore, q_level):
@@ -190,47 +179,29 @@ class BaseConformalRegressor(ABC):
         # Return the mean Winkler interval score
         return np.mean(width + penalty_lower + penalty_upper)
 
-    def _get_point_predictions(self, X, alpha=None):
-        """
-        Internal helper for `evaluate()` to fetch point predictions safely.
-        """
-        alpha = self._get_alpha(alpha)
-        try:
-            return self.predict(X, alpha)
-        except Exception as e:
-            raise ValueError(
-                "The base learner must be fitted with the median (0.50 quantile) "
-                "to evaluate point-based metrics (MAE, MSE, MBE)."
-            ) from e
-
     def evaluate(self, X, y, alpha=None):
-        """
-        Evaluate the performance the regressor on the given dataset.
-        Parameters:
-            X:
-                The input features for the evaluation dataset.
-            y:
-                The true target values corresponding to the input features.
-            alpha:
-                Significance level for prediction intervals. If None, the regressor's default alpha is used.
-        Returns:
-            A dictionary containing the following evaluation metrics:
-            - "total" (int): The total number of samples in the dataset.
-            - "alpha" (float): The significance level used for evaluation.
-            - "beta" (float): Base model error rate (if `unlabeled_fit` was used)
-            - "coverage_rate" (float): The coverage rate of the prediction intervals.
-            - "interval_width_mean" (float): The mean width of the prediction intervals.
-            - "mwis" (float): The Mean Weighted Interval Score (MWIS).
-            - "mae" (float): The Mean Absolute Error (MAE) of the predictions.
-            - "mbe" (float): The Mean Bias Error (MBE) of the predictions.
-            - "mse" (float): The Mean Squared Error (MSE) of the predictions.
+        """Evaluate interval coverage, width, and mean Winkler score.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input features passed to ``predict_interval``.
+        y : array-like of shape (n_samples,)
+            Observed target values.
+        alpha : float or None, default=None
+            Significance-level override. Uses ``self.alpha`` when omitted.
+
+        Returns
+        -------
+        dict
+            Evaluation summary containing ``total``, ``alpha``,
+            ``coverage_rate``, ``interval_width_mean``, and ``mwis``.
         """
 
         alpha = self._get_alpha(alpha)
 
         y_pred_intervals = self.predict_interval(X, alpha)
         bounds = np.column_stack([y_pred_intervals[:, 0], y_pred_intervals[:, -1]])
-        y_pred = self._get_point_predictions(X, alpha)
 
         def rounded(value):
             return np.round(value, 3)
@@ -239,18 +210,11 @@ class BaseConformalRegressor(ABC):
         coverage_rate = rounded(self._coverage_rate(y, bounds))
         interval_width_mean = rounded(self._interval_width_mean(bounds))
         mwi_score = rounded(self._mwi_score(y, bounds, alpha))
-        mae = rounded(mean_absolute_error(y, y_pred))
-        mbe = rounded(np.mean(y_pred - y))
-        mse = rounded(np.mean((y_pred - y) ** 2))
 
         return {
             "total": total,
             "alpha": alpha,
-            "beta": getattr(self, "beta", None),
             "coverage_rate": coverage_rate,
             "interval_width_mean": interval_width_mean,
             "mwis": mwi_score,
-            "mae": mae,
-            "mbe": mbe,
-            "mse": mse,
         }

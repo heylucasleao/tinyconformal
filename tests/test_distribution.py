@@ -4,10 +4,27 @@ import pytest
 from sklearn.dummy import DummyRegressor
 
 from tinyconformal.distribution import (
-    ContinuousConformalPredictiveSystem,
-    DiscreteConformalPredictiveSystem,
+    ContinuousCrossConformalPredictiveSystem,
+    DiscreteCrossConformalPredictiveSystem,
 )
 from tinyconformal.utils.solver import NewsvendorSolver
+
+
+def test_distribution_public_api_only_exports_modeling_classes():
+    import tinyconformal.distribution as distribution
+
+    assert distribution.__all__ == [
+        "ContinuousCrossConformalPredictiveSystem",
+        "DiscreteCrossConformalPredictiveSystem",
+    ]
+    assert not hasattr(distribution, "PredictiveDistribution")
+    assert not hasattr(distribution, "CrossConformalPredictiveSystem")
+
+
+def test_distribution_models_do_not_expose_predict_alias():
+    cps = ContinuousCrossConformalPredictiveSystem(_fitted_dummy(), _fitted_scale())
+
+    assert not hasattr(cps, "predict")
 
 
 def _fitted_dummy(value=10.0):
@@ -16,16 +33,24 @@ def _fitted_dummy(value=10.0):
     return model
 
 
-def test_continuous_cps_cdf_ppf_interval_and_sample():
-    cps = ContinuousConformalPredictiveSystem(_fitted_dummy())
+def _fitted_scale(value=1.0):
+    return _fitted_dummy(value=value)
+
+
+def test_continuous_cps_cdf_ppf_and_interval():
+    cps = ContinuousCrossConformalPredictiveSystem(
+        _fitted_dummy(), _fitted_scale(), cv=2
+    )
     cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
     distribution = cps.predict_distribution(np.array([[20], [21]]))
+    assert not hasattr(distribution, "sample")
 
-    np.testing.assert_allclose(distribution.cdf([10, 11]), [0.5, 2 / 3])
+    np.testing.assert_allclose(
+        distribution.cdf(np.array([[10], [11]])), [0.5, 2 / 3]
+    )
     np.testing.assert_allclose(distribution.ppf(0.5), [10, 10])
     assert distribution.ppf([0.25, 0.50, 0.75]).shape == (2, 3)
     assert distribution.interval(0.8).shape == (2, 2)
-    assert distribution.sample(4, random_state=42).shape == (2, 4)
 
     quantile_grid = np.linspace(0.01, 0.99, 11)
     draws = distribution.ppf(quantile_grid)
@@ -33,7 +58,9 @@ def test_continuous_cps_cdf_ppf_interval_and_sample():
 
 
 def test_discrete_cps_has_integer_nonnegative_support_and_pmf():
-    cps = DiscreteConformalPredictiveSystem(_fitted_dummy(value=1.5))
+    cps = DiscreteCrossConformalPredictiveSystem(
+        _fitted_dummy(value=1.5), _fitted_scale()
+    )
     cps.fit(np.arange(5).reshape(-1, 1), np.array([0, 0, 1, 2, 3]))
     distribution = cps.predict_distribution(np.array([[10], [11]]))
 
@@ -41,31 +68,32 @@ def test_discrete_cps_has_integer_nonnegative_support_and_pmf():
     assert np.issubdtype(quantiles.dtype, np.integer)
     assert np.all(quantiles >= 0)
     masses = distribution.pmf(np.array([0, 1]))
-    assert masses.shape == (2,)
+    assert masses.shape == (2, 2)
     assert np.all(masses >= 0)
     np.testing.assert_array_equal(distribution.cdf(-1), [0.0, 0.0])
 
 
 def test_discrete_cps_rejects_non_integer_targets():
-    cps = DiscreteConformalPredictiveSystem(_fitted_dummy())
+    cps = DiscreteCrossConformalPredictiveSystem(_fitted_dummy(), _fitted_scale())
     with pytest.raises(ValueError, match="integer-valued"):
         cps.fit(np.array([[0], [1]]), np.array([1.0, 1.5]))
 
 
-def test_cps_accepts_precomputed_forecasting_predictions():
-    cps = DiscreteConformalPredictiveSystem(_fitted_dummy())
-    cps.fit_from_predictions(
-        y=np.array([0, 1, 2]), predictions=np.array([0.5, 1.5, 1.5])
+def test_cps_stores_cross_fitted_location_scale_and_standardized_scores():
+    cps = ContinuousCrossConformalPredictiveSystem(
+        _fitted_dummy(), _fitted_scale(), cv=2
+    ).fit(np.arange(6).reshape(-1, 1), np.array([8, 9, 10, 11, 12, 13]))
+
+    assert cps.residuals_.shape == (6,)
+    assert cps.scales_.shape == (6,)
+    np.testing.assert_allclose(
+        cps.standardized_residuals_, cps.residuals_ / cps.scales_
     )
-
-    distribution = cps.predict_distribution_from_predictions(np.array([4.2, 8.1]))
-
-    assert len(distribution) == 2
-    assert distribution.interval(0.8).shape == (2, 2)
+    assert np.all(cps.scales_ > 0)
 
 
 def test_newsvendor_uses_distribution_ppf_row_wise():
-    cps = ContinuousConformalPredictiveSystem(_fitted_dummy())
+    cps = ContinuousCrossConformalPredictiveSystem(_fitted_dummy(), _fitted_scale())
     cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
     distribution = cps.predict_distribution(np.array([[20], [21]]))
     frame = pd.DataFrame({"unique_id": ["a", "b"], "ds": [1, 1], "cu": [1.0, 9.0]})
@@ -76,12 +104,14 @@ def test_newsvendor_uses_distribution_ppf_row_wise():
 
     np.testing.assert_allclose(result["critical_ratio"], [0.5, 0.9])
     np.testing.assert_allclose(
-        result["y_optimal"], distribution.ppf(np.array([0.5, 0.9]))
+        result["y_optimal"], distribution.ppf(np.array([[0.5], [0.9]]))
     )
 
 
 def test_newsvendor_rejects_distribution_batch_size_mismatch():
-    cps = ContinuousConformalPredictiveSystem(_fitted_dummy())
+    cps = ContinuousCrossConformalPredictiveSystem(
+        _fitted_dummy(), _fitted_scale(), cv=2
+    )
     cps.fit(np.array([[0], [1]]), np.array([9.0, 11.0]))
     distribution = cps.predict_distribution(np.array([[0]]))
 
@@ -95,7 +125,9 @@ def test_newsvendor_rejects_distribution_batch_size_mismatch():
 
 
 def test_newsvendor_marginal_benefit_uses_discrete_cdf():
-    cps = DiscreteConformalPredictiveSystem(_fitted_dummy(value=1.5))
+    cps = DiscreteCrossConformalPredictiveSystem(
+        _fitted_dummy(value=1.5), _fitted_scale()
+    )
     cps.fit(np.arange(5).reshape(-1, 1), np.array([0, 0, 1, 2, 3]))
     distribution = cps.predict_distribution(np.array([[10], [11]]))
     frame = pd.DataFrame(
@@ -128,7 +160,9 @@ def test_newsvendor_marginal_benefit_uses_discrete_cdf():
 
 
 def test_newsvendor_marginal_benefit_supports_explicit_units():
-    cps = DiscreteConformalPredictiveSystem(_fitted_dummy(value=1.5))
+    cps = DiscreteCrossConformalPredictiveSystem(
+        _fitted_dummy(value=1.5), _fitted_scale()
+    )
     cps.fit(np.arange(5).reshape(-1, 1), np.array([0, 0, 1, 2, 3]))
     distribution = cps.predict_distribution(np.array([[10]]))
     frame = pd.DataFrame({"unique_id": ["a"], "ds": [1]})
@@ -149,7 +183,9 @@ def test_newsvendor_marginal_benefit_supports_explicit_units():
 
 
 def test_newsvendor_pmf_supports_max_k_and_explicit_units():
-    cps = DiscreteConformalPredictiveSystem(_fitted_dummy(value=1.5))
+    cps = DiscreteCrossConformalPredictiveSystem(
+        _fitted_dummy(value=1.5), _fitted_scale()
+    )
     cps.fit(np.arange(5).reshape(-1, 1), np.array([0, 0, 1, 2, 3]))
     distribution = cps.predict_distribution(np.array([[10], [11]]))
     frame = pd.DataFrame({"unique_id": ["a", "b"], "ds": [1, 1]})
@@ -180,7 +216,9 @@ def test_newsvendor_pmf_supports_max_k_and_explicit_units():
     "method", ["pmf_distribution", "marginal_benefit_distribution"]
 )
 def test_newsvendor_unit_selection_is_mutually_exclusive(method):
-    cps = DiscreteConformalPredictiveSystem(_fitted_dummy(value=1.5))
+    cps = DiscreteCrossConformalPredictiveSystem(
+        _fitted_dummy(value=1.5), _fitted_scale()
+    )
     cps.fit(np.arange(5).reshape(-1, 1), np.array([0, 0, 1, 2, 3]))
     distribution = cps.predict_distribution(np.array([[10]]))
     frame = pd.DataFrame({"unique_id": ["a"], "ds": [1]})
@@ -197,7 +235,7 @@ def test_newsvendor_unit_selection_is_mutually_exclusive(method):
 
 
 def test_newsvendor_marginal_benefit_rejects_continuous_distribution():
-    cps = ContinuousConformalPredictiveSystem(_fitted_dummy())
+    cps = ContinuousCrossConformalPredictiveSystem(_fitted_dummy(), _fitted_scale())
     cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
     distribution = cps.predict_distribution(np.array([[20]]))
 
@@ -211,7 +249,7 @@ def test_newsvendor_marginal_benefit_rejects_continuous_distribution():
 
 
 def test_predictive_distribution_evaluates_coverage():
-    cps = ContinuousConformalPredictiveSystem(_fitted_dummy())
+    cps = ContinuousCrossConformalPredictiveSystem(_fitted_dummy(), _fitted_scale())
     cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
     distribution = cps.predict_distribution(np.array([[20], [21]]))
 

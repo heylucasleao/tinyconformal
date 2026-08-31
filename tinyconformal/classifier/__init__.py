@@ -3,5 +3,10 @@
 # Licensed under the MIT License
 
 
-from .marginal import BinaryMarginalConformalClassifier
 from .class_conditional import BinaryClassConditionalConformalClassifier
+from .marginal import BinaryMarginalConformalClassifier
+
+__all__ = [
+    "BinaryClassConditionalConformalClassifier",
+    "BinaryMarginalConformalClassifier",
+]
