@@ -202,6 +202,7 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
         ):
             raise TypeError("minimum must be an integer or None.")
 
+    @requires_extra("series")
     def fit(self, df, step_size=None, static_features=None, n_jobs=-1):
         if self.discrete:
             self._validate_columns(df)
@@ -551,6 +552,7 @@ class DiscreteTimeSeriesConformalPredictiveSystem(_TSCPS):
             target_col=target_col,
         )
 
+    @requires_extra("series")
     def predict_distribution(
         self,
         h: int | None = None,
