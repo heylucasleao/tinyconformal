@@ -2,11 +2,15 @@
 # tinyconformal - A small toolbox for mlops
 # Licensed under the MIT License
 
-from functools import wraps
 import importlib.util
-from typing import Dict, List, Callable, Any
+from collections.abc import Callable
+from functools import wraps
+from typing import ParamSpec, TypeVar
 
-EXTRA_DEPENDENCIES: Dict[str, List[str]] = {
+P = ParamSpec("P")
+R = TypeVar("R")
+
+EXTRA_DEPENDENCIES: dict[str, list[str]] = {
     "series": ["statsforecast", "mlforecast", "utilsforecast", "statsmodels"],
     "notebook": ["nbformat", "ipykernel"],
 }
@@ -41,13 +45,13 @@ def check_extra(extra_name: str) -> None:
         raise ImportError(
             f"The requested functionality requires the '{extra_name}' extra. "
             f"Missing required module(s): {missing_fmt}. "
-            f"Please install them via: pip install tinyshift[{extra_name}]"
+            f"Please install them via: pip install tinyconformal[{extra_name}]"
         )
 
 
 def requires_extra(
     extra_name: str,
-) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """
     Decorator that checks for required optional dependencies before executing the wrapped function.
 
@@ -57,9 +61,9 @@ def requires_extra(
         The name of the optional extra dependency group required by the function or method.
     """
 
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
         @wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             check_extra(extra_name)
             return func(*args, **kwargs)
 
