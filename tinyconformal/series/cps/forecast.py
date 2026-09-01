@@ -24,27 +24,42 @@ class _PanelConformalForecast:
         return self._frame.copy()
 
     def _output_frame(self) -> pd.DataFrame:
+        """Return an isolated frame to which distribution outputs can be added."""
         return self._frame.copy()
 
     @staticmethod
     def _label(value) -> str:
+        """Format a numeric value as a stable column-name component."""
         return np.format_float_positional(float(value), precision=12, trim="-")
 
-    def _apply(self, method: str, inputs, prefix: str) -> pd.DataFrame:
+    def _single_output_column(self, inputs, prefix, label_transform) -> str:
+        """Name a one-dimensional distribution result."""
+        if inputs.ndim != 0:
+            return f"{self.model}-{prefix}"
+        label = inputs if label_transform is None else label_transform(inputs)
+        return f"{self.model}-{prefix}-{self._label(label)}"
+
+    def _matrix_output_labels(self, inputs, n_columns, label_transform):
+        """Resolve labels for the columns of a matrix result."""
+        labels = np.ravel(inputs)
+        if labels.size != n_columns:
+            return np.arange(n_columns)
+        return labels if label_transform is None else label_transform(labels)
+
+    def _apply(
+        self, method: str, inputs, prefix: str, label_transform=None
+    ) -> pd.DataFrame:
+        """Evaluate a distribution method and append its output to the panel."""
         inputs_array = np.asarray(inputs)
         values = np.asarray(getattr(self._distribution, method)(inputs))
         result = self._output_frame()
         if values.ndim == 1:
-            if inputs_array.ndim == 0:
-                label = self._label(inputs_array)
-                column = f"{self.model}-{prefix}-{label}"
-            else:
-                column = f"{self.model}-{prefix}"
+            column = self._single_output_column(inputs_array, prefix, label_transform)
             result[column] = values
             return result
-        labels = np.ravel(inputs_array)
-        if labels.size != values.shape[1]:
-            labels = np.arange(values.shape[1])
+        labels = self._matrix_output_labels(
+            inputs_array, values.shape[1], label_transform
+        )
         for index, label in enumerate(labels):
             result[f"{self.model}-{prefix}-{self._label(label)}"] = values[:, index]
         return result
@@ -114,20 +129,7 @@ class _PanelConformalForecast:
         Output rows remain positionally aligned with the rows returned by
         :meth:`to_frame`. Discrete CPS forecasts return integer quantiles.
         """
-        quantiles_array = np.asarray(quantiles, dtype=float)
-        result = self._apply("ppf", quantiles, "q")
-        if quantiles_array.ndim == 0:
-            old = f"{self.model}-q-{self._label(quantiles_array)}"
-            new = f"{self.model}-q-{self._label(100.0 * quantiles_array)}"
-            return result.rename(columns={old: new})
-        if quantiles_array.ndim == 1:
-            return result.rename(
-                columns={
-                    f"{self.model}-q-{self._label(q)}": f"{self.model}-q-{self._label(100.0 * q)}"
-                    for q in quantiles_array
-                }
-            )
-        return result
+        return self._apply("ppf", quantiles, "q", label_transform=lambda q: 100.0 * q)
 
     def interval(self, coverage: float = 0.95) -> pd.DataFrame:
         """Return a central interval on the forecast panel grid."""

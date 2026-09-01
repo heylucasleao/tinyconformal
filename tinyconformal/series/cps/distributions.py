@@ -15,6 +15,7 @@ from tinyconformal.distribution.base import (
 
 
 def _validate_matrix(values, name: str) -> np.ndarray:
+    """Convert values to a finite, non-empty two-dimensional array."""
     array = np.asarray(values, dtype=float)
     if array.ndim != 2 or 0 in array.shape:
         raise ValueError(f"{name} must be a non-empty two-dimensional array.")
@@ -96,6 +97,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         self._validate_calibrated_horizon(calibrated_horizon)
 
     def _validate_scales(self, scales) -> np.ndarray:
+        """Return positive row-aligned scales, defaulting to one."""
         if scales is None:
             return np.ones_like(self.locations)
         scales = np.asarray(scales, dtype=float)
@@ -106,6 +108,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         return scales
 
     def _validate_weights(self, weights):
+        """Validate and normalize calibration-window weights."""
         if weights is None:
             return None
         weights = np.asarray(weights, dtype=float)
@@ -123,24 +126,28 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
 
     @staticmethod
     def _validate_locations(locations) -> np.ndarray:
+        """Return locations as a finite one-dimensional array."""
         locations = np.asarray(locations, dtype=float)
         if locations.ndim != 1 or not np.all(np.isfinite(locations)):
             raise ValueError("locations must be a finite one-dimensional array.")
         return locations
 
     def _validate_horizon_steps(self, horizon_steps) -> np.ndarray:
+        """Validate that every location has a corresponding horizon step."""
         horizon_steps = np.asarray(horizon_steps, dtype=int)
         if horizon_steps.shape != self.locations.shape:
             raise ValueError("horizon_steps and locations must have the same shape.")
         return horizon_steps
 
     def _prepare_residuals(self, residuals, series_ids):
+        """Normalize pooled or per-series calibration residuals."""
         if isinstance(residuals, Mapping):
             return self._prepare_series_residuals(residuals, series_ids)
         residuals = _validate_matrix(residuals, "residuals")
         return residuals, None
 
     def _prepare_series_residuals(self, residuals, series_ids):
+        """Validate residual matrices and align them with prediction series."""
         if series_ids is None:
             raise ValueError("series_ids is required when residuals is a mapping.")
         series_ids = np.asarray(series_ids)
@@ -158,6 +165,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         return prepared, series_ids
 
     def _residual_shape(self) -> tuple[int, int]:
+        """Return the common calibration-window and horizon dimensions."""
         if not isinstance(self.residuals, Mapping):
             return self.residuals.shape
         shapes = {values.shape for values in self.residuals.values()}
@@ -166,6 +174,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         return next(iter(shapes))
 
     def _validate_calibrated_horizon(self, calibrated_horizon: int) -> None:
+        """Reject prediction rows outside the calibrated horizon."""
         if np.any(
             (self.horizon_steps < 0) | (self.horizon_steps >= calibrated_horizon)
         ):
@@ -179,6 +188,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         return self._n_calibration
 
     def _row_residuals(self) -> np.ndarray:
+        """Select and scale the calibration residuals for every forecast row."""
         if self.series_ids is not None:
             residuals = np.vstack(
                 [
@@ -205,19 +215,30 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         )
         return result[:, 0] if squeeze else result
 
-    def ppf(self, quantiles):
-        if self.weights is None:
-            return super().ppf(quantiles)
-        quantiles, squeeze = self._rowwise_or_grid(quantiles, "quantiles")
-        if np.any((quantiles < 0.0) | (quantiles > 1.0)):
-            raise ValueError("quantiles must lie in [0, 1].")
+    def _sorted_weighted_residuals(self) -> tuple[np.ndarray, np.ndarray]:
+        """Sort each residual row and align its calibration weights."""
         residuals = self._row_residuals()
         order = np.argsort(residuals, axis=1)
         sorted_residuals = np.take_along_axis(residuals, order, axis=1)
         row_weights = np.broadcast_to(self.weights, residuals.shape)
         sorted_weights = np.take_along_axis(row_weights, order, axis=1)
+        return sorted_residuals, sorted_weights
+
+    @staticmethod
+    def _weighted_quantile_indices(sorted_weights, quantiles) -> np.ndarray:
+        """Locate the first weighted empirical rank reaching each quantile."""
         cumulative = np.cumsum(sorted_weights, axis=1)
-        indices = np.argmax(cumulative[:, :, None] >= quantiles[:, None, :], axis=1)
+        return np.argmax(cumulative[:, :, None] >= quantiles[:, None, :], axis=1)
+
+    def ppf(self, quantiles):
+        """Evaluate predictive quantiles, using window weights when configured."""
+        if self.weights is None:
+            return super().ppf(quantiles)
+        quantiles, squeeze = self._rowwise_or_grid(quantiles, "quantiles")
+        if np.any((quantiles < 0.0) | (quantiles > 1.0)):
+            raise ValueError("quantiles must lie in [0, 1].")
+        sorted_residuals, sorted_weights = self._sorted_weighted_residuals()
+        indices = self._weighted_quantile_indices(sorted_weights, quantiles)
         selected = np.take_along_axis(sorted_residuals, indices, axis=1)
         result = self.locations[:, None] + selected
         return result[:, 0] if squeeze else result
