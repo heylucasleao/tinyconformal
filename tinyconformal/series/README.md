@@ -118,3 +118,10 @@ updated panel; this reruns the complete flow above. With `nexcp=True`, recency
 weights affect the stored calibration distribution. With both `nexcp=True` and
 `weighted_refit=True`, compatible learners also receive recency weights in the
 calibration-window fits and the final fits.
+
+## Internal implementation
+
+The CPS implementation is divided into model orchestration, conditional-scale
+calibration, predictive distributions, and panel-aligned forecast adapters. See
+[`cps/README.md`](cps/README.md) for the module boundaries, invariants, and
+extension rules.
