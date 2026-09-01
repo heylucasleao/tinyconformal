@@ -160,9 +160,11 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
         )
 
     def _scale_features(self, series_ids) -> pd.DataFrame:
+        """Build the series-and-horizon features used for dispersion modeling."""
         return self._scale_calibrator.features(series_ids)
 
     def _new_dispersion_pipeline(self) -> Pipeline:
+        """Create an unfitted conditional-dispersion pipeline."""
         return self._scale_calibrator.new_pipeline()
 
     def _fit_conditional_scales(self, n_jobs: int = -1) -> None:
@@ -184,6 +186,7 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
         ) = self._scale_calibrator.fit_transform(self.raw_residuals_, n_jobs=n_jobs)
 
     def _validate_fit_configuration(self) -> None:
+        """Validate CPS-specific learner and discrete-target configuration."""
         super()._validate_fit_configuration()
         configured_models = getattr(self.learner, "models", None)
         if (
@@ -227,6 +230,7 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
     def _prediction_frame(
         self, h: int | None, X_df: pd.DataFrame | None
     ) -> tuple[pd.DataFrame, list[str], int]:
+        """Predict and validate a sorted future panel for distribution building."""
         h = self._get_horizon(h)
         self._check_is_fitted()
         X_df = self._validate_prediction_features(X_df, h)
@@ -252,6 +256,7 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
     def _build_distribution(
         self, pred_df: pd.DataFrame, model: str, h: int, n_series: int
     ) -> PredictiveDistribution:
+        """Combine point forecasts, scales, and residuals into a distribution."""
         horizon_steps = np.tile(np.arange(h), n_series)
         weights = temporal_decay_weights(self.n, self.decay) if self.nexcp else None
         if model not in self.ncscores_:

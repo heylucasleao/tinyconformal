@@ -153,6 +153,10 @@ def test_series_cps_quantiles_intervals_and_evaluation(
     assert {"Model-q-10", "Model-q-25", "Model-q-50", "Model-q-90"} <= set(
         quantiles
     )
+    rowwise_quantiles = forecast.ppf(
+        np.array([[0.1, 0.9], [0.2, 0.8], [0.3, 0.7], [0.4, 0.6]])
+    )
+    assert {"Model-q-0", "Model-q-1"} <= set(rowwise_quantiles)
 
     intervals = forecast.interval(0.9)
     assert {"Model-lo-90", "Model-hi-90"} <= set(intervals)

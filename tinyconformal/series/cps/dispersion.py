@@ -69,6 +69,7 @@ class ConditionalScaleCalibrator:
 
     @staticmethod
     def _accepts_parameter(method, parameter: str) -> bool:
+        """Check whether a method accepts a named or arbitrary keyword argument."""
         signature = inspect.signature(method)
         return parameter in signature.parameters or any(
             item.kind == inspect.Parameter.VAR_KEYWORD
@@ -77,10 +78,12 @@ class ConditionalScaleCalibrator:
 
     @staticmethod
     def _targets(residuals: np.ndarray) -> np.ndarray:
+        """Convert residuals into positive dispersion targets."""
         return np.maximum(np.abs(residuals).reshape(-1), 1e-6)
 
     @staticmethod
     def _validate(scales: np.ndarray) -> None:
+        """Require dispersion predictions to be finite and strictly positive."""
         if not np.all(np.isfinite(scales)) or np.any(scales <= 0.0):
             raise ValueError(
                 "Dispersion learner predictions must be positive and finite."
@@ -88,11 +91,13 @@ class ConditionalScaleCalibrator:
 
     @staticmethod
     def _by_series(values: np.ndarray, series_ids) -> dict:
+        """Split a window-by-series tensor into matrices keyed by series."""
         return {
             series_id: values[:, row, :] for row, series_id in enumerate(series_ids)
         }
 
     def _fit_pipeline(self, features, targets, windows) -> Pipeline:
+        """Fit a fresh dispersion pipeline, optionally with temporal weights."""
         pipeline = self.new_pipeline()
         fit_kwargs = {}
         if (
@@ -112,7 +117,10 @@ class ConditionalScaleCalibrator:
         n_series: int,
         n_jobs: int,
     ) -> np.ndarray:
+        """Generate leave-one-window-out scale predictions."""
+
         def process_window(window):
+            """Fit without one window and predict its conditional scales."""
             train_windows = np.delete(np.arange(self.n_windows), window)
             train_residuals = residuals[train_windows]
             train_features = pd.concat(
