@@ -117,7 +117,67 @@ class ConditionalScaleCalibrator:
         n_series: int,
         n_jobs: int,
     ) -> np.ndarray:
-        """Generate leave-one-window-out scale predictions."""
+        """Generate leave-one-window-out conditional-scale predictions.
+
+        Parameters
+        ----------
+        residuals : numpy.ndarray
+            Signed rolling-origin residuals with shape
+            ``(n_windows, n_series, horizon)``.
+        features : pandas.DataFrame
+            One copy of the complete ``(series_id, horizon)`` grid, ordered as
+            series first and horizon second. It has ``n_series * horizon`` rows
+            and deliberately contains neither a window identifier nor a target.
+        n_series : int
+            Number of series represented in ``residuals`` and ``features``.
+        n_jobs : int
+            Number of parallel jobs used to process held-out windows.
+
+        Returns
+        -------
+        numpy.ndarray
+            Positive OOF scale predictions with the same shape as ``residuals``.
+            Slice ``result[w]`` was produced by a pipeline fitted without window
+            ``w``.
+
+        Notes
+        -----
+        Leakage prevention comes from excluding the held-out window's targets
+        during fitting, not from presenting previously unseen feature values at
+        prediction time. ``series_id`` and ``horizon`` are known independently
+        of the observed residual and can therefore occur in both training and
+        prediction. The pipeline sees the identity of a series and its forecast
+        horizon, but never the held-out window's residual.
+
+        For example, consider one series ``A`` at horizon 1 across three
+        backtesting windows::
+
+            window    features    dispersion target
+              0        (A, 1)       abs(r[0, A, 1]) = 10
+              1        (A, 1)       abs(r[1, A, 1]) = 20
+              2        (A, 1)       abs(r[2, A, 1]) = 30
+
+        When window 1 is held out, the pipeline is fitted with::
+
+            X_train       y_train
+             (A, 1)         10
+             (A, 1)         30
+
+        Calling ``pipeline.predict(features)`` then asks for the scale of
+        ``(A, 1)`` using only those training targets. The excluded value 20 is
+        not an input to ``predict`` and did not participate in ``fit``. The
+        returned value is stored as the OOF scale for window 1 and later used
+        to standardize its signed residual::
+
+            standardized[1, A, 1] = r[1, A, 1] / scale_oof[1, A, 1]
+
+        In the general panel case, each fit receives the same complete feature
+        grid repeated once per included training window. A prediction receives
+        one copy of that grid and returns ``n_series * horizon`` values, which
+        are reshaped to ``(n_series, horizon)`` and assigned only to the current
+        held-out window. After every window is processed, those slices form the
+        final ``(n_windows, n_series, horizon)`` result.
+        """
 
         def process_window(window):
             """Fit without one window and predict its conditional scales."""
