@@ -117,7 +117,67 @@ class ConditionalScaleCalibrator:
         n_series: int,
         n_jobs: int,
     ) -> np.ndarray:
-        """Generate leave-one-window-out scale predictions."""
+        """Generate leave-one-window-out conditional-scale predictions.
+
+        Parameters
+        ----------
+        residuals : numpy.ndarray
+            Signed rolling-origin residuals with shape
+            ``(n_windows, n_series, horizon)``.
+        features : pandas.DataFrame
+            One copy of the complete ``(series_id, horizon)`` grid, ordered as
+            series first and horizon second. It has ``n_series * horizon`` rows
+            and deliberately contains neither a window identifier nor a target.
+        n_series : int
+            Number of series represented in ``residuals`` and ``features``.
+        n_jobs : int
+            Number of parallel jobs used to process held-out windows.
+
+        Returns
+        -------
+        numpy.ndarray
+            Positive OOF scale predictions with the same shape as ``residuals``.
+            Slice ``result[w]`` was produced by a pipeline fitted without window
+            ``w``.
+
+        Notes
+        -----
+        Leakage prevention comes from excluding the held-out window's targets
+        during fitting, not from presenting previously unseen feature values at
+        prediction time. ``series_id`` and ``horizon`` are known independently
+        of the observed residual and can therefore occur in both training and
+        prediction. The pipeline sees the identity of a series and its forecast
+        horizon, but never the held-out window's residual.
+
+        For example, consider one series ``A`` at horizon 1 across three
+        backtesting windows::
+
+            window    features    dispersion target
+              0        (A, 1)       abs(r[0, A, 1]) = 10
+              1        (A, 1)       abs(r[1, A, 1]) = 20
+              2        (A, 1)       abs(r[2, A, 1]) = 30
+
+        When window 1 is held out, the pipeline is fitted with::
+
+            X_train       y_train
+             (A, 1)         10
+             (A, 1)         30
+
+        Calling ``pipeline.predict(features)`` then asks for the scale of
+        ``(A, 1)`` using only those training targets. The excluded value 20 is
+        not an input to ``predict`` and did not participate in ``fit``. The
+        returned value is stored as the OOF scale for window 1 and later used
+        to standardize its signed residual::
+
+            standardized[1, A, 1] = r[1, A, 1] / scale_oof[1, A, 1]
+
+        In the general panel case, each fit receives the same complete feature
+        grid repeated once per included training window. A prediction receives
+        one copy of that grid and returns ``n_series * horizon`` values, which
+        are reshaped to ``(n_series, horizon)`` and assigned only to the current
+        held-out window. After every window is processed, those slices form the
+        final ``(n_windows, n_series, horizon)`` result.
+        """
 
         def process_window(window):
             """Fit without one window and predict its conditional scales."""
@@ -126,12 +186,14 @@ class ConditionalScaleCalibrator:
             train_features = pd.concat(
                 [features] * len(train_residuals), ignore_index=True
             )
-            model = self._fit_pipeline(
+            pipeline = self._fit_pipeline(
                 train_features,
                 self._targets(train_residuals),
                 train_windows,
             )
-            scales = np.asarray(model.predict(features), dtype=float).reshape(
+            # Predict one (series, horizon) grid for the held-out OOF window;
+            # predictions for all windows are assembled after this function returns.
+            scales = np.asarray(pipeline.predict(features), dtype=float).reshape(
                 n_series, self.horizon
             )
             return window, scales
@@ -145,7 +207,53 @@ class ConditionalScaleCalibrator:
         return scales
 
     def fit_transform(self, residuals_by_model, n_jobs: int = -1):
-        """Fit scales and return standardized residuals and fitted artifacts."""
+        """Cross-fit conditional scales and standardize calibration residuals.
+
+        Parameters
+        ----------
+        residuals_by_model : dict
+            Signed rolling-origin residuals keyed first by forecast-model name
+            and then by series identifier. Each per-series value must have shape
+            ``(n_windows, horizon)`` and contain ``y_hat - y`` residuals.
+            Exactly one forecast model is supported.
+        n_jobs : int, default=-1
+            Number of parallel jobs used by the leave-one-window-out fits.
+
+        Returns
+        -------
+        standardized : dict
+            Residuals keyed by forecast model and series identifier. Each value
+            has shape ``(n_windows, horizon)`` and contains the signed scores
+            ``residual / OOF scale``.
+        oof_scales : dict
+            Positive out-of-fold scale predictions with the same nested keys and
+            per-series shapes as ``standardized``.
+        fitted_models : dict
+            Final dispersion pipelines keyed by forecast-model name. Each
+            pipeline is refitted on every calibration window and is intended to
+            predict scales for future forecasts.
+
+        Notes
+        -----
+        Residuals are first stacked as a tensor with shape
+        ``(n_windows, n_series, horizon)``. For each window, a fresh pipeline is
+        trained on the absolute residuals from all other windows. Its inputs are
+        series identity and numerical forecast horizon, and its predictions for
+        the held-out window form the corresponding slice of ``oof_scales``.
+
+        The window index is not a model feature. The same ``(series, horizon)``
+        feature grid is repeated once per training window, providing repeated
+        absolute-error targets for each combination. OOF predictions can still
+        differ between windows because every leave-one-window-out pipeline sees
+        a different training subset.
+
+        Standardization uses only held-out scale predictions, preventing a
+        residual from directly determining its own normalization. Once all OOF
+        scores have been produced, a separate final pipeline is trained on all
+        windows. Temporal weights are applied during these fits only when
+        ``nexcp`` and ``weighted_refit`` are enabled and the dispersion learner
+        accepts ``sample_weight``.
+        """
         if self.n_windows < 2:
             raise ValueError(
                 "TSCPS requires at least two windows for scale cross-fitting."
@@ -177,11 +285,38 @@ class ConditionalScaleCalibrator:
             )
         return standardized, oof_scales, fitted_models
 
-    def predict(self, model: Pipeline, series_ids, horizon_steps) -> np.ndarray:
-        """Predict and validate scales for future series-step rows."""
+    def predict(self, pipeline: Pipeline, series_ids, horizon_steps) -> np.ndarray:
+        """Predict conditional scales for future series-horizon rows.
+
+        Parameters
+        ----------
+        pipeline : Pipeline
+            Fitted dispersion pipeline, normally one of the final pipelines
+            returned by :meth:`fit_transform`.
+        series_ids : array-like
+            Series identifier for each future forecast row.
+        horizon_steps : array-like
+            Zero-based horizon position for each future forecast row. Values are
+            converted to the one-based horizons used during scale fitting.
+
+        Returns
+        -------
+        numpy.ndarray
+            One finite, strictly positive scale per input row, in the same order
+            as ``series_ids`` and ``horizon_steps``.
+
+        Notes
+        -----
+        This method predicts dispersion, not a signed residual or a point
+        forecast. The resulting scales convert standardized conformal residuals
+        back to the target's units when the predictive distribution is built.
+        Series unseen during fitting are accepted by the one-hot encoder and
+        receive an all-zero series encoding; their predictions therefore depend
+        on the learner's behavior for that representation and on horizon.
+        """
         features = pd.DataFrame(
             {"series_id": series_ids, "horizon": np.asarray(horizon_steps) + 1}
         )
-        scales = np.asarray(model.predict(features), dtype=float)
+        scales = np.asarray(pipeline.predict(features), dtype=float)
         self._validate(scales)
         return scales

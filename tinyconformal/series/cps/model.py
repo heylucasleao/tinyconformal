@@ -264,7 +264,8 @@ class _TSCPS(ConformalDistributionTimeSeriesRegressor):
                 f"Model column '{model}' was not present during calibration. "
                 f"Calibrated model columns: {list(self.ncscores_)}"
             )
-        # MSCP stores y_hat - y; predictive distributions use y - y_hat.
+        # Convert OOF-standardized scores from (y_hat - y) / scale to
+        # the (y - y_hat) / scale orientation used by predictive distributions.
         residuals = {
             series_id: -scores[:, :h]
             for series_id, scores in self.ncscores_[model].items()
