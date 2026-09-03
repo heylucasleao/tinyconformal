@@ -8,17 +8,17 @@ data use long format with `unique_id`, `ds`, and `y` by default.
 
 | Model | Output | Use case |
 |---|---|---|
-| `ConformalDistributionTimeSeriesRegressor` | MSCP bands | Point forecasters |
-| `ConformalQuantileTimeSeriesRegressor` | TSCQR bands | Quantile forecasters |
+| `MultiStepConformalTimeSeriesRegressor ` | MSCP bands | Point forecasters |
+| `ConformalizedQuantileTimeSeriesRegressor` | TSCQR bands | Quantile forecasters |
 | `ContinuousTimeSeriesConformalPredictiveSystem` | Complete continuous distributions | Arbitrary quantiles, CDFs and intervals |
 | `DiscreteTimeSeriesConformalPredictiveSystem` | Complete integer distributions | Counts, PMFs and inventory decisions |
 
 ## MSCP bands
 
 ```python
-from tinyconformal.series import ConformalDistributionTimeSeriesRegressor
+from tinyconformal.series import MultiStepConformalTimeSeriesRegressor 
 
-model = ConformalDistributionTimeSeriesRegressor(
+model = MultiStepConformalTimeSeriesRegressor (
     learner=nixtla_point_forecaster,
     horizon=14,
     n_windows=5,
@@ -31,9 +31,9 @@ intervals = model.predict_interval(h=14, X_df=future_exog)
 ## TSCQR bands
 
 ```python
-from tinyconformal.series import ConformalQuantileTimeSeriesRegressor
+from tinyconformal.series import ConformalizedQuantileTimeSeriesRegressor
 
-model = ConformalQuantileTimeSeriesRegressor(
+model = ConformalizedQuantileTimeSeriesRegressor(
     learner=nixtla_quantile_forecaster,
     horizon=14,
     n_windows=5,
