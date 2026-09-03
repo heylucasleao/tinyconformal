@@ -8,12 +8,12 @@ from .cps import (
     ContinuousTimeSeriesConformalPredictiveSystem,
     DiscreteTimeSeriesConformalPredictiveSystem,
 )
-from .mscp import ConformalDistributionTimeSeriesRegressor
-from .tscqr import ConformalQuantileTimeSeriesRegressor
+from .mscp import MultiStepConformalTimeSeriesRegressor
+from .tscqr import ConformalizedQuantileTimeSeriesRegressor
 
 __all__ = [
-    "ConformalDistributionTimeSeriesRegressor",
-    "ConformalQuantileTimeSeriesRegressor",
+    "MultiStepConformalTimeSeriesRegressor ",
+    "ConformalizedQuantileTimeSeriesRegressor",
     "ContinuousTimeSeriesConformalPredictiveSystem",
     "DiscreteTimeSeriesConformalPredictiveSystem",
 ]
