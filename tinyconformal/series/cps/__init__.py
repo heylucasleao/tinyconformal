@@ -1,12 +1,12 @@
 """Conformal predictive-system models and distributions for time series."""
 
-from .distributions import (
+from .distribution import (
     DiscreteHorizonConformalDistribution as DiscreteHorizonConformalDistribution,
 )
-from .distributions import (
+from .distribution import (
     HorizonConformalDistribution as HorizonConformalDistribution,
 )
-from .model import (
+from .wrapper import (
     ContinuousTimeSeriesConformalPredictiveSystem,
     DiscreteTimeSeriesConformalPredictiveSystem,
 )
