@@ -18,8 +18,8 @@ def test_series_public_api_only_exports_modeling_classes():
     import tinyconformal.series as series
 
     assert series.__all__ == [
-        "ConformalDistributionTimeSeriesRegressor",
-        "ConformalQuantileTimeSeriesRegressor",
+        "MultiStepConformalTimeSeriesRegressor ",
+        "ConformalizedQuantileTimeSeriesRegressor",
         "ContinuousTimeSeriesConformalPredictiveSystem",
         "DiscreteTimeSeriesConformalPredictiveSystem",
     ]
@@ -97,9 +97,7 @@ def test_split_and_single_horizon_cps_share_distribution_semantics():
     )
 
     np.testing.assert_allclose(split.cdf([9.0, 22.0]), horizon.cdf([9.0, 22.0]))
-    np.testing.assert_allclose(
-        split.ppf([0.2, 0.5, 0.8]), horizon.ppf([0.2, 0.5, 0.8])
-    )
+    np.testing.assert_allclose(split.ppf([0.2, 0.5, 0.8]), horizon.ppf([0.2, 0.5, 0.8]))
 
 
 def test_horizon_distribution_supports_temporal_decay_weights():
@@ -132,9 +130,7 @@ def test_series_cps_distributions_are_calibrated_by_unique_id(
     forecast = cps.predict_distribution(h=2)
     medians = forecast.ppf(0.5)
 
-    np.testing.assert_array_equal(
-        medians["unique_id"], ["a", "a", "b", "b"]
-    )
+    np.testing.assert_array_equal(medians["unique_id"], ["a", "a", "b", "b"])
     np.testing.assert_array_equal(medians["Model-q-50"], [11.0, 13.0, 20.0, 31.0])
 
 
@@ -150,9 +146,7 @@ def test_series_cps_quantiles_intervals_and_evaluation(
     assert not hasattr(cps, "predict_quantiles")
     assert not hasattr(cps, "predict_interval")
     quantiles = forecast.ppf([0.1, 0.25, 0.5, 0.9])
-    assert {"Model-q-10", "Model-q-25", "Model-q-50", "Model-q-90"} <= set(
-        quantiles
-    )
+    assert {"Model-q-10", "Model-q-25", "Model-q-50", "Model-q-90"} <= set(quantiles)
     rowwise_quantiles = forecast.ppf(
         np.array([[0.1, 0.9], [0.2, 0.8], [0.3, 0.7], [0.4, 0.6]])
     )
@@ -168,9 +162,7 @@ def test_series_cps_quantiles_intervals_and_evaluation(
     assert evaluation.loc[0, "level"] == "90%"
 
     direct_quantiles = forecast.ppf([0.1, 0.5, 0.9])
-    direct_cdf = forecast.cdf(
-        forecast.to_frame()["Model"].to_numpy()[:, None]
-    )
+    direct_cdf = forecast.cdf(forecast.to_frame()["Model"].to_numpy()[:, None])
     assert {"Model-q-10", "Model-q-50", "Model-q-90"} <= set(direct_quantiles)
     assert "Model-cdf" in direct_cdf
 
