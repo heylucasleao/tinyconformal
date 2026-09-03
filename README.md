@@ -15,7 +15,7 @@ For more information on a previous project related to Out-of-Bag (OOB) solutions
 - Added out-of-fold regression calibration through `CrossValidationCalibration`.
 - Added `fit_from_scores` for ICP/CQR and standardized residual calibration for CPS.
 - Classifiers and regressors can now reuse out-of-fold cross-validation outputs for conformal calibration without reserving a separate calibration split.
-- Added `tinyconformal.series` support with `ConformalDistributionTimeSeriesRegressor` and `ConformalQuantileTimeSeriesRegressor` for multi-step time series interval forecasting with customizable backtesting strides (`step_size`).
+- Added `tinyconformal.series` support with `MultiStepConformalTimeSeriesRegressor ` and `ConformalizedQuantileTimeSeriesRegressor` for multi-step time series interval forecasting with customizable backtesting strides (`step_size`).
 - Added support for Conformalized Quantile Regression (CQR) on multi-step time series using base estimators producing quantile forecasts.
 
 Previously, `calibrate` used `Balanced Accuracy Score`; it can now also be calibrated with `Matthews Correlation Coefficient` or `Bookmaker Informedness Score` for improved reliability. The `evaluate` method also reports `bm` and `mcc`.
@@ -221,8 +221,8 @@ Use the cross-fitted, horizon-wise predictive systems exported by
 
 ```python
 from tinyconformal.series import (
-    ConformalDistributionTimeSeriesRegressor,
-    ConformalQuantileTimeSeriesRegressor,
+    MultiStepConformalTimeSeriesRegressor ,
+    ConformalizedQuantileTimeSeriesRegressor,
     ContinuousTimeSeriesConformalPredictiveSystem,
     DiscreteTimeSeriesConformalPredictiveSystem,
 )
@@ -480,9 +480,9 @@ Import these classes from `tinyconformal.distribution`:
 
 Import these classes from `tinyconformal.series`:
 
-- `ConformalDistributionTimeSeriesRegressor`: produces MSCP prediction bands
+- `MultiStepConformalTimeSeriesRegressor `: produces MSCP prediction bands
   from horizon-specific signed residuals.
-- `ConformalQuantileTimeSeriesRegressor`: produces TSCQR prediction bands from
+- `ConformalizedQuantileTimeSeriesRegressor`: produces TSCQR prediction bands from
   horizon-specific conformalized quantile scores.
 - `ContinuousTimeSeriesConformalPredictiveSystem`: produces a complete
   continuous predictive distribution for every series and forecast horizon.

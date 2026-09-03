@@ -19,15 +19,15 @@ from tinyconformal.utils.imports import requires_extra
 from .base import BaseConformalTimeSeriesRegressor
 
 
-class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
+class MultiStepConformalTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
     """
-    Multi-Step Conformal Distribution Regressor for Time Series.
+    Multi-Step Conformalized Quantile Regressor for Time Series.
 
     Applies conformal prediction over multi-step horizons for Nixtla-style
     estimators (MLForecast or StatsForecast) using sequential backtesting
-    to build empirical nonconformity scores (residuals). Calibration quantiles
-    are computed independently for every series identifier and horizon; signed
-    residuals are not pooled across series.
+    to build empirical nonconformity scores (signed residuals). Calibration
+    quantiles are computed independently for every series identifier and
+    horizon; signed residuals are not pooled across series.
     """
 
     def __init__(
@@ -139,9 +139,7 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         """Preserve one horizon-wise calibration matrix per series."""
         return {
             model: {
-                series_id: np.vstack(
-                    [window_scores[row] for window_scores in windows]
-                )
+                series_id: np.vstack([window_scores[row] for window_scores in windows])
                 for row, series_id in enumerate(series_ids)
             }
             for model, windows in residuals_by_model.items()
@@ -281,9 +279,7 @@ class ConformalDistributionTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
                 raise ValueError(
                     f"Forecast identifier {series_id!r} must contain exactly {h} rows."
                 )
-            lower, upper = signed_residual_bounds(
-                y_hat[row_mask], q_low_h, q_high_h
-            )
+            lower, upper = signed_residual_bounds(y_hat[row_mask], q_low_h, q_high_h)
             lower_bound[row_mask] = lower
             upper_bound[row_mask] = upper
 
