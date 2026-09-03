@@ -188,7 +188,55 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         return self._n_calibration
 
     def _row_residuals(self) -> np.ndarray:
-        """Select and scale the calibration residuals for every forecast row."""
+        """Select and scale calibration residuals for every forecast row.
+
+        Returns
+        -------
+        numpy.ndarray
+            Row-aligned residual matrix with shape
+            ``(n_predictions, n_calibration_trajectories)``. Row ``i`` contains
+            the standardized calibration residuals for its series and horizon,
+            multiplied by that row's predicted future scale. Rows are sorted
+            when calibration weights are not configured.
+
+        Notes
+        -----
+        The stored residuals are standardized scores indexed by calibration
+        window, series, and horizon. For a prediction row ``i``, this method
+        selects only the scores belonging to ``series_ids[i]`` and
+        ``horizon_steps[i]``::
+
+            standardized[w, series_ids[i], horizon_steps[i]]
+
+        It then multiplies every selected score by the future conditional scale
+        associated with that prediction row::
+
+            future_error[i, w] = scales[i] * standardized[w, series, horizon]
+
+        This multiplication reverses the OOF standardization used during
+        calibration. The result is a collection of possible future errors in
+        the target's original units; the point forecast is not added here. The
+        inherited CDF and PPF methods later combine these errors with
+        ``locations[i]``.
+
+        For example, suppose prediction row ``i`` refers to series ``A`` at
+        horizon 2, its standardized calibration scores across three windows are
+        ``[-1.0, 0.2, 1.5]``, and its predicted future scale is ``10``. This
+        method returns the row::
+
+            [-10.0, 2.0, 15.0]
+
+        If ``locations[i]`` is ``100``, the corresponding empirical predictive
+        values queried by the distribution are therefore ``[90, 102, 115]``.
+
+        When residuals are stored per series, each prediction row selects from
+        its series-specific matrix. A pooled residual matrix instead selects
+        horizon columns directly. Without temporal weights the errors are
+        sorted here because the unweighted PPF selects them by conformal rank.
+        With temporal weights their calibration-window order is preserved so
+        that the weights remain aligned; weighted CDF and PPF methods sort or
+        aggregate them together with their weights as needed.
+        """
         if self.series_ids is not None:
             residuals = np.vstack(
                 [
@@ -216,7 +264,43 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         return result[:, 0] if squeeze else result
 
     def _sorted_weighted_residuals(self) -> tuple[np.ndarray, np.ndarray]:
-        """Sort each residual row and align its calibration weights."""
+        """Sort each row's future errors and keep its weights aligned.
+
+        Returns
+        -------
+        sorted_residuals : numpy.ndarray
+            Row-aligned future errors with shape
+            ``(n_predictions, n_calibration_trajectories)``, sorted in ascending
+            order within each prediction row.
+        sorted_weights : numpy.ndarray
+            Calibration weights with the same shape and row-specific ordering as
+            ``sorted_residuals``.
+
+        Notes
+        -----
+        :meth:`_row_residuals` first selects the standardized calibration scores
+        for each prediction's series and horizon and multiplies them by the
+        predicted future scale. This method then obtains the permutation that
+        sorts those re-scaled errors independently for every prediction row and
+        applies exactly the same permutation to the calibration-window weights.
+
+        Keeping the pairs together is required because a weight belongs to the
+        calibration window that produced its residual, not to a fixed sorted
+        position. For example, given future errors and window weights::
+
+            residuals = [15.0, -10.0, 2.0]
+            weights   = [0.5,    0.2, 0.3]
+
+        this method returns::
+
+            sorted_residuals = [-10.0, 2.0, 15.0]
+            sorted_weights   = [  0.2, 0.3,  0.5]
+
+        The weighted PPF subsequently accumulates ``sorted_weights`` and selects
+        the first residual whose cumulative weight reaches the requested
+        quantile. No point forecast is added by this method; ``ppf`` adds the
+        corresponding ``locations`` after selecting the residual quantiles.
+        """
         residuals = self._row_residuals()
         order = np.argsort(residuals, axis=1)
         sorted_residuals = np.take_along_axis(residuals, order, axis=1)
