@@ -264,7 +264,43 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         return result[:, 0] if squeeze else result
 
     def _sorted_weighted_residuals(self) -> tuple[np.ndarray, np.ndarray]:
-        """Sort each residual row and align its calibration weights."""
+        """Sort each row's future errors and keep its weights aligned.
+
+        Returns
+        -------
+        sorted_residuals : numpy.ndarray
+            Row-aligned future errors with shape
+            ``(n_predictions, n_calibration_trajectories)``, sorted in ascending
+            order within each prediction row.
+        sorted_weights : numpy.ndarray
+            Calibration weights with the same shape and row-specific ordering as
+            ``sorted_residuals``.
+
+        Notes
+        -----
+        :meth:`_row_residuals` first selects the standardized calibration scores
+        for each prediction's series and horizon and multiplies them by the
+        predicted future scale. This method then obtains the permutation that
+        sorts those re-scaled errors independently for every prediction row and
+        applies exactly the same permutation to the calibration-window weights.
+
+        Keeping the pairs together is required because a weight belongs to the
+        calibration window that produced its residual, not to a fixed sorted
+        position. For example, given future errors and window weights::
+
+            residuals = [15.0, -10.0, 2.0]
+            weights   = [0.5,    0.2, 0.3]
+
+        this method returns::
+
+            sorted_residuals = [-10.0, 2.0, 15.0]
+            sorted_weights   = [  0.2, 0.3,  0.5]
+
+        The weighted PPF subsequently accumulates ``sorted_weights`` and selects
+        the first residual whose cumulative weight reaches the requested
+        quantile. No point forecast is added by this method; ``ppf`` adds the
+        corresponding ``locations`` after selecting the residual quantiles.
+        """
         residuals = self._row_residuals()
         order = np.argsort(residuals, axis=1)
         sorted_residuals = np.take_along_axis(residuals, order, axis=1)
