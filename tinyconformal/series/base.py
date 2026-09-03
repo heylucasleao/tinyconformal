@@ -587,8 +587,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         """
         del series_ids
         return {
-            model: np.vstack(res_list)
-            for model, res_list in residuals_by_model.items()
+            model: np.vstack(res_list) for model, res_list in residuals_by_model.items()
         }
 
     @staticmethod
@@ -640,7 +639,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
 
         Returns:
         -------
-        self : ConformalDistributionTimeSeriesRegressor
+        self : MultiStepConformalTimeSeriesRegressor
             Fitted instance of the conformal regressor.
         """
 

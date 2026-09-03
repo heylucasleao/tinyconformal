@@ -16,7 +16,7 @@ from tinyconformal.utils.imports import requires_extra
 from .base import BaseConformalTimeSeriesRegressor
 
 
-class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
+class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
     r"""
     Multi-Step Conformal Quantile Regressor for Time Series (TSCQR).
 
@@ -118,7 +118,7 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
     --------
     >>> import lightgbm as lgb
     >>> from mlforecast import MLForecast
-    >>> from tinyconformal.series import ConformalQuantileTimeSeriesRegressor
+    >>> from tinyconformal.series import ConformalizedQuantileTimeSeriesRegressor
     >>>
     >>> def create_mlforecast_multiquantile():
     ...     models = {
@@ -134,7 +134,7 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
     ...     )
     >>>
     >>> base_mlf = create_mlforecast_multiquantile()
-    >>> cqr = ConformalQuantileTimeSeriesRegressor(
+    >>> cqr = ConformalizedQuantileTimeSeriesRegressor(
     ...     learner=base_mlf,
     ...     horizon=7,
     ...     intervals=[
@@ -277,9 +277,7 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         """Preserve one horizon-wise nonconformity matrix per series."""
         return {
             pair_key: {
-                series_id: np.vstack(
-                    [window_scores[row] for window_scores in windows]
-                )
+                series_id: np.vstack([window_scores[row] for window_scores in windows])
                 for row, series_id in enumerate(series_ids)
             }
             for pair_key, windows in residuals_by_model.items()
@@ -340,9 +338,7 @@ class ConformalQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
     ) -> pd.DataFrame:
         """Clones the learner, fits it on the training window, and predicts the validation window."""
         learner_clone = copy.deepcopy(self.learner)
-        self._fit_forecaster(
-            learner_clone, train_df, static_features=static_features
-        )
+        self._fit_forecaster(learner_clone, train_df, static_features=static_features)
 
         predict_cols = [self.id_col, self.time_col] + self.exog_cols_
         X_val = val_df[predict_cols] if self.exog_cols_ else None

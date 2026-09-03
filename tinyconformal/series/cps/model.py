@@ -14,7 +14,7 @@ from tinyconformal.core.quantiles import temporal_decay_weights
 from tinyconformal.distribution.base import PredictiveDistribution
 from tinyconformal.utils.imports import requires_extra
 
-from ..mscp import ConformalDistributionTimeSeriesRegressor
+from ..mscp import MultiStepConformalTimeSeriesRegressor
 from .dispersion import ConditionalScaleCalibrator
 from .distributions import (
     DiscreteHorizonConformalDistribution,
@@ -26,7 +26,7 @@ from .forecast import (
 )
 
 
-class _TSCPS(ConformalDistributionTimeSeriesRegressor):
+class _TSCPS(MultiStepConformalTimeSeriesRegressor):
     """Conformal predictive system for multi-step panel forecasting.
 
     The regressor calibrates complete residual distributions for each forecast
