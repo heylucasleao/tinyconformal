@@ -62,6 +62,7 @@ class _ResidualPredictiveDistribution(EmpiricalResidualDistribution):
         return self.residuals.size
 
     def _row_residuals(self) -> np.ndarray:
+        """Transform standardized residuals into possible future errors."""
         return self.scales[:, None] * self.residuals[None, :]
 
 
@@ -279,9 +280,7 @@ class CrossConformalPredictiveSystem(BaseEstimator):
 
         self.learner_ = clone(self.learner).fit(X, y)
         scale_targets = np.maximum(np.abs(self.residuals_), 1e-6)
-        self.dispersion_learner_ = clone(self.dispersion_learner).fit(
-            X, scale_targets
-        )
+        self.dispersion_learner_ = clone(self.dispersion_learner).fit(X, scale_targets)
         return self
 
     def predict_distribution(self, X) -> PredictiveDistribution:
@@ -316,9 +315,7 @@ class CrossConformalPredictiveSystem(BaseEstimator):
         The returned batch is positionally aligned with ``X``. Reordering one
         without the other invalidates that correspondence.
         """
-        check_is_fitted(
-            self, attributes=["standardized_residuals_", "n_calibration_"]
-        )
+        check_is_fitted(self, attributes=["standardized_residuals_", "n_calibration_"])
         locations = _as_1d_finite(self.learner_.predict(X), "learner predictions")
         scales = _as_positive_scales(
             self.dispersion_learner_.predict(X), "dispersion learner predictions"
@@ -335,6 +332,7 @@ class CrossConformalPredictiveSystem(BaseEstimator):
         return ContinuousConformalDistribution(
             locations, self.standardized_residuals_, scales=scales
         )
+
 
 class ContinuousCrossConformalPredictiveSystem(CrossConformalPredictiveSystem):
     """Cross-fitted predictive system for continuous targets.
