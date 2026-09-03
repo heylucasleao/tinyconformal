@@ -38,16 +38,18 @@ Discrete forecasts additionally expose `pmf`.
 
 | Module | Responsibility |
 |---|---|
-| `model.py` | Estimator lifecycle, panel prediction, distribution construction and evaluation |
-| `dispersion.py` | Cross-fitting conditional scales and fitting the final dispersion model |
-| `distributions.py` | Horizon- and series-specific empirical predictive distributions |
+| `base.py` | `TSCPS` estimator lifecycle, panel prediction, distribution construction and evaluation |
+| `wrapper.py` | Public `Continuous`/`DiscreteTimeSeriesConformalPredictiveSystem` convenience classes |
+| `calibration.py` | `ConditionalScaleCalibrator`: cross-fitting conditional scales and fitting the final dispersion model |
+| `distribution.py` | Horizon- and series-specific empirical predictive distributions |
 | `forecast.py` | DataFrame facade that keeps distribution results aligned with the forecast panel |
 | `__init__.py` | Package exports and compatibility imports |
 
-Dependencies flow toward the smaller components: `model.py` coordinates the
-other modules, while `dispersion.py`, `distributions.py`, and `forecast.py` do
-not import the model. This direction avoids circular imports and keeps the
-statistical objects independent from the estimator lifecycle.
+Dependencies flow toward the smaller components: `base.py` coordinates the
+other modules and is subclassed by `wrapper.py`, while `calibration.py`,
+`distribution.py`, and `forecast.py` do not import the base estimator. This
+direction avoids circular imports and keeps the statistical objects
+independent from the estimator lifecycle.
 
 ## Calibration flow
 
@@ -107,9 +109,9 @@ excluded from the package `__all__`. They are re-exported from
   distribution was calibrated.
 - Validate conditional scales as positive and finite before standardizing or
   constructing a predictive distribution.
-- Put distribution mathematics in `distributions.py`, panel formatting in
-  `forecast.py`, scale calibration in `dispersion.py`, and orchestration in
-  `model.py`.
+- Put distribution mathematics in `distribution.py`, panel formatting in
+  `forecast.py`, scale calibration in `calibration.py`, and orchestration in
+  `base.py`.
 
 Tests for this package live in `tests/test_series_cps.py`. Changes should also
 run `tests/test_mscp.py` because the CPS estimator inherits the rolling-origin

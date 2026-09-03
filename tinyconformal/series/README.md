@@ -121,7 +121,9 @@ calibration-window fits and the final fits.
 
 ## Internal implementation
 
-The CPS implementation is divided into model orchestration, conditional-scale
-calibration, predictive distributions, and panel-aligned forecast adapters. See
+The CPS implementation is divided into estimator orchestration (`base.py`),
+public convenience wrappers (`wrapper.py`), conditional-scale calibration
+(`calibration.py`), predictive distributions (`distribution.py`), and
+panel-aligned forecast adapters (`forecast.py`). See
 [`cps/README.md`](cps/README.md) for the module boundaries, invariants, and
 extension rules.
