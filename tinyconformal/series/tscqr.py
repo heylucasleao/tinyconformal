@@ -516,15 +516,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
                         "model": f"{metadata['model']}{model_suffix}",
                         "level": f"{metadata['level']}%",
                         "alpha": alpha,
-                        "coverage_rate": np.round(
-                            self._coverage_rate(y_true, lower, upper), 3
-                        ),
-                        "interval_width_mean": np.round(
-                            self._interval_width_mean(lower, upper), 3
-                        ),
-                        "mwis": np.round(
-                            self._mwi_score(y_true, lower, upper, alpha), 3
-                        ),
+                        **self._interval_metrics(y_true, lower, upper, alpha),
                     }
                 )
 

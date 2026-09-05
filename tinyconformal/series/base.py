@@ -3,6 +3,7 @@
 # Licensed under the MIT License
 
 import inspect
+import re
 from abc import abstractmethod
 
 import numpy as np
@@ -10,6 +11,7 @@ import pandas as pd
 from joblib import Parallel, delayed
 from sklearn.base import BaseEstimator, RegressorMixin
 
+from tinyconformal.core import conformal as core_conformal
 from tinyconformal.core.quantiles import (
     temporal_decay_weights,
     validate_alpha,
@@ -439,15 +441,13 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         """
         Evaluate empirical coverage of prediction intervals.
         """
-        coverages = (y_true >= lower) & (y_true <= upper)
-        return float(np.mean(coverages))
+        return core_conformal.coverage_rate(y_true, lower, upper)
 
     def _interval_width_mean(self, lower: np.ndarray, upper: np.ndarray) -> float:
         """
         Calculates the mean width of the prediction intervals.
         """
-        widths = upper - lower
-        return float(np.mean(widths))
+        return core_conformal.interval_width_mean(lower, upper)
 
     def _mwi_score(
         self,
@@ -481,10 +481,48 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         float
             The mean Winkler interval score.
         """
-        width = upper - lower
-        penalty_lower = (2.0 / alpha) * (lower - y_true) * (y_true < lower)
-        penalty_upper = (2.0 / alpha) * (y_true - upper) * (y_true > upper)
-        return float(np.mean(width + penalty_lower + penalty_upper))
+        return core_conformal.mwi_score(y_true, lower, upper, alpha)
+
+    def _interval_metrics(
+        self,
+        y_true: np.ndarray,
+        lower: np.ndarray,
+        upper: np.ndarray,
+        alpha: float,
+    ) -> dict:
+        """Compute the standard evaluation metrics for one interval, rounded to 3 decimals."""
+        return {
+            "coverage_rate": np.round(self._coverage_rate(y_true, lower, upper), 3),
+            "interval_width_mean": np.round(self._interval_width_mean(lower, upper), 3),
+            "mwis": np.round(self._mwi_score(y_true, lower, upper, alpha), 3),
+        }
+
+    def _extract_bound_records(
+        self, eval_df: pd.DataFrame, y_true: np.ndarray, alpha: float
+    ) -> list[dict]:
+        """Build one metrics record per ``<model>-lo-<level>``/``-hi-`` column pair."""
+        bound_pattern = re.compile(r"^(?P<model>.+)-lo-(?P<level>\d+(?:\.\d+)?)$")
+        records = []
+        for column in eval_df.columns:
+            match = bound_pattern.match(column)
+            if not match:
+                continue
+            model = match.group("model")
+            level = match.group("level")
+            high_column = f"{model}-hi-{level}"
+            if high_column not in eval_df.columns:
+                continue
+            lower = eval_df[column].to_numpy()
+            upper = eval_df[high_column].to_numpy()
+            records.append(
+                {
+                    "model": model,
+                    "level": f"{level}%",
+                    "alpha": alpha,
+                    **self._interval_metrics(y_true, lower, upper, alpha),
+                }
+            )
+        return records
 
     def _extract_predictions(self, fcst_df: pd.DataFrame) -> np.ndarray:
         """

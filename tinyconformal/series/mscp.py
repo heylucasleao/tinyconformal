@@ -3,7 +3,6 @@
 # Licensed under the MIT License
 
 import copy
-import re
 
 import numpy as np
 import pandas as pd
@@ -378,35 +377,7 @@ class MultiStepConformalTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         eval_df = self._merge_predictions_with_targets(eval_df, df_test)
 
         y_true = eval_df[self.target_col].to_numpy()
-        bound_pattern = re.compile(r"^(?P<model>.+)-lo-(?P<level>\d+(?:\.\d+)?)$")
-        records = []
-        for col in eval_df.columns:
-            match = bound_pattern.match(col)
-            if not match:
-                continue
-
-            model = match.group("model")
-            level = match.group("level")
-            high_col = f"{model}-hi-{level}"
-            if high_col not in eval_df.columns:
-                continue
-
-            lower = eval_df[col].to_numpy()
-            upper = eval_df[high_col].to_numpy()
-            records.append(
-                {
-                    "model": model,
-                    "level": f"{level}%",
-                    "alpha": alpha,
-                    "coverage_rate": np.round(
-                        self._coverage_rate(y_true, lower, upper), 3
-                    ),
-                    "interval_width_mean": np.round(
-                        self._interval_width_mean(lower, upper), 3
-                    ),
-                    "mwis": np.round(self._mwi_score(y_true, lower, upper, alpha), 3),
-                }
-            )
+        records = self._extract_bound_records(eval_df, y_true, alpha)
 
         return (
             pd.DataFrame(records)
