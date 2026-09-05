@@ -9,6 +9,7 @@ import numpy as np
 from sklearn.base import BaseEstimator
 from sklearn.utils.validation import check_is_fitted
 
+from tinyconformal.core import conformal as core_conformal
 from tinyconformal.core.quantiles import conformal_quantile_level, validate_alpha
 
 
@@ -122,63 +123,6 @@ class BaseConformalRegressor(ABC):
 
         return self._compute_qhat(self.ncscore, q_level)
 
-    def _coverage_rate(self, y, y_pred):
-        """
-        Evaluate coverage of prediction intervals.
-
-        """
-
-        coverages = (y >= y_pred[:, 0]) & (y <= y_pred[:, 1])
-
-        return np.mean(coverages)
-
-    def _interval_width_mean(self, y_pred):
-        """
-        Calculates the mean width of the prediction intervals.
-        """
-        widths = y_pred[:, 1] - y_pred[:, 0]
-        return np.mean(widths)
-
-    def _mwi_score(self, y, y_pred, alpha):
-        """
-        Calculate the Winkler interval score for prediction intervals.
-
-        If the observation falls outside the prediction interval, the score increases
-        with the distance from the interval bounds.
-
-        If the observation falls inside the prediction interval, the score depends on
-        the width of the interval (narrower intervals are better).
-
-        Parameters:
-        ----------
-        y : array-like
-            True target values.
-        y_pred : array-like
-            Prediction intervals, where each row contains [lower_bound, upper_bound].
-        alpha : float
-            Significance level, where (1 - alpha) is the desired coverage.
-
-        Returns:
-        -------
-        float
-            The mean Winkler interval score.
-        """
-
-        # Extract lower and upper bounds of the intervals
-        lower, upper = y_pred[:, 0], y_pred[:, 1]
-
-        # Calculate the width of the intervals
-        width = upper - lower
-
-        # Calculate penalties for predictions below the lower bound
-        penalty_lower = 2 / alpha * (lower - y) * (y < lower)
-
-        # Calculate penalties for predictions above the upper bound
-        penalty_upper = 2 / alpha * (y - upper) * (y > upper)
-
-        # Return the mean Winkler interval score
-        return np.mean(width + penalty_lower + penalty_upper)
-
     def evaluate(self, X, y, alpha=None):
         """Evaluate interval coverage, width, and mean Winkler score.
 
@@ -201,20 +145,10 @@ class BaseConformalRegressor(ABC):
         alpha = self._get_alpha(alpha)
 
         y_pred_intervals = self.predict_interval(X, alpha)
-        bounds = np.column_stack([y_pred_intervals[:, 0], y_pred_intervals[:, -1]])
-
-        def rounded(value):
-            return np.round(value, 3)
-
-        total = len(X)
-        coverage_rate = rounded(self._coverage_rate(y, bounds))
-        interval_width_mean = rounded(self._interval_width_mean(bounds))
-        mwi_score = rounded(self._mwi_score(y, bounds, alpha))
+        lower, upper = y_pred_intervals[:, 0], y_pred_intervals[:, -1]
 
         return {
-            "total": total,
+            "total": len(X),
             "alpha": alpha,
-            "coverage_rate": coverage_rate,
-            "interval_width_mean": interval_width_mean,
-            "mwis": mwi_score,
+            **core_conformal.interval_metrics(y, lower, upper, alpha),
         }

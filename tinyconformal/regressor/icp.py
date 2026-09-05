@@ -6,11 +6,7 @@
 import numpy as np
 from sklearn.base import BaseEstimator
 
-from tinyconformal.core.conformal import (
-    absolute_residual_scores,
-    symmetric_bounds,
-    validate_calibration_values,
-)
+from tinyconformal.core import conformal as core_conformal
 
 from .base import BaseConformalRegressor
 
@@ -42,7 +38,7 @@ class ConformalizedRegressor(BaseEstimator, BaseConformalRegressor):
 
     def fit_from_scores(self, scores):
         """Calibrate from precomputed out-of-sample absolute-residual scores."""
-        scores = validate_calibration_values(scores, "scores")
+        scores = core_conformal.validate_calibration_values(scores, "scores")
         if np.any(scores < 0.0):
             raise ValueError("ICP scores must be non-negative.")
         self.ncscore = scores
@@ -84,7 +80,7 @@ class ConformalizedRegressor(BaseEstimator, BaseConformalRegressor):
             self.decision_function_ = self.learner.predict(X)
 
         return self.fit_from_scores(
-            absolute_residual_scores(y, self.decision_function_)
+            core_conformal.absolute_residual_scores(y, self.decision_function_)
         )
 
     def predict_interval(self, X_test, alpha=None):
@@ -108,6 +104,6 @@ class ConformalizedRegressor(BaseEstimator, BaseConformalRegressor):
         y_pred = self.learner.predict(X_test)
 
         # Calculate the lower and upper bounds of the prediction intervals
-        lower_bound, upper_bound = symmetric_bounds(y_pred, qhat)
+        lower_bound, upper_bound = core_conformal.symmetric_bounds(y_pred, qhat)
 
         return np.array([lower_bound, upper_bound]).T

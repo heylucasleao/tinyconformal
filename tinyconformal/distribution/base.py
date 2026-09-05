@@ -7,6 +7,8 @@ from abc import ABC, abstractmethod
 import numpy as np
 import pandas as pd
 
+from tinyconformal.core import conformal as core_conformal
+
 
 class PredictiveDistribution(ABC):
     """A batch of one-dimensional predictive distributions.
@@ -52,19 +54,10 @@ class PredictiveDistribution(ABC):
             bounds = self.interval(coverage)
             alpha = 1.0 - float(coverage)
             lower, upper = bounds[:, 0], bounds[:, 1]
-            covered = (y >= lower) & (y <= upper)
-            width = upper - lower
-            winkler = (
-                width
-                + (2.0 / alpha) * (lower - y) * (y < lower)
-                + (2.0 / alpha) * (y - upper) * (y > upper)
-            )
             records.append(
                 {
                     "coverage": float(coverage),
-                    "empirical_coverage": float(np.mean(covered)),
-                    "mean_width": float(np.mean(width)),
-                    "winkler_score": float(np.mean(winkler)),
+                    **core_conformal.interval_metrics(y, lower, upper, alpha),
                 }
             )
         return pd.DataFrame(records)

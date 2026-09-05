@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
 
-from tinyconformal.core.conformal import cqr_bounds, cqr_scores
+from tinyconformal.core import conformal as core_conformal
 from tinyconformal.core.quantiles import conformal_quantile_level
 from tinyconformal.utils.imports import requires_extra
 
@@ -267,7 +267,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         self, q_low: np.ndarray, q_high: np.ndarray, y_true: np.ndarray
     ) -> np.ndarray:
         """Computes CQR Nonconformity Scores: E_{i,t} = max(q_low - y, y - q_high)"""
-        return cqr_scores(y_true, q_low, q_high)
+        return core_conformal.cqr_scores(y_true, q_low, q_high)
 
     def _finalize_residuals(
         self,
@@ -416,7 +416,9 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
                 raise ValueError(
                     f"Forecast identifier {series_id!r} must contain exactly {h} rows."
                 )
-            lower, upper = cqr_bounds(q_low[row_mask], q_high[row_mask], q_hat_h)
+            lower, upper = core_conformal.cqr_bounds(
+                q_low[row_mask], q_high[row_mask], q_hat_h
+            )
             lower_bound[row_mask] = lower
             upper_bound[row_mask] = upper
 
@@ -516,15 +518,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
                         "model": f"{metadata['model']}{model_suffix}",
                         "level": f"{metadata['level']}%",
                         "alpha": alpha,
-                        "coverage_rate": np.round(
-                            self._coverage_rate(y_true, lower, upper), 3
-                        ),
-                        "interval_width_mean": np.round(
-                            self._interval_width_mean(lower, upper), 3
-                        ),
-                        "mwis": np.round(
-                            self._mwi_score(y_true, lower, upper, alpha), 3
-                        ),
+                        **core_conformal.interval_metrics(y_true, lower, upper, alpha),
                     }
                 )
 

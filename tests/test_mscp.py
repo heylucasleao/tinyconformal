@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tinyconformal.core import conformal as core_conformal
 from tinyconformal.series import MultiStepConformalTimeSeriesRegressor
 
 
@@ -46,32 +47,29 @@ def mock_point_learner():
     return learner
 
 
-def test_coverage_rate(mock_point_learner):
+def test_coverage_rate():
     """Calculate empirical prediction interval coverage rate."""
-    cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner, horizon=3)
     y_true = np.array([10.0, 15.0, 20.0, 25.0])
     lower = np.array(
         [8.0, 12.0, 18.0, 26.0]
     )  # Last observation (25.0) falls outside bounds
     upper = np.array([12.0, 17.0, 22.0, 30.0])
 
-    coverage = cdr._coverage_rate(y_true, lower, upper)
+    coverage = core_conformal.coverage_rate(y_true, lower, upper)
     assert coverage == 0.75
 
 
-def test_interval_width_mean(mock_point_learner):
+def test_interval_width_mean():
     """Verify mean prediction interval width calculation."""
-    cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner, horizon=3)
     lower = np.array([10.0, 20.0])
     upper = np.array([15.0, 30.0])
 
-    width = cdr._interval_width_mean(lower, upper)
+    width = core_conformal.interval_width_mean(lower, upper)
     assert width == 7.5
 
 
-def test_mwi_score_calculation(mock_point_learner):
+def test_mwi_score_calculation():
     """Evaluate Mean Winkler Interval Score logic with out-of-bounds penalties."""
-    cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner, horizon=3)
     alpha = 0.10
 
     # Instance 1: inside bounds (width = 10)
@@ -84,7 +82,7 @@ def test_mwi_score_calculation(mock_point_learner):
     # Widths = [10, 10, 10]
     # Penalties = [0, 60, 100]
     # Individual Scores = [10, 70, 110] -> Mean = 190 / 3 = 63.3333...
-    mwis = cdr._mwi_score(y_true, lower, upper, alpha)
+    mwis = core_conformal.mwi_score(y_true, lower, upper, alpha)
     assert pytest.approx(mwis, abs=1e-3) == 63.333
 
 

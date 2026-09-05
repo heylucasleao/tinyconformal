@@ -6,10 +6,7 @@
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
 
-from tinyconformal.core.conformal import (
-    conformal_p_values,
-    threshold_prediction_set,
-)
+from tinyconformal.core import conformal as core_conformal
 from tinyconformal.core.quantiles import conformal_quantile_level
 
 from .base import BaseConformalClassifier
@@ -130,7 +127,7 @@ class BinaryMarginalConformalClassifier(
         """
         Compute a predict set based on the given ncscore and qhat.
         """
-        return threshold_prediction_set(ncscore, qhat)
+        return core_conformal.threshold_prediction_set(ncscore, qhat)
 
     def predict_set(self, X, alpha=None):
         """
@@ -175,4 +172,4 @@ class BinaryMarginalConformalClassifier(
         """
         y_prob = self.predict_proba(X)
         ncscore = self.generate_non_conformity_score(y_prob)
-        return conformal_p_values(self.hinge, ncscore)
+        return core_conformal.conformal_p_values(self.hinge, ncscore)
