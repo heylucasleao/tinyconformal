@@ -45,9 +45,7 @@ def test_continuous_cps_cdf_ppf_and_interval():
     distribution = cps.predict_distribution(np.array([[20], [21]]))
     assert not hasattr(distribution, "sample")
 
-    np.testing.assert_allclose(
-        distribution.cdf(np.array([[10], [11]])), [0.5, 2 / 3]
-    )
+    np.testing.assert_allclose(distribution.cdf(np.array([[10], [11]])), [0.5, 2 / 3])
     np.testing.assert_allclose(distribution.ppf(0.5), [10, 10])
     assert distribution.ppf([0.25, 0.50, 0.75]).shape == (2, 3)
     assert distribution.interval(0.8).shape == (2, 2)
@@ -257,8 +255,8 @@ def test_predictive_distribution_evaluates_coverage():
 
     assert list(result.columns) == [
         "coverage",
-        "empirical_coverage",
-        "mean_width",
-        "winkler_score",
+        "coverage_rate",
+        "interval_width_mean",
+        "mwis",
     ]
     assert len(result) == 2
