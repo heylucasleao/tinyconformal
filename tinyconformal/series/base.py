@@ -435,68 +435,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
 
         return method(**filtered)
 
-    def _coverage_rate(
-        self, y_true: np.ndarray, lower: np.ndarray, upper: np.ndarray
-    ) -> float:
-        """
-        Evaluate empirical coverage of prediction intervals.
-        """
-        return core_conformal.coverage_rate(y_true, lower, upper)
-
-    def _interval_width_mean(self, lower: np.ndarray, upper: np.ndarray) -> float:
-        """
-        Calculates the mean width of the prediction intervals.
-        """
-        return core_conformal.interval_width_mean(lower, upper)
-
-    def _mwi_score(
-        self,
-        y_true: np.ndarray,
-        lower: np.ndarray,
-        upper: np.ndarray,
-        alpha: float,
-    ) -> float:
-        """
-        Calculate the Winkler interval score for prediction intervals.
-
-        If the observation falls outside the prediction interval, the score increases
-        with the distance from the interval bounds.
-
-        If the observation falls inside the prediction interval, the score depends on
-        the width of the interval (narrower intervals are better).
-
-        Parameters:
-        ----------
-        y_true : np.ndarray
-            True target values.
-        lower : np.ndarray
-            Lower bounds of prediction intervals.
-        upper : np.ndarray
-            Upper bounds of prediction intervals.
-        alpha : float
-            Significance level, where (1 - alpha) is the desired coverage.
-
-        Returns:
-        -------
-        float
-            The mean Winkler interval score.
-        """
-        return core_conformal.mwi_score(y_true, lower, upper, alpha)
-
-    def _interval_metrics(
-        self,
-        y_true: np.ndarray,
-        lower: np.ndarray,
-        upper: np.ndarray,
-        alpha: float,
-    ) -> dict:
-        """Compute the standard evaluation metrics for one interval, rounded to 3 decimals."""
-        return {
-            "coverage_rate": np.round(self._coverage_rate(y_true, lower, upper), 3),
-            "interval_width_mean": np.round(self._interval_width_mean(lower, upper), 3),
-            "mwis": np.round(self._mwi_score(y_true, lower, upper, alpha), 3),
-        }
-
     def _extract_bound_records(
         self, eval_df: pd.DataFrame, y_true: np.ndarray, alpha: float
     ) -> list[dict]:
@@ -519,7 +457,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
                     "model": model,
                     "level": f"{level}%",
                     "alpha": alpha,
-                    **self._interval_metrics(y_true, lower, upper, alpha),
+                    **core_conformal.interval_metrics(y_true, lower, upper, alpha),
                 }
             )
         return records

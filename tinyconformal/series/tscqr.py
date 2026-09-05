@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
 
-from tinyconformal.core.conformal import cqr_bounds, cqr_scores
+from tinyconformal.core.conformal import cqr_bounds, cqr_scores, interval_metrics
 from tinyconformal.core.quantiles import conformal_quantile_level
 from tinyconformal.utils.imports import requires_extra
 
@@ -516,7 +516,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
                         "model": f"{metadata['model']}{model_suffix}",
                         "level": f"{metadata['level']}%",
                         "alpha": alpha,
-                        **self._interval_metrics(y_true, lower, upper, alpha),
+                        **interval_metrics(y_true, lower, upper, alpha),
                     }
                 )
 
