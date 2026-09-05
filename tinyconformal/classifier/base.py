@@ -12,12 +12,7 @@ from sklearn.base import BaseEstimator
 from sklearn.utils.validation import check_is_fitted
 from venn_abers import VennAbers
 
-from tinyconformal.core.conformal import (
-    class_indices,
-    probability_scores,
-    true_class_probability_scores,
-    validate_probabilities,
-)
+from tinyconformal.core import conformal as core_conformal
 from tinyconformal.core.quantiles import validate_alpha
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="venn_abers")
@@ -129,19 +124,21 @@ class BaseConformalClassifier(ABC):
         self
             Fitted conformal classifier.
         """
-        probabilities = validate_probabilities(probabilities)
+        probabilities = core_conformal.validate_probabilities(probabilities)
         y = np.asarray(y)
         if probabilities.shape != (y.size, len(self.classes)):
             raise ValueError(
                 "probabilities must contain one row per label and one column per class."
             )
-        indices = class_indices(y, self.classes)
+        indices = core_conformal.class_indices(y, self.classes)
         if any(not np.any(indices == index) for index in range(len(self.classes))):
             raise ValueError("Calibration requires samples from both classes.")
         self.decision_function_ = probabilities
         self.calibration_layer.fit(probabilities, indices)
         calibrated, _ = self.calibration_layer.predict_proba(probabilities)
-        scores = true_class_probability_scores(calibrated, y, self.classes)
+        scores = core_conformal.true_class_probability_scores(
+            calibrated, y, self.classes
+        )
         self._store_calibration_scores(scores, y)
         return self
 
@@ -180,7 +177,7 @@ class BaseConformalClassifier(ABC):
         This function calculates the non-conformity score for conformal prediction
         using the hinge loss approach.
         """
-        return probability_scores(y_prob)
+        return core_conformal.probability_scores(y_prob)
 
     def generate_conformal_quantile(self, alpha=None):
         """
@@ -297,9 +294,7 @@ class BaseConformalClassifier(ABC):
         prediction_set = self.predict_set(X, alpha)
         singletons = prediction_set.sum(axis=1) == 1
         predictions = np.asarray(self.learner.predict(X)).copy()
-        predictions[singletons] = self._compute_prediction(
-            prediction_set[singletons]
-        )
+        predictions[singletons] = self._compute_prediction(prediction_set[singletons])
         return predictions
 
     def _expected_calibration_error(self, y, y_prob, M=5):
@@ -338,7 +333,7 @@ class BaseConformalClassifier(ABC):
         predicted_label = np.argmax(y_prob, axis=1)
 
         # get a boolean list of correct/false predictions
-        predictions = predicted_label == class_indices(y, self.classes)
+        predictions = predicted_label == core_conformal.class_indices(y, self.classes)
 
         ece = 0.0
         for bin_lower, bin_upper in zip(bin_lowers, bin_uppers):
@@ -386,7 +381,7 @@ class BaseConformalClassifier(ABC):
 
         alpha = self._get_alpha(alpha)
         predict_sets = self.predict_set(X, alpha)
-        indices = class_indices(y, self.classes)
+        indices = core_conformal.class_indices(y, self.classes)
         coverages = predict_sets[np.arange(len(y)), indices]
 
         return np.mean(coverages)
@@ -437,11 +432,9 @@ class BaseConformalClassifier(ABC):
         one_c = rounded(np.mean([np.sum(p) == 1 for p in predict_set]))
         avg_c = rounded(np.mean([np.sum(p) for p in predict_set]))
         empty = rounded(np.mean([np.sum(p) == 0 for p in predict_set]))
-        indices = class_indices(y, self.classes)
+        indices = core_conformal.class_indices(y, self.classes)
         error = rounded(1 - np.mean(predict_set[np.arange(len(y)), indices]))
-        log_loss = rounded(
-            sklearn.metrics.log_loss(y, y_prob, labels=self.classes)
-        )
+        log_loss = rounded(sklearn.metrics.log_loss(y, y_prob, labels=self.classes))
         ece = rounded(self._expected_calibration_error(y, y_prob))
         fpr = rounded(self._false_positive_rate(y, y_pred))
         bookmaker_informedness = rounded(self._bookmaker_informedness(y, y_pred))

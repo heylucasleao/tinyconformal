@@ -8,11 +8,7 @@ import warnings
 import numpy as np
 from sklearn.base import BaseEstimator
 
-from tinyconformal.core.conformal import (
-    cqr_bounds,
-    cqr_scores,
-    validate_calibration_values,
-)
+from tinyconformal.core import conformal as core_conformal
 
 from .base import BaseConformalRegressor
 
@@ -49,7 +45,7 @@ class ConformalizedQuantileRegressor(BaseEstimator, BaseConformalRegressor):
 
     def fit_from_scores(self, scores):
         """Calibrate from precomputed out-of-sample CQR scores."""
-        self.ncscore = validate_calibration_values(scores, "scores")
+        self.ncscore = core_conformal.validate_calibration_values(scores, "scores")
         self.n = self.ncscore.size
         return self
 
@@ -112,7 +108,7 @@ class ConformalizedQuantileRegressor(BaseEstimator, BaseConformalRegressor):
             )
 
         return self.fit_from_scores(
-            cqr_scores(
+            core_conformal.cqr_scores(
                 y, self.decision_function_[:, 0], self.decision_function_[:, -1]
             )
         )
@@ -143,6 +139,8 @@ class ConformalizedQuantileRegressor(BaseEstimator, BaseConformalRegressor):
         q_low_base = y_pred[:, 0]
         q_high_base = y_pred[:, -1]
 
-        lower_bound, upper_bound = cqr_bounds(q_low_base, q_high_base, qhat)
+        lower_bound, upper_bound = core_conformal.cqr_bounds(
+            q_low_base, q_high_base, qhat
+        )
 
         return np.column_stack([lower_bound, upper_bound])
