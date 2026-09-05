@@ -112,3 +112,38 @@ def cqr_bounds(q_low, q_high, correction) -> tuple[np.ndarray, np.ndarray]:
     """Expand base quantile bounds by a CQR correction."""
     correction = np.asarray(correction)
     return np.asarray(q_low) - correction, np.asarray(q_high) + correction
+
+
+def coverage_rate(y_true, lower, upper) -> float:
+    """Evaluate empirical coverage of prediction intervals."""
+    y_true, lower, upper = np.asarray(y_true), np.asarray(lower), np.asarray(upper)
+    return float(np.mean((y_true >= lower) & (y_true <= upper)))
+
+
+def interval_width_mean(lower, upper) -> float:
+    """Calculate the mean width of the prediction intervals."""
+    return float(np.mean(np.asarray(upper) - np.asarray(lower)))
+
+
+def mwi_score(y_true, lower, upper, alpha: float) -> float:
+    """Calculate the mean Winkler interval score for prediction intervals.
+
+    If the observation falls outside the prediction interval, the score
+    increases with the distance from the interval bounds. If the observation
+    falls inside the prediction interval, the score depends on the width of
+    the interval (narrower intervals are better).
+    """
+    y_true, lower, upper = np.asarray(y_true), np.asarray(lower), np.asarray(upper)
+    width = upper - lower
+    penalty_lower = (2.0 / alpha) * (lower - y_true) * (y_true < lower)
+    penalty_upper = (2.0 / alpha) * (y_true - upper) * (y_true > upper)
+    return float(np.mean(width + penalty_lower + penalty_upper))
+
+
+def interval_metrics(y_true, lower, upper, alpha: float) -> dict:
+    """Compute coverage rate, mean width, and mean Winkler score, rounded to 3 decimals."""
+    return {
+        "coverage_rate": np.round(coverage_rate(y_true, lower, upper), 3),
+        "interval_width_mean": np.round(interval_width_mean(lower, upper), 3),
+        "mwis": np.round(mwi_score(y_true, lower, upper, alpha), 3),
+    }

@@ -3,6 +3,7 @@
 # Licensed under the MIT License
 
 import inspect
+import re
 from abc import abstractmethod
 
 import numpy as np
@@ -10,6 +11,7 @@ import pandas as pd
 from joblib import Parallel, delayed
 from sklearn.base import BaseEstimator, RegressorMixin
 
+from tinyconformal.core import conformal as core_conformal
 from tinyconformal.core.quantiles import (
     temporal_decay_weights,
     validate_alpha,
@@ -433,58 +435,32 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
 
         return method(**filtered)
 
-    def _coverage_rate(
-        self, y_true: np.ndarray, lower: np.ndarray, upper: np.ndarray
-    ) -> float:
-        """
-        Evaluate empirical coverage of prediction intervals.
-        """
-        coverages = (y_true >= lower) & (y_true <= upper)
-        return float(np.mean(coverages))
-
-    def _interval_width_mean(self, lower: np.ndarray, upper: np.ndarray) -> float:
-        """
-        Calculates the mean width of the prediction intervals.
-        """
-        widths = upper - lower
-        return float(np.mean(widths))
-
-    def _mwi_score(
-        self,
-        y_true: np.ndarray,
-        lower: np.ndarray,
-        upper: np.ndarray,
-        alpha: float,
-    ) -> float:
-        """
-        Calculate the Winkler interval score for prediction intervals.
-
-        If the observation falls outside the prediction interval, the score increases
-        with the distance from the interval bounds.
-
-        If the observation falls inside the prediction interval, the score depends on
-        the width of the interval (narrower intervals are better).
-
-        Parameters:
-        ----------
-        y_true : np.ndarray
-            True target values.
-        lower : np.ndarray
-            Lower bounds of prediction intervals.
-        upper : np.ndarray
-            Upper bounds of prediction intervals.
-        alpha : float
-            Significance level, where (1 - alpha) is the desired coverage.
-
-        Returns:
-        -------
-        float
-            The mean Winkler interval score.
-        """
-        width = upper - lower
-        penalty_lower = (2.0 / alpha) * (lower - y_true) * (y_true < lower)
-        penalty_upper = (2.0 / alpha) * (y_true - upper) * (y_true > upper)
-        return float(np.mean(width + penalty_lower + penalty_upper))
+    def _extract_bound_records(
+        self, eval_df: pd.DataFrame, y_true: np.ndarray, alpha: float
+    ) -> list[dict]:
+        """Build one metrics record per ``<model>-lo-<level>``/``-hi-`` column pair."""
+        bound_pattern = re.compile(r"^(?P<model>.+)-lo-(?P<level>\d+(?:\.\d+)?)$")
+        records = []
+        for column in eval_df.columns:
+            match = bound_pattern.match(column)
+            if not match:
+                continue
+            model = match.group("model")
+            level = match.group("level")
+            high_column = f"{model}-hi-{level}"
+            if high_column not in eval_df.columns:
+                continue
+            lower = eval_df[column].to_numpy()
+            upper = eval_df[high_column].to_numpy()
+            records.append(
+                {
+                    "model": model,
+                    "level": f"{level}%",
+                    "alpha": alpha,
+                    **core_conformal.interval_metrics(y_true, lower, upper, alpha),
+                }
+            )
+        return records
 
     def _extract_predictions(self, fcst_df: pd.DataFrame) -> np.ndarray:
         """

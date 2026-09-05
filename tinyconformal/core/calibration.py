@@ -10,10 +10,7 @@ import numpy as np
 from sklearn.base import BaseEstimator
 from sklearn.model_selection import cross_val_predict
 
-from tinyconformal.core.conformal import (
-    absolute_residual_scores,
-    cqr_scores,
-)
+from tinyconformal.core import conformal as core_conformal
 
 
 @dataclass(frozen=True)
@@ -93,7 +90,7 @@ class CrossValidationCalibration:
             raise ValueError(
                 "ICP cross-validation predictions must be one-dimensional."
             )
-        return absolute_residual_scores(y, predictions)
+        return core_conformal.absolute_residual_scores(y, predictions)
 
     @classmethod
     def cqr_scores(
@@ -116,7 +113,7 @@ class CrossValidationCalibration:
                 "CQR cross-validation predictions must have lower and upper "
                 "quantile columns."
             )
-        return cqr_scores(y, predictions[:, 0], predictions[:, -1])
+        return core_conformal.cqr_scores(y, predictions[:, 0], predictions[:, -1])
 
     @classmethod
     def cps_scores(

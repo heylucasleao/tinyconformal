@@ -6,11 +6,7 @@
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
 
-from tinyconformal.core.conformal import (
-    class_indices,
-    conformal_p_values,
-    threshold_prediction_set,
-)
+from tinyconformal.core import conformal as core_conformal
 from tinyconformal.core.quantiles import conformal_quantile_level
 
 from .base import BaseConformalClassifier
@@ -111,7 +107,7 @@ class BinaryClassConditionalConformalClassifier(
         return self.fit_from_probabilities(self.decision_function_, y)
 
     def _store_calibration_scores(self, scores, labels):
-        indices = class_indices(labels, self.classes)
+        indices = core_conformal.class_indices(labels, self.classes)
         self.hinge = [scores[indices == index] for index in range(len(self.classes))]
         self.n = [values.size for values in self.hinge]
         if any(size == 0 for size in self.n):
@@ -140,16 +136,14 @@ class BinaryClassConditionalConformalClassifier(
         """
         qhat = np.zeros(len(self.classes))
         for index in range(len(self.classes)):
-            qhat[index] = np.quantile(
-                ncscore[index], q_level[index], method="higher"
-            )
+            qhat[index] = np.quantile(ncscore[index], q_level[index], method="higher")
         return qhat
 
     def _compute_set(self, ncscore, qhat):
         """
         Compute a predict set based on the given ncscore and qhat.
         """
-        return threshold_prediction_set(ncscore, qhat)
+        return core_conformal.threshold_prediction_set(ncscore, qhat)
 
     def predict_set(self, X, alpha=None):
         """
@@ -196,7 +190,7 @@ class BinaryClassConditionalConformalClassifier(
         ncscore = self.generate_non_conformity_score(y_prob)
         return np.column_stack(
             [
-                conformal_p_values(self.hinge[index], ncscore[:, index])
+                core_conformal.conformal_p_values(self.hinge[index], ncscore[:, index])
                 for index in range(len(self.classes))
             ]
         )
