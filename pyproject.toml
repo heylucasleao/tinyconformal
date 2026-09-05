@@ -1,6 +1,6 @@
 [project]
 name = "tinyconformal"
-version = "0.6.1"
+version = "0.6.2"
 description = "A small toolbox for conformal prediction"
 license = "MIT"
 authors = [{name = "Lucas Leão", email = "heylucasleao@gmail.com"}]
