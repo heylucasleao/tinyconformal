@@ -26,14 +26,14 @@ class FirstStageEvaluator:
     - **Score**: Composite operational loss defined as WAPE + |PBias|. Lower is better.
     - **Forecast Instability**: Relative change between consecutive forecasts of the same
       series. Only computed when ``id_col`` and ``time_col`` are both provided. Lower is better.
-    - **PBias (Percentage Bias)**: Measures the percentage global volume deviation ($\frac{\sum \hat{y} - \sum y}{\sum y} \times 100$).
-      * *Interpretation*: Should be close to 0%. A negative bias indicates overall under-forecasting (risk of stockouts),
+    - **PBias (Bias)**: Fractional global volume deviation ($\frac{\sum \hat{y} - \sum y}{\sum y}$).
+      * *Interpretation*: Should be close to 0. A negative bias indicates overall under-forecasting (risk of stockouts),
         while a positive bias indicates over-forecasting (excess holding costs).
     - **False Demand on Zero-Days (Avg Pred)**: Average predicted value specifically on
       observations where the true target is strictly zero.
       * *Interpretation*: Measures the model's tendency to "smear" or leak intermittent demand into
         non-active periods, creating false expectations of activity.
-    - **Peak Demand Deviation (%)**: Percentage error of predicted values relative to true
+    - **Peak Demand Deviation**: Fractional error of predicted values relative to true
       values restricted to periods of positive/peak demand.
       * *Interpretation*: Tracks the model's smoothing bias on positive-demand observations.
         Negative values indicate that the model under-forecasts realized peaks. Since this
@@ -97,8 +97,8 @@ class FirstStageEvaluator:
         total_pred = np.sum(y_pred)
         total_abs_error = np.sum(np.abs(y_pred - y_true))
         if total_true > 0:
-            wape = total_abs_error / total_true * 100
-            pbias = (total_pred - total_true) / total_true * 100
+            wape = total_abs_error / total_true
+            pbias = (total_pred - total_true) / total_true
         else:
             wape = 0.0 if total_abs_error == 0 else np.nan
             pbias = 0.0 if total_pred == 0 else np.nan
@@ -110,7 +110,6 @@ class FirstStageEvaluator:
         peak_underestimation = (
             (np.mean(y_pred[pos_mask]) - np.mean(y_true[pos_mask]))
             / np.mean(y_true[pos_mask])
-            * 100
             if np.sum(pos_mask) > 0
             else 0.0
         )
@@ -125,11 +124,11 @@ class FirstStageEvaluator:
                 valid, prediction_col=prediction_col, id_col=id_col, time_col=time_col
             )
         report["False Demand on Zero-Days (Avg Pred)"] = false_alarm_zeros
-        report["Peak Demand Deviation (%)"] = peak_underestimation
+        report["Peak Demand Deviation"] = peak_underestimation
 
         precision = {
-            "PBias": 2,
-            "Peak Demand Deviation (%)": 2,
+            "PBias": 4,
+            "Peak Demand Deviation": 4,
         }
         return pd.DataFrame(
             {
@@ -173,9 +172,7 @@ class FirstStageEvaluator:
         if average_volume == 0:
             return 0.0
         revisions = prev_values - curr_values
-        return float(
-            (np.abs(revisions).sum() + abs(revisions.sum())) / average_volume * 100
-        )
+        return float((np.abs(revisions).sum() + abs(revisions.sum())) / average_volume)
 
     @classmethod
     def calibration_table(
