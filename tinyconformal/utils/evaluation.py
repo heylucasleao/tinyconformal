@@ -70,7 +70,8 @@ class FirstStageEvaluator:
         Returns
         -------
         pandas.DataFrame
-            Single-column table of operational metrics.
+            Single-row table of operational metrics, matching tinyshift's
+            ``FirstStageForecasterEvaluator`` column naming.
 
         Notes
         -----
@@ -114,28 +115,23 @@ class FirstStageEvaluator:
             else 0.0
         )
 
-        report = {
-            "WAPE": wape,
-            "PBias": pbias,
-            "Score": wape + abs(pbias),
-        }
-        if id_col is not None and time_col is not None:
-            report["Forecast Instability"] = cls._forecast_instability(
+        # Forecast Instability requires id_col/time_col; NaN keeps the column stable otherwise.
+        forecast_instability = (
+            cls._forecast_instability(
                 valid, prediction_col=prediction_col, id_col=id_col, time_col=time_col
             )
-        report["False Demand on Zero-Days (Avg Pred)"] = false_alarm_zeros
-        report["Peak Demand Deviation"] = peak_underestimation
+            if id_col is not None and time_col is not None
+            else np.nan
+        )
 
-        precision = {
-            "PBias": 4,
-            "Peak Demand Deviation": 4,
-        }
         return pd.DataFrame(
             {
-                "Metrics": {
-                    name: round(value, precision.get(name, 4))
-                    for name, value in report.items()
-                }
+                "wape": [round(wape, 4)],
+                "pbias": [round(pbias, 4)],
+                "score": [round(wape + abs(pbias), 4)],
+                "forecast_instability": [round(forecast_instability, 4)],
+                "false_demand_on_zero_days_avg_pred": [round(false_alarm_zeros, 4)],
+                "peak_demand_deviation": [round(peak_underestimation, 4)],
             }
         )
 
@@ -199,7 +195,8 @@ class FirstStageEvaluator:
         -------
         pandas.DataFrame
             One row per bin with the observation count, mean prediction, mean
-            observed target, and their difference (``Mean_Residual``).
+            observed target, and their difference (``mean_residual``),
+            matching tinyshift's ``FirstStageForecasterEvaluator`` column naming.
         """
         if not isinstance(n_bins, int) or n_bins < 2:
             raise ValueError("n_bins must be an integer greater than or equal to 2.")
@@ -216,19 +213,19 @@ class FirstStageEvaluator:
             prediction_col,
         )
         if valid[prediction_col].nunique() == 1:
-            valid["Calibration Bin"] = "all"
+            valid["calibration_bin"] = "all"
         else:
-            valid["Calibration Bin"] = pd.qcut(
+            valid["calibration_bin"] = pd.qcut(
                 valid[prediction_col], q=n_bins, duplicates="drop"
             )
         result = (
-            valid.groupby("Calibration Bin", observed=True)
+            valid.groupby("calibration_bin", observed=True)
             .agg(
-                Count=(target_col, "size"),
-                Mean_Prediction=(prediction_col, "mean"),
-                Mean_Observed=(target_col, "mean"),
+                count=(target_col, "size"),
+                mean_prediction=(prediction_col, "mean"),
+                mean_observed=(target_col, "mean"),
             )
             .reset_index()
         )
-        result["Mean_Residual"] = result["Mean_Observed"] - result["Mean_Prediction"]
+        result["mean_residual"] = result["mean_observed"] - result["mean_prediction"]
         return result
