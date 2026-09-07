@@ -17,8 +17,7 @@ from tinyconformal.distribution import ContinuousCrossConformalPredictiveSystem
 cps = ContinuousCrossConformalPredictiveSystem(
     learner=location_regressor,
     dispersion_learner=scale_regressor,
-    cv=5,
-).fit(X_train, y_train)
+).fit(X_train, y_train, cv=5)
 
 distribution = cps.predict_distribution(X_test)
 median = distribution.ppf(0.5)
