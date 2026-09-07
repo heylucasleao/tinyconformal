@@ -21,19 +21,13 @@ class ContinuousCrossConformalPredictiveSystem(CrossConformalPredictiveSystem):
         Unfitted location estimator implementing ``fit`` and ``predict``.
     dispersion_learner : estimator
         Unfitted estimator producing strictly positive conditional scales.
-    cv : int or cross-validation splitter, default=5
-        Cross-fitting strategy for location and dispersion predictions.
-    n_jobs : int or None, default=None
-        Parallel jobs passed to scikit-learn cross-validation.
     """
 
-    def __init__(self, learner, dispersion_learner, cv=5, n_jobs=None):
+    def __init__(self, learner, dispersion_learner):
         """Configure a continuous cross-fitted conformal predictive system."""
         super().__init__(
             learner=learner,
             dispersion_learner=dispersion_learner,
-            cv=cv,
-            n_jobs=n_jobs,
             discrete=False,
             minimum=None,
         )
@@ -48,10 +42,6 @@ class DiscreteCrossConformalPredictiveSystem(CrossConformalPredictiveSystem):
         Unfitted location estimator implementing ``fit`` and ``predict``.
     dispersion_learner : estimator
         Unfitted estimator producing strictly positive conditional scales.
-    cv : int or cross-validation splitter, default=5
-        Cross-fitting strategy for location and dispersion predictions.
-    n_jobs : int or None, default=None
-        Parallel jobs passed to scikit-learn cross-validation.
     minimum : int or None, default=0
         Lower boundary of the integer support. Use ``0`` for counts, ``1`` for
         strictly positive outcomes, another integer for a known lower bound,
@@ -62,16 +52,12 @@ class DiscreteCrossConformalPredictiveSystem(CrossConformalPredictiveSystem):
         self,
         learner: BaseEstimator,
         dispersion_learner: BaseEstimator,
-        cv=5,
-        n_jobs=None,
         minimum: int | None = 0,
     ):
         """Configure an integer-support cross-fitted conformal predictive system."""
         super().__init__(
             learner=learner,
             dispersion_learner=dispersion_learner,
-            cv=cv,
-            n_jobs=n_jobs,
             discrete=True,
             minimum=minimum,
         )

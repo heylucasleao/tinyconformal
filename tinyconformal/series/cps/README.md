@@ -22,9 +22,7 @@ from tinyconformal.series import ContinuousTimeSeriesConformalPredictiveSystem
 cps = ContinuousTimeSeriesConformalPredictiveSystem(
     learner=nixtla_point_forecaster,
     dispersion_learner=RandomForestRegressor(min_samples_leaf=5),
-    horizon=14,
-    n_windows=5,
-).fit(train_df, step_size=14)
+).fit(train_df, horizon=14, n_windows=5, step_size=14)
 
 forecast = cps.predict_distribution(h=14, X_df=future_exog)
 median = forecast.ppf(0.5)

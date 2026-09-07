@@ -27,15 +27,7 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
     def __init__(
         self,
         learner: BaseEstimator,
-        horizon: int,
-        n_windows: int = 10,
         alpha: float = 0.05,
-        nexcp: bool = False,
-        decay: float = 0.99,
-        weighted_refit: bool = True,
-        id_col: str = "unique_id",
-        time_col: str = "ds",
-        target_col: str = "y",
     ):
         """
         Initializes the time series conformal regressor with a Nixtla learner and calibration parameters.
@@ -96,17 +88,7 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         n : int, default=0
             Number of calibration windows available for each series and horizon.
         """
-        super().__init__(
-            learner=learner,
-            horizon=horizon,
-            n_windows=n_windows,
-            nexcp=nexcp,
-            decay=decay,
-            weighted_refit=weighted_refit,
-            id_col=id_col,
-            time_col=time_col,
-            target_col=target_col,
-        )
+        super().__init__(learner=learner)
         self.alpha = alpha
 
     def _get_alpha(self, alpha: float | None = None) -> float:

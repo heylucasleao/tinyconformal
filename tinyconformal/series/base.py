@@ -47,14 +47,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
     def __init__(
         self,
         learner: BaseEstimator,
-        horizon: int,
-        n_windows: int = 10,
-        nexcp: bool = False,
-        decay: float = 0.99,
-        weighted_refit: bool = True,
-        id_col: str = "unique_id",
-        time_col: str = "ds",
-        target_col: str = "y",
     ):
         """
         Initializes the time series conformal regressor with a Nixtla learner and calibration parameters.
@@ -113,15 +105,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             Number of scores used by one fitted calibration distribution.
         """
         self.learner = learner
-        self.h = horizon
-        self.n_windows = n_windows
-        self.nexcp = nexcp
-        self.decay = decay
-        self.weighted_refit = weighted_refit
-        self.id_col = id_col
-        self.time_col = time_col
-        self.target_col = target_col
-        self.horizon = horizon
 
         self.model_col_ = None
         self.exog_cols_ = []
@@ -573,8 +556,16 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
     def fit(
         self,
         df: pd.DataFrame,
+        horizon: int,
+        n_windows: int = 10,
         step_size: int | None = None,
         static_features: list | None = None,
+        nexcp: bool = False,
+        decay: float = 0.99,
+        weighted_refit: bool = True,
+        id_col: str = "unique_id",
+        time_col: str = "ds",
+        target_col: str = "y",
         n_jobs: int = -1,
     ):
         """
@@ -607,6 +598,16 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         self : MultiStepConformalTimeSeriesRegressor
             Fitted instance of the conformal regressor.
         """
+
+        self.h = horizon
+        self.horizon = horizon
+        self.n_windows = n_windows
+        self.nexcp = nexcp
+        self.decay = decay
+        self.weighted_refit = weighted_refit
+        self.id_col = id_col
+        self.time_col = time_col
+        self.target_col = target_col
 
         df = df.sort_values(by=[self.id_col, self.time_col]).reset_index(drop=True)
 

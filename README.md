@@ -88,9 +88,8 @@ from tinyconformal.distribution import ContinuousCrossConformalPredictiveSystem
 cps = ContinuousCrossConformalPredictiveSystem(
     learner=location_regressor,
     dispersion_learner=scale_regressor,
-    cv=5,
 )
-cps.fit(X_train, y_train)
+cps.fit(X_train, y_train, cv=5)
 predictive = cps.predict_distribution(X_test)
 
 median = predictive.ppf(0.5)
@@ -152,13 +151,17 @@ from tinyconformal.series import (
 cps = ContinuousTimeSeriesConformalPredictiveSystem(
     learner=mlforecast_or_statsforecast,
     dispersion_learner=RandomForestRegressor(min_samples_leaf=5),
+)
+cps.fit(
+    train_df,
     horizon=14,
     n_windows=5,
+    step_size=14,
+    static_features=["store_type"],
     nexcp=True,
     decay=0.99,
     weighted_refit=True,
 )
-cps.fit(train_df, step_size=14, static_features=["store_type"])
 
 forecast = cps.predict_distribution(h=14, X_df=future_exog)
 median_df = forecast.ppf(0.5)
@@ -323,12 +326,9 @@ mlf = MLForecast(
 conformal_ts = ContinuousTimeSeriesConformalPredictiveSystem(
     learner=mlf,
     dispersion_learner=LGBMRegressor(random_state=42),
-    horizon=7,
-    n_windows=5,
-    alpha=0.10,
 )
 
-conformal_ts.fit(df, step_size=7)
+conformal_ts.fit(df, horizon=7, n_windows=5, step_size=7)
 forecast = conformal_ts.predict_distribution(h=7)
 intervals_df = conformal_ts.predict_interval(h=7)
 ```
@@ -351,12 +351,10 @@ mlf = MLForecast(
 conformal_count_ts = DiscreteTimeSeriesConformalPredictiveSystem(
     learner=mlf,
     dispersion_learner=LGBMRegressor(random_state=42),
-    horizon=7,
-    n_windows=5,
     minimum=0,
 )
 
-conformal_count_ts.fit(df, step_size=7)
+conformal_count_ts.fit(df, horizon=7, n_windows=5, step_size=7)
 forecast = conformal_count_ts.predict_distribution(h=7)
 ```
 

@@ -123,40 +123,14 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         self,
         learner: BaseEstimator,
         dispersion_learner: BaseEstimator,
-        horizon: int,
-        n_windows: int = 10,
-        nexcp: bool = False,
-        decay: float = 0.99,
-        weighted_refit: bool = True,
         discrete: bool = False,
         minimum: int | None = 0,
-        id_col: str = "unique_id",
-        time_col: str = "ds",
-        target_col: str = "y",
     ):
         """Configure forecasting, conditional-scale, and support behavior."""
-        super().__init__(
-            learner=learner,
-            horizon=horizon,
-            n_windows=n_windows,
-            nexcp=nexcp,
-            decay=decay,
-            weighted_refit=weighted_refit,
-            id_col=id_col,
-            time_col=time_col,
-            target_col=target_col,
-        )
+        super().__init__(learner=learner)
         self.discrete = discrete
         self.minimum = minimum
         self.dispersion_learner = dispersion_learner
-        self._scale_calibrator = ConditionalScaleCalibrator(
-            learner=dispersion_learner,
-            horizon=horizon,
-            n_windows=n_windows,
-            nexcp=nexcp,
-            decay=decay,
-            weighted_refit=weighted_refit,
-        )
 
     def _scale_features(self, series_ids) -> pd.DataFrame:
         """Build the series-and-horizon features used for dispersion modeling."""
@@ -206,8 +180,23 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
             raise TypeError("minimum must be an integer or None.")
 
     @requires_extra("series")
-    def fit(self, df, step_size=None, static_features=None, n_jobs=-1):
+    def fit(
+        self,
+        df,
+        horizon: int,
+        n_windows: int = 10,
+        step_size=None,
+        static_features=None,
+        nexcp: bool = False,
+        decay: float = 0.99,
+        weighted_refit: bool = True,
+        id_col: str = "unique_id",
+        time_col: str = "ds",
+        target_col: str = "y",
+        n_jobs=-1,
+    ):
         """Fit rolling-origin residuals, conditional scales, and the forecaster."""
+        self.id_col, self.time_col, self.target_col = id_col, time_col, target_col
         if self.discrete:
             self._validate_columns(df)
             target = np.asarray(df[self.target_col], dtype=float)
@@ -221,9 +210,25 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
                 )
         super().fit(
             df,
+            horizon=horizon,
+            n_windows=n_windows,
             step_size=step_size,
             static_features=static_features,
+            nexcp=nexcp,
+            decay=decay,
+            weighted_refit=weighted_refit,
+            id_col=id_col,
+            time_col=time_col,
+            target_col=target_col,
             n_jobs=n_jobs,
+        )
+        self._scale_calibrator = ConditionalScaleCalibrator(
+            learner=self.dispersion_learner,
+            horizon=horizon,
+            n_windows=n_windows,
+            nexcp=nexcp,
+            decay=decay,
+            weighted_refit=weighted_refit,
         )
         self._fit_conditional_scales(n_jobs=n_jobs)
         return self
@@ -307,7 +312,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         ----------
         h : int or None, default=None
             Number of future steps to forecast for each series. If ``None``, the
-            horizon supplied when constructing the estimator is used. ``h``
+            horizon supplied to ``fit`` is used. ``h``
             cannot exceed the calibrated horizon.
         X_df : pandas.DataFrame or None, default=None
             Future exogenous features in Nixtla long format. It must contain

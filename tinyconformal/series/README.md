@@ -20,11 +20,9 @@ from tinyconformal.series import MultiStepConformalTimeSeriesRegressor
 
 model = MultiStepConformalTimeSeriesRegressor(
     learner=nixtla_point_forecaster,
-    horizon=14,
-    n_windows=5,
     alpha=0.10,
 )
-model.fit(train_df, step_size=14)
+model.fit(train_df, horizon=14, n_windows=5, step_size=14)
 intervals = model.predict_interval(h=14, X_df=future_exog)
 ```
 
@@ -35,11 +33,9 @@ from tinyconformal.series import ConformalizedQuantileTimeSeriesRegressor
 
 model = ConformalizedQuantileTimeSeriesRegressor(
     learner=nixtla_quantile_forecaster,
-    horizon=14,
-    n_windows=5,
     intervals=("model-lo-90", "model-hi-90"),
 )
-model.fit(train_df, step_size=14)
+model.fit(train_df, horizon=14, n_windows=5, step_size=14)
 intervals = model.predict_interval(h=14, X_df=future_exog)
 ```
 
@@ -52,9 +48,7 @@ from tinyconformal.series import ContinuousTimeSeriesConformalPredictiveSystem
 cps = ContinuousTimeSeriesConformalPredictiveSystem(
     learner=nixtla_point_forecaster,
     dispersion_learner=RandomForestRegressor(min_samples_leaf=5),
-    horizon=14,
-    n_windows=5,
-).fit(train_df, step_size=14)
+).fit(train_df, horizon=14, n_windows=5, step_size=14)
 
 forecast = cps.predict_distribution(h=14, X_df=future_exog)
 median = forecast.ppf(0.5)

@@ -52,29 +52,13 @@ class ContinuousTimeSeriesConformalPredictiveSystem(TSCPS):
         self,
         learner: BaseEstimator,
         dispersion_learner: BaseEstimator,
-        horizon: int,
-        n_windows: int = 10,
-        nexcp: bool = False,
-        decay: float = 0.99,
-        weighted_refit: bool = True,
-        id_col: str = "unique_id",
-        time_col: str = "ds",
-        target_col: str = "y",
     ):
         """Configure a continuous time-series conformal predictive system."""
         super().__init__(
             learner=learner,
             dispersion_learner=dispersion_learner,
-            horizon=horizon,
-            n_windows=n_windows,
-            nexcp=nexcp,
-            decay=decay,
-            weighted_refit=weighted_refit,
             discrete=False,
             minimum=None,
-            id_col=id_col,
-            time_col=time_col,
-            target_col=target_col,
         )
 
 
@@ -125,30 +109,14 @@ class DiscreteTimeSeriesConformalPredictiveSystem(TSCPS):
         self,
         learner: BaseEstimator,
         dispersion_learner: BaseEstimator,
-        horizon: int,
-        n_windows: int = 10,
-        nexcp: bool = False,
-        decay: float = 0.99,
-        weighted_refit: bool = True,
         minimum: int | None = 0,
-        id_col: str = "unique_id",
-        time_col: str = "ds",
-        target_col: str = "y",
     ):
         """Configure an integer-support time-series conformal predictive system."""
         super().__init__(
             learner=learner,
             dispersion_learner=dispersion_learner,
-            horizon=horizon,
-            n_windows=n_windows,
-            nexcp=nexcp,
-            decay=decay,
-            weighted_refit=weighted_refit,
             discrete=True,
             minimum=minimum,
-            id_col=id_col,
-            time_col=time_col,
-            target_col=target_col,
         )
 
     @requires_extra("series")

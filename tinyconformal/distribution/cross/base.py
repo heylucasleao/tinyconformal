@@ -35,10 +35,6 @@ class CrossConformalPredictiveSystem(BaseEstimator):
         An unfitted location estimator implementing ``fit`` and ``predict``.
     dispersion_learner : estimator
         An unfitted estimator whose prediction is a positive conditional scale.
-    cv : int or cross-validation splitter, default=5
-        Cross-fitting strategy used for both location and scale predictions.
-    n_jobs : int or None, default=None
-        Parallel jobs passed to cross-validated prediction.
     discrete : bool, default=False
         If true, produce an ordered integer distribution with ``pmf`` support.
     minimum : int or None, default=0
@@ -60,20 +56,16 @@ class CrossConformalPredictiveSystem(BaseEstimator):
         self,
         learner: BaseEstimator,
         dispersion_learner: BaseEstimator,
-        cv=5,
-        n_jobs: int | None = None,
         discrete: bool = False,
         minimum: int | None = 0,
     ):
         """Configure the location model, scale model, and cross-fitting policy."""
         self.learner = learner
         self.dispersion_learner = dispersion_learner
-        self.cv = cv
-        self.n_jobs = n_jobs
         self.discrete = discrete
         self.minimum = minimum
 
-    def fit(self, X, y):
+    def fit(self, X, y, cv=5, n_jobs: int | None = None):
         """Cross-fit standardized scores, then refit both models on all data.
 
         Parameters
@@ -82,6 +74,10 @@ class CrossConformalPredictiveSystem(BaseEstimator):
             Training features used by both estimators.
         y : array-like of shape (n_samples,)
             Observed targets.
+        cv : int or cross-validation splitter, default=5
+            Cross-fitting strategy used for location and scale predictions.
+        n_jobs : int or None, default=None
+            Parallel jobs passed to cross-validated prediction.
 
         Returns
         -------
@@ -99,9 +95,11 @@ class CrossConformalPredictiveSystem(BaseEstimator):
             self.dispersion_learner,
             X,
             y,
-            cv=self.cv,
-            n_jobs=self.n_jobs,
+            cv=cv,
+            n_jobs=n_jobs,
         )
+        self.cv_ = cv
+        self.n_jobs_ = n_jobs
         self.calibration_ = calibration
         self.n_calibration_ = calibration.standardized_residuals.size
 
