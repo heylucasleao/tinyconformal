@@ -22,7 +22,7 @@ model = MultiStepConformalTimeSeriesRegressor(
     learner=nixtla_point_forecaster,
     alpha=0.10,
 )
-model.fit(train_df, horizon=14, n_windows=5, step_size=14)
+model.fit(train_df, horizon=14, n_windows=15, step_size=14)
 intervals = model.predict_interval(h=14, X_df=future_exog)
 ```
 
@@ -35,7 +35,7 @@ model = ConformalizedQuantileTimeSeriesRegressor(
     learner=nixtla_quantile_forecaster,
     intervals=("model-lo-90", "model-hi-90"),
 )
-model.fit(train_df, horizon=14, n_windows=5, step_size=14)
+model.fit(train_df, horizon=14, n_windows=15, step_size=14)
 intervals = model.predict_interval(h=14, X_df=future_exog)
 ```
 
@@ -48,7 +48,7 @@ from tinyconformal.series import ContinuousTimeSeriesConformalPredictiveSystem
 cps = ContinuousTimeSeriesConformalPredictiveSystem(
     learner=nixtla_point_forecaster,
     dispersion_learner=RandomForestRegressor(min_samples_leaf=5),
-).fit(train_df, horizon=14, n_windows=5, step_size=14)
+).fit(train_df, horizon=14, n_windows=15, step_size=14)
 
 forecast = cps.predict_distribution(h=14, X_df=future_exog)
 median = forecast.ppf(0.5)
@@ -68,6 +68,32 @@ By default, `nexcp=True` applies exponential recency weights controlled by
 `decay`. Set `nexcp=False` to give every calibration window equal weight.
 When `weighted_refit=True`, compatible forecasting and dispersion learners also
 receive those weights during refitting.
+
+## Calibration rank and number of windows
+
+The default `n_windows=15` is a practical compromise between quantile
+resolution, computation, and temporal relevance. For TSCQR, the finite-sample
+conformal rank is
+
+```text
+ceil((n_windows + 1) * (1 - alpha)).
+```
+
+To keep this rank within the observed calibration scores, the theoretical
+minimum is `n_windows >= 1 / alpha - 1`:
+
+| Coverage | `alpha` | Mathematical minimum |
+|---:|---:|---:|
+| 80% | 0.20 | 4 |
+| 90% | 0.10 | 9 |
+| 95% | 0.05 | 19 |
+| 99% | 0.01 | 99 |
+
+Thus, the default supports a 90% TSCQR interval without rank clipping, but a
+95% interval needs at least 19 windows. More windows generally improve quantile
+resolution, while older windows may be less representative under temporal
+drift. With `nexcp=True`, recency weighting reduces the influence of those
+older windows.
 
 ## CPS retraining flow
 

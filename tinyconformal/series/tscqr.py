@@ -144,7 +144,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         self,
         df: pd.DataFrame,
         horizon: int,
-        n_windows: int = 3,
+        n_windows: int = 15,
         step_size: int | None = None,
         static_features: list | None = None,
         nexcp: bool = True,
@@ -164,7 +164,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             optional exogenous feature columns.
         horizon : int
             Maximum forecast horizon calibrated in each window.
-        n_windows : int, default=3
+        n_windows : int, default=15
             Number of rolling-origin calibration windows.
         step_size : int or None, default=None
             Distance between consecutive origins. ``None`` uses ``horizon``.

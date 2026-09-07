@@ -47,7 +47,7 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         self,
         df: pd.DataFrame,
         horizon: int,
-        n_windows: int = 10,
+        n_windows: int = 15,
         step_size: int | None = None,
         static_features: list | None = None,
         nexcp: bool = True,
@@ -67,7 +67,7 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
             and optional exogenous feature columns.
         horizon : int
             Maximum forecast horizon calibrated in every backtesting window.
-        n_windows : int, default=10
+        n_windows : int, default=15
             Number of rolling-origin windows used to collect residuals.
         step_size : int or None, default=None
             Distance between consecutive origins. ``None`` uses ``horizon``.

@@ -502,7 +502,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         self,
         df: pd.DataFrame,
         horizon: int,
-        n_windows: int = 10,
+        n_windows: int = 15,
         step_size: int | None = None,
         static_features: list | None = None,
         nexcp: bool = True,
@@ -523,7 +523,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             The target and feature time series dataset.
         horizon : int
             Maximum forecast horizon calibrated by each backtesting window.
-        n_windows : int, default=10
+        n_windows : int, default=15
             Number of rolling-origin windows used for calibration.
         step_size : int, optional
             Step size between calibration windows. If None, defaults to `self.horizon`.

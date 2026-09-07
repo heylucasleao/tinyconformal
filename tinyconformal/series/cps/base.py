@@ -62,7 +62,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
     --------------
     horizon : int
         Maximum forecast horizon calibrated during rolling-origin backtesting.
-    n_windows : int, default=10
+    n_windows : int, default=15
         Number of backtesting windows.  Each series contributes one residual
         trajectory per window.
     nexcp : bool, default=True
@@ -185,7 +185,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         self,
         df,
         horizon: int,
-        n_windows: int = 10,
+        n_windows: int = 15,
         step_size=None,
         static_features=None,
         nexcp: bool = True,
@@ -205,7 +205,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
             optional exogenous feature columns.
         horizon : int
             Maximum forecast horizon calibrated in each rolling-origin window.
-        n_windows : int, default=10
+        n_windows : int, default=15
             Number of rolling-origin windows used to collect residual paths.
         step_size : int or None, default=None
             Distance between consecutive origins. ``None`` uses ``horizon``.
