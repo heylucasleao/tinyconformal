@@ -17,19 +17,19 @@ from tinyconformal.core.quantiles import temporal_decay_weights
 from tinyconformal.distribution.base import PredictiveDistribution
 from tinyconformal.utils.imports import requires_extra
 
-from ..mscp import MultiStepConformalTimeSeriesRegressor
+from ..residual import ResidualConformalTimeSeriesRegressor
 from .calibration import ConditionalScaleCalibrator
 from .distribution import (
     DiscreteHorizonConformalDistribution,
     HorizonConformalDistribution,
 )
 from .forecast import (
-    _DiscretePanelConformalForecast,
-    _PanelConformalForecast,
+    DiscretePanelConformalForecast,
+    PanelConformalForecast,
 )
 
 
-class TSCPS(MultiStepConformalTimeSeriesRegressor):
+class TSCPS(ResidualConformalTimeSeriesRegressor):
     """Conformal predictive system for multi-step panel forecasting.
 
     The regressor calibrates complete residual distributions for each forecast
@@ -43,7 +43,7 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
     ``predict_distribution`` returns one self-contained forecast whose methods
     produce pandas DataFrames aligned to the original panel grid.
 
-    Parameters
+    Constructor parameters
     ----------
     learner : BaseEstimator
         Unfitted Nixtla-compatible forecasting estimator.  Its ``fit`` method
@@ -52,28 +52,26 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
     dispersion_learner : BaseEstimator
         Regression estimator for the positive conditional scale. It is
         cross-fitted on absolute rolling-origin errors using series and horizon.
+    discrete : bool, default=False
+        Whether to construct integer-support predictive distributions.
+    minimum : int or None, default=0
+        Lower support boundary used when ``discrete=True``. Ignored for
+        continuous distributions.
+
+    Fit parameters
+    --------------
     horizon : int
         Maximum forecast horizon calibrated during rolling-origin backtesting.
-    n_windows : int, default=10
+    n_windows : int, default=15
         Number of backtesting windows.  Each series contributes one residual
         trajectory per window.
-    alpha : float, default=0.05
-        Default significance level used by ``evaluate``. It does not restrict
-        the intervals or quantiles available from the fitted CPS.
-    nexcp : bool, default=False
+    nexcp : bool, default=True
         Whether to weight calibration windows by exponential recency decay.
     decay : float, default=0.99
         Decay factor in ``(0, 1)`` used when ``nexcp=True``.
     weighted_refit : bool, default=True
         Whether recency weights are also passed to the forecasting learner and,
         when supported, the dispersion learner during fitting.
-    discrete : bool, default=False
-        Whether to construct integer-support predictive distributions.
-    minimum : int or None, default=0
-        Lower support boundary used when ``discrete=True``. Use ``0`` for
-        counts, ``1`` for strictly positive outcomes, another integer for a
-        known lower bound, or ``None`` when negative integers are valid.
-        Ignored for continuous distributions.
     id_col : str, default="unique_id"
         Column identifying the individual time series.
     time_col : str, default="ds"
@@ -126,41 +124,14 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
         self,
         learner: BaseEstimator,
         dispersion_learner: BaseEstimator,
-        horizon: int,
-        n_windows: int = 10,
-        alpha: float = 0.05,
-        nexcp: bool = False,
-        decay: float = 0.99,
-        weighted_refit: bool = True,
         discrete: bool = False,
         minimum: int | None = 0,
-        id_col: str = "unique_id",
-        time_col: str = "ds",
-        target_col: str = "y",
     ):
-        super().__init__(
-            learner=learner,
-            horizon=horizon,
-            n_windows=n_windows,
-            nexcp=nexcp,
-            decay=decay,
-            weighted_refit=weighted_refit,
-            alpha=alpha,
-            id_col=id_col,
-            time_col=time_col,
-            target_col=target_col,
-        )
+        """Configure forecasting, conditional-scale, and support behavior."""
+        super().__init__(learner=learner)
         self.discrete = discrete
         self.minimum = minimum
         self.dispersion_learner = dispersion_learner
-        self._scale_calibrator = ConditionalScaleCalibrator(
-            learner=dispersion_learner,
-            horizon=horizon,
-            n_windows=n_windows,
-            nexcp=nexcp,
-            decay=decay,
-            weighted_refit=weighted_refit,
-        )
 
     def _scale_features(self, series_ids) -> pd.DataFrame:
         """Build the series-and-horizon features used for dispersion modeling."""
@@ -182,11 +153,12 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
         window and retained in ``dispersion_learners_`` for future distributions.
         """
         self.raw_residuals_ = self.ncscores_
-        (
-            self.ncscores_,
-            self.oof_scales_,
-            self.dispersion_learners_,
-        ) = self._scale_calibrator.fit_transform(self.raw_residuals_, n_jobs=n_jobs)
+        self.scale_calibration_ = self._scale_calibrator.fit(
+            self.raw_residuals_, n_jobs=n_jobs
+        )
+        self.ncscores_ = self.scale_calibration_.standardized_residuals
+        self.oof_scales_ = self.scale_calibration_.oof_scales
+        self.dispersion_learners_ = self.scale_calibration_.pipelines
 
     def _validate_fit_configuration(self) -> None:
         """Validate CPS-specific learner and discrete-target configuration."""
@@ -209,7 +181,76 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
             raise TypeError("minimum must be an integer or None.")
 
     @requires_extra("series")
-    def fit(self, df, step_size=None, static_features=None, n_jobs=-1):
+    def fit(
+        self,
+        df,
+        horizon: int,
+        n_windows: int = 15,
+        step_size=None,
+        static_features=None,
+        nexcp: bool = True,
+        decay: float = 0.99,
+        weighted_refit: bool = True,
+        id_col: str = "unique_id",
+        time_col: str = "ds",
+        target_col: str = "y",
+        n_jobs=-1,
+    ):
+        """Fit TSCPS residual distributions and conditional scales.
+
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            Long-format training panel with identifier, timestamp, target, and
+            optional exogenous feature columns.
+        horizon : int
+            Maximum forecast horizon calibrated in each rolling-origin window.
+        n_windows : int, default=15
+            Number of rolling-origin windows used to collect residual paths.
+        step_size : int or None, default=None
+            Distance between consecutive origins. ``None`` uses ``horizon``.
+        static_features : list of str or None, default=None
+            Time-invariant feature columns passed to the forecasting learner.
+        nexcp : bool, default=True
+            Give recent calibration windows exponentially larger weights.
+        decay : float, default=0.99
+            Exponential decay factor in ``(0, 1)`` used when ``nexcp=True``.
+        weighted_refit : bool, default=True
+            Pass recency weights to compatible forecast and dispersion learner
+            fits when ``nexcp=True``.
+        id_col : str, default="unique_id"
+            Series identifier column.
+        time_col : str, default="ds"
+            Timestamp column.
+        target_col : str, default="y"
+            Target column.
+        n_jobs : int, default=-1
+            Parallel jobs for rolling-origin and conditional-scale calibration.
+
+        Returns
+        -------
+        self
+            Fitted predictive system with standardized residual distributions
+            and final forecast and dispersion learners.
+
+        Raises
+        ------
+        TypeError
+            If calibration or discrete-support parameters have invalid types.
+        ValueError
+            If parameters, columns, panel layout, targets, learner outputs, or
+            history length are invalid.
+        RuntimeError
+            If no residual scores are produced or scale calibration fails.
+
+        Notes
+        -----
+        Point residuals are collected by rolling-origin backtesting. The scale
+        learner is cross-fitted by calibration window, residuals are
+        standardized, and both final learners are fitted using all available
+        training information. Predictions cannot exceed the fitted horizon.
+        """
+        self.id_col, self.time_col, self.target_col = id_col, time_col, target_col
         if self.discrete:
             self._validate_columns(df)
             target = np.asarray(df[self.target_col], dtype=float)
@@ -223,9 +264,25 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
                 )
         super().fit(
             df,
+            horizon=horizon,
+            n_windows=n_windows,
             step_size=step_size,
             static_features=static_features,
+            nexcp=nexcp,
+            decay=decay,
+            weighted_refit=weighted_refit,
+            id_col=id_col,
+            time_col=time_col,
+            target_col=target_col,
             n_jobs=n_jobs,
+        )
+        self._scale_calibrator = ConditionalScaleCalibrator(
+            learner=self.dispersion_learner,
+            horizon=horizon,
+            n_windows=n_windows,
+            nexcp=nexcp,
+            decay=decay,
+            weighted_refit=weighted_refit,
         )
         self._fit_conditional_scales(n_jobs=n_jobs)
         return self
@@ -302,14 +359,14 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
         self,
         h: int | None = None,
         X_df: pd.DataFrame | None = None,
-    ) -> _PanelConformalForecast:
+    ) -> PanelConformalForecast:
         """Return predictive distributions aligned to the Nixtla panel grid.
 
         Parameters
         ----------
         h : int or None, default=None
             Number of future steps to forecast for each series. If ``None``, the
-            horizon supplied when constructing the estimator is used. ``h``
+            horizon supplied to ``fit`` is used. ``h``
             cannot exceed the calibrated horizon.
         X_df : pandas.DataFrame or None, default=None
             Future exogenous features in Nixtla long format. It must contain
@@ -319,9 +376,9 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
 
         Returns
         -------
-        _PanelConformalForecast
+        PanelConformalForecast
             Row-aligned predictive forecast sorted by ``id_col`` and
-            ``time_col``. :meth:`cdf`, :meth:`ppf`, :meth:`interval`, and
+            ``time_col``. :meth:`cdf`, :meth:`sf`, :meth:`ppf`, :meth:`interval`, and
             :meth:`to_frame` return pandas DataFrames on the
             same panel grid. Forecasts from a discrete CPS additionally expose
             :meth:`pmf` and return integer quantiles.
@@ -350,40 +407,6 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
         model = model_cols[0]
         distribution = self._build_distribution(pred_df, model, h=h, n_series=n_series)
         forecast_type = (
-            _DiscretePanelConformalForecast
-            if self.discrete
-            else _PanelConformalForecast
+            DiscretePanelConformalForecast if self.discrete else PanelConformalForecast
         )
         return forecast_type(pred_df, distribution, model, self.id_col, self.time_col)
-
-    @property
-    def predict_interval(self):
-        """Intervals are available from the predictive forecast object."""
-        raise AttributeError(
-            "TSCPS does not expose predict_interval; call "
-            "predict_distribution(...).interval(coverage) instead."
-        )
-
-    @requires_extra("series")
-    def evaluate(
-        self,
-        df_test: pd.DataFrame,
-        h: int | None = None,
-        alpha: float | None = None,
-    ) -> pd.DataFrame:
-        """Evaluate an interval obtained from the predictive forecast object."""
-        alpha = self._get_alpha(alpha)
-        forecast = self.predict_distribution(
-            h=h, X_df=self._prediction_features(df_test)
-        )
-        eval_df = self._merge_predictions_with_targets(
-            forecast.interval(1.0 - alpha), df_test
-        )
-
-        y_true = eval_df[self.target_col].to_numpy()
-        records = self._extract_bound_records(eval_df, y_true, alpha)
-        return (
-            pd.DataFrame(records)
-            .sort_values(by=["model", "level"])
-            .reset_index(drop=True)
-        )

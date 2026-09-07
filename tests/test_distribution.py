@@ -11,7 +11,8 @@ from tinyconformal.utils.solver import NewsvendorSolver
 
 
 def test_distribution_public_api_only_exports_modeling_classes():
-    import tinyconformal.distribution as distribution
+    from tinyconformal import distribution
+    from tinyconformal.distribution import cross
 
     assert distribution.__all__ == [
         "ContinuousCrossConformalPredictiveSystem",
@@ -19,11 +20,12 @@ def test_distribution_public_api_only_exports_modeling_classes():
     ]
     assert not hasattr(distribution, "PredictiveDistribution")
     assert not hasattr(distribution, "CrossConformalPredictiveSystem")
+    assert not hasattr(cross, "ContinuousConformalDistribution")
+    assert not hasattr(cross, "DiscreteConformalDistribution")
 
 
 def test_distribution_models_do_not_expose_predict_alias():
     cps = ContinuousCrossConformalPredictiveSystem(_fitted_dummy(), _fitted_scale())
-
     assert not hasattr(cps, "predict")
 
 
@@ -38,18 +40,15 @@ def _fitted_scale(value=1.0):
 
 
 def test_continuous_cps_cdf_ppf_and_interval():
-    cps = ContinuousCrossConformalPredictiveSystem(
-        _fitted_dummy(), _fitted_scale(), cv=2
-    )
-    cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
+    cps = ContinuousCrossConformalPredictiveSystem(_fitted_dummy(), _fitted_scale())
+    cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]), cv=2)
     distribution = cps.predict_distribution(np.array([[20], [21]]))
     assert not hasattr(distribution, "sample")
-
     np.testing.assert_allclose(distribution.cdf(np.array([[10], [11]])), [0.5, 2 / 3])
+    np.testing.assert_allclose(distribution.sf(np.array([[10], [11]])), [0.5, 1 / 3])
     np.testing.assert_allclose(distribution.ppf(0.5), [10, 10])
-    assert distribution.ppf([0.25, 0.50, 0.75]).shape == (2, 3)
+    assert distribution.ppf([0.25, 0.5, 0.75]).shape == (2, 3)
     assert distribution.interval(0.8).shape == (2, 2)
-
     quantile_grid = np.linspace(0.01, 0.99, 11)
     draws = distribution.ppf(quantile_grid)
     assert np.all(distribution.cdf(draws) >= quantile_grid)
@@ -61,7 +60,6 @@ def test_discrete_cps_has_integer_nonnegative_support_and_pmf():
     )
     cps.fit(np.arange(5).reshape(-1, 1), np.array([0, 0, 1, 2, 3]))
     distribution = cps.predict_distribution(np.array([[10], [11]]))
-
     quantiles = distribution.ppf([0.1, 0.5, 0.9])
     assert np.issubdtype(quantiles.dtype, np.integer)
     assert np.all(quantiles >= 0)
@@ -79,15 +77,15 @@ def test_discrete_cps_rejects_non_integer_targets():
 
 def test_cps_stores_cross_fitted_location_scale_and_standardized_scores():
     cps = ContinuousCrossConformalPredictiveSystem(
-        _fitted_dummy(), _fitted_scale(), cv=2
-    ).fit(np.arange(6).reshape(-1, 1), np.array([8, 9, 10, 11, 12, 13]))
-
-    assert cps.residuals_.shape == (6,)
-    assert cps.scales_.shape == (6,)
+        _fitted_dummy(), _fitted_scale()
+    ).fit(np.arange(6).reshape(-1, 1), np.array([8, 9, 10, 11, 12, 13]), cv=2)
+    assert cps.calibration_.residuals.shape == (6,)
+    assert cps.calibration_.scales.shape == (6,)
     np.testing.assert_allclose(
-        cps.standardized_residuals_, cps.residuals_ / cps.scales_
+        cps.calibration_.standardized_residuals,
+        cps.calibration_.residuals / cps.calibration_.scales,
     )
-    assert np.all(cps.scales_ > 0)
+    assert np.all(cps.calibration_.scales > 0)
 
 
 def test_newsvendor_uses_distribution_ppf_row_wise():
@@ -95,11 +93,9 @@ def test_newsvendor_uses_distribution_ppf_row_wise():
     cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
     distribution = cps.predict_distribution(np.array([[20], [21]]))
     frame = pd.DataFrame({"unique_id": ["a", "b"], "ds": [1, 1], "cu": [1.0, 9.0]})
-
     result = NewsvendorSolver.optimize_distribution(
         frame, distribution, underage_cost="cu", overage_cost=1.0
     )
-
     np.testing.assert_allclose(result["critical_ratio"], [0.5, 0.9])
     np.testing.assert_allclose(
         result["y_optimal"], distribution.ppf(np.array([[0.5], [0.9]]))
@@ -107,12 +103,9 @@ def test_newsvendor_uses_distribution_ppf_row_wise():
 
 
 def test_newsvendor_rejects_distribution_batch_size_mismatch():
-    cps = ContinuousCrossConformalPredictiveSystem(
-        _fitted_dummy(), _fitted_scale(), cv=2
-    )
-    cps.fit(np.array([[0], [1]]), np.array([9.0, 11.0]))
+    cps = ContinuousCrossConformalPredictiveSystem(_fitted_dummy(), _fitted_scale())
+    cps.fit(np.array([[0], [1]]), np.array([9.0, 11.0]), cv=2)
     distribution = cps.predict_distribution(np.array([[0]]))
-
     with pytest.raises(ValueError, match="same number of rows"):
         NewsvendorSolver.optimize_distribution(
             pd.DataFrame({"unique_id": ["a", "b"], "ds": [1, 1]}),
@@ -129,24 +122,11 @@ def test_newsvendor_marginal_benefit_uses_discrete_cdf():
     cps.fit(np.arange(5).reshape(-1, 1), np.array([0, 0, 1, 2, 3]))
     distribution = cps.predict_distribution(np.array([[10], [11]]))
     frame = pd.DataFrame(
-        {
-            "unique_id": ["a", "b"],
-            "ds": [1, 1],
-            "cu": [10.0, 6.0],
-            "co": [2.0, 4.0],
-        }
+        {"unique_id": ["a", "b"], "ds": [1, 1], "cu": [10.0, 6.0], "co": [2.0, 4.0]}
     )
-
     result = NewsvendorSolver.marginal_benefit_distribution(
-        frame,
-        distribution,
-        underage_cost="cu",
-        overage_cost="co",
-        max_k=1,
+        frame, distribution, underage_cost="cu", overage_cost="co", max_k=1
     )
-
-    # max_k + 1 equals the number of rows here, exercising the row/grid
-    # ambiguity in the distribution input protocol.
     units = np.array([0, 1])
     thresholds = np.broadcast_to(units - 1, (len(frame), len(units)))
     probability_less = distribution.cdf(thresholds)
@@ -164,15 +144,9 @@ def test_newsvendor_marginal_benefit_supports_explicit_units():
     cps.fit(np.arange(5).reshape(-1, 1), np.array([0, 0, 1, 2, 3]))
     distribution = cps.predict_distribution(np.array([[10]]))
     frame = pd.DataFrame({"unique_id": ["a"], "ds": [1]})
-
     result = NewsvendorSolver.marginal_benefit_distribution(
-        frame,
-        distribution,
-        underage_cost=10.0,
-        overage_cost=2.0,
-        units=[1, 3, 5],
+        frame, distribution, underage_cost=10.0, overage_cost=2.0, units=[1, 3, 5]
     )
-
     assert [column for column in result if column.startswith("MB(")] == [
         "MB(k=1)",
         "MB(k=3)",
@@ -187,12 +161,10 @@ def test_newsvendor_pmf_supports_max_k_and_explicit_units():
     cps.fit(np.arange(5).reshape(-1, 1), np.array([0, 0, 1, 2, 3]))
     distribution = cps.predict_distribution(np.array([[10], [11]]))
     frame = pd.DataFrame({"unique_id": ["a", "b"], "ds": [1, 1]})
-
     dense = NewsvendorSolver.pmf_distribution(frame, distribution, max_k=3)
     sparse = NewsvendorSolver.pmf_distribution(
         frame, distribution, units=range(0, 4, 2)
     )
-
     assert [column for column in dense if column.startswith("P(Y=")] == [
         "P(Y=0)",
         "P(Y=1)",
@@ -225,7 +197,6 @@ def test_newsvendor_unit_selection_is_mutually_exclusive(method):
         if method.startswith("marginal")
         else {}
     )
-
     with pytest.raises(ValueError, match="either max_k or units"):
         getattr(NewsvendorSolver, method)(
             frame, distribution, max_k=3, units=[1, 3], **kwargs
@@ -236,7 +207,6 @@ def test_newsvendor_marginal_benefit_rejects_continuous_distribution():
     cps = ContinuousCrossConformalPredictiveSystem(_fitted_dummy(), _fitted_scale())
     cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
     distribution = cps.predict_distribution(np.array([[20]]))
-
     with pytest.raises(TypeError, match="only for discrete"):
         NewsvendorSolver.marginal_benefit_distribution(
             pd.DataFrame({"unique_id": ["a"], "ds": [1]}),
@@ -250,9 +220,7 @@ def test_predictive_distribution_evaluates_coverage():
     cps = ContinuousCrossConformalPredictiveSystem(_fitted_dummy(), _fitted_scale())
     cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
     distribution = cps.predict_distribution(np.array([[20], [21]]))
-
     result = distribution.evaluate([10, 10], coverages=[0.5, 0.9])
-
     assert list(result.columns) == [
         "coverage",
         "coverage_rate",

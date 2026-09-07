@@ -87,16 +87,19 @@ def mock_quantile_learner_multi():
     return learner
 
 
-# --- Column Normalization & Renaming Tests ---
-
-
 def test_normalize_intervals_single_tuple(mock_quantile_learner_single):
     """Verify single tuple input converts to a list of tuples using intervals."""
     cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single,
-        horizon=5,
-        intervals=("LGBM-lo-90", "LGBM-hi-90"),
+        learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "LGBM-hi-90")
     )
+    cqr.id_col = "unique_id"
+    cqr.time_col = "ds"
+    cqr.target_col = "y"
+    cqr.nexcp = True
+    cqr.decay = 0.99
+    cqr.weighted_refit = True
+    cqr.horizon = 5
+    cqr.h = 5
     assert cqr.intervals_ == [("LGBM-lo-90", "LGBM-hi-90")]
 
 
@@ -104,8 +107,16 @@ def test_normalize_intervals_list_of_tuples(mock_quantile_learner_multi):
     """Verify normalization when given a list of tuples/lists via intervals."""
     pairs = [("LGBM-lo-90", "LGBM-hi-90"), ["LGBM-lo-50", "LGBM-hi-50"]]
     cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_multi, horizon=5, intervals=pairs
+        learner=mock_quantile_learner_multi, intervals=pairs
     )
+    cqr.id_col = "unique_id"
+    cqr.time_col = "ds"
+    cqr.target_col = "y"
+    cqr.nexcp = True
+    cqr.decay = 0.99
+    cqr.weighted_refit = True
+    cqr.horizon = 5
+    cqr.h = 5
     assert cqr.intervals_ == [
         ("LGBM-lo-90", "LGBM-hi-90"),
         ("LGBM-lo-50", "LGBM-hi-50"),
@@ -122,7 +133,7 @@ def test_normalize_intervals_invalid_raises_error(
     """Ensure ValueError is raised when invalid intervals formats are passed."""
     with pytest.raises(ValueError, match="intervals must be a tuple of 2 column names"):
         ConformalizedQuantileTimeSeriesRegressor(
-            learner=mock_quantile_learner_single, horizon=5, intervals=invalid_cols
+            learner=mock_quantile_learner_single, intervals=invalid_cols
         )
 
 
@@ -131,26 +142,26 @@ def test_invalid_interval_col_pattern_raises_error(mock_quantile_learner_single)
     with pytest.raises(ValueError, match="Invalid lower quantile column name"):
         ConformalizedQuantileTimeSeriesRegressor(
             learner=mock_quantile_learner_single,
-            horizon=5,
             intervals=("invalid_lo_format", "LGBM-hi-90"),
         )
-
-
-# --- Nonconformity Scores and Residual Calculations ---
 
 
 def test_generate_residuals(mock_quantile_learner_single):
     """Test correctness of CQR nonconformity score computation: max(q_low - y, y - q_high)."""
     cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single,
-        horizon=3,
-        intervals=("LGBM-lo-90", "LGBM-hi-90"),
+        learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "LGBM-hi-90")
     )
+    cqr.id_col = "unique_id"
+    cqr.time_col = "ds"
+    cqr.target_col = "y"
+    cqr.nexcp = True
+    cqr.decay = 0.99
+    cqr.weighted_refit = True
+    cqr.horizon = 3
+    cqr.h = 3
     q_low = np.array([10.0, 10.0, 10.0])
     q_high = np.array([20.0, 20.0, 20.0])
-
     y_true = np.array([15.0, 25.0, 5.0])
-
     residuals = cqr._generate_residuals(q_low, q_high, y_true)
     np.testing.assert_array_equal(residuals, np.array([-5.0, 5.0, 5.0]))
 
@@ -158,27 +169,35 @@ def test_generate_residuals(mock_quantile_learner_single):
 def test_sample_correction(mock_quantile_learner_single):
     """Test finite-sample quantile adjustment computation."""
     cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single,
-        horizon=5,
-        intervals=("LGBM-lo-90", "LGBM-hi-90"),
+        learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "LGBM-hi-90")
     )
+    cqr.id_col = "unique_id"
+    cqr.time_col = "ds"
+    cqr.target_col = "y"
+    cqr.nexcp = True
+    cqr.decay = 0.99
+    cqr.weighted_refit = True
+    cqr.horizon = 5
+    cqr.h = 5
     cqr.n = 100
     q_level = cqr._sample_correction(alpha=0.05)
-    # rank = ceil(101 * 0.95) = 96, mapped exactly for method="higher".
-    assert pytest.approx(q_level, abs=1e-4) == 95 / 99
-
-
-# --- Validation and Backtesting Tests ---
+    assert pytest.approx(q_level, abs=0.0001) == 95 / 99
 
 
 def test_sequential_backtesting_insufficient_time_steps(mock_quantile_learner_single):
     """Raise ValueError if time series lacks sufficient time steps for backtesting."""
     cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single,
-        horizon=10,
-        n_windows=5,
-        intervals=("LGBM-lo-90", "LGBM-hi-90"),
+        learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "LGBM-hi-90")
     )
+    cqr.id_col = "unique_id"
+    cqr.time_col = "ds"
+    cqr.target_col = "y"
+    cqr.nexcp = True
+    cqr.decay = 0.99
+    cqr.weighted_refit = True
+    cqr.horizon = 10
+    cqr.n_windows = 5
+    cqr.h = 10
     short_df = pd.DataFrame(
         {
             "unique_id": ["s1"] * 10,
@@ -187,7 +206,7 @@ def test_sequential_backtesting_insufficient_time_steps(mock_quantile_learner_si
         }
     )
     with pytest.raises(ValueError, match="Time series has 10 unique time steps"):
-        cqr.fit(short_df)
+        cqr.fit(short_df, horizon=10, n_windows=5)
 
 
 def test_sequential_backtesting_missing_quantile_column(
@@ -195,11 +214,17 @@ def test_sequential_backtesting_missing_quantile_column(
 ):
     """Ensure KeyError is raised when configured interval columns are missing from predictions."""
     cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single,
-        horizon=3,
-        n_windows=2,
-        intervals=("LGBM-lo-90", "LGBM-hi-90"),
+        learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "LGBM-hi-90")
     )
+    cqr.id_col = "unique_id"
+    cqr.time_col = "ds"
+    cqr.target_col = "y"
+    cqr.nexcp = True
+    cqr.decay = 0.99
+    cqr.weighted_refit = True
+    cqr.horizon = 3
+    cqr.n_windows = 2
+    cqr.h = 3
     mock_quantile_learner_single.predict.side_effect = lambda h, X_df=None: (
         pd.DataFrame(
             {
@@ -208,9 +233,8 @@ def test_sequential_backtesting_missing_quantile_column(
             }
         )
     )
-
     with pytest.raises(KeyError, match="were not found in forecast output"):
-        cqr.fit(sample_time_series_data)
+        cqr.fit(sample_time_series_data, horizon=3, n_windows=2)
 
 
 def test_window_residuals_align_shuffled_forecasts_by_keys(
@@ -218,10 +242,16 @@ def test_window_residuals_align_shuffled_forecasts_by_keys(
 ):
     """Quantile residuals must align by series and timestamp, not row order."""
     cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single,
-        horizon=2,
-        intervals=("LGBM-lo-90", "LGBM-hi-90"),
+        learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "LGBM-hi-90")
     )
+    cqr.id_col = "unique_id"
+    cqr.time_col = "ds"
+    cqr.target_col = "y"
+    cqr.nexcp = True
+    cqr.decay = 0.99
+    cqr.weighted_refit = True
+    cqr.horizon = 2
+    cqr.h = 2
     val_df = pd.DataFrame(
         {
             "unique_id": ["s1", "s1", "s2", "s2"],
@@ -238,12 +268,9 @@ def test_window_residuals_align_shuffled_forecasts_by_keys(
         }
     )
     residuals = {}
-
     cqr._compute_window_residuals(fcst, val_df, 2, residuals)
-
     np.testing.assert_array_equal(
-        residuals["LGBM-lo-90:LGBM-hi-90"][0],
-        np.full((2, 2), -1.0),
+        residuals["LGBM-lo-90:LGBM-hi-90"][0], np.full((2, 2), -1.0)
     )
 
 
@@ -252,18 +279,19 @@ def test_backtesting_does_not_fit_original_learner_per_window(
 ):
     """Only the final full-data fit should mutate the user-provided learner."""
     cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single,
-        horizon=3,
-        n_windows=2,
-        intervals=("LGBM-lo-90", "LGBM-hi-90"),
+        learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "LGBM-hi-90")
     )
-
-    cqr.fit(sample_time_series_data, n_jobs=1)
-
+    cqr.id_col = "unique_id"
+    cqr.time_col = "ds"
+    cqr.target_col = "y"
+    cqr.nexcp = True
+    cqr.decay = 0.99
+    cqr.weighted_refit = True
+    cqr.horizon = 3
+    cqr.n_windows = 2
+    cqr.h = 3
+    cqr.fit(sample_time_series_data, n_jobs=1, horizon=3, n_windows=2)
     assert mock_quantile_learner_single.fit.call_count == 1
-
-
-# --- Fitting and Interval Prediction Tests ---
 
 
 def test_fit_and_ncscores_structure(
@@ -271,13 +299,18 @@ def test_fit_and_ncscores_structure(
 ):
     """Verify that fitting populates ncscores_ correctly and updates calibration sample size n."""
     cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single,
-        horizon=3,
-        n_windows=2,
-        intervals=("LGBM-lo-90", "LGBM-hi-90"),
+        learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "LGBM-hi-90")
     )
-    cqr.fit(sample_time_series_data)
-
+    cqr.id_col = "unique_id"
+    cqr.time_col = "ds"
+    cqr.target_col = "y"
+    cqr.nexcp = True
+    cqr.decay = 0.99
+    cqr.weighted_refit = True
+    cqr.horizon = 3
+    cqr.n_windows = 2
+    cqr.h = 3
+    cqr.fit(sample_time_series_data, horizon=3, n_windows=2)
     pair_key = "LGBM-lo-90:LGBM-hi-90"
     assert pair_key in cqr.ncscores_
     assert set(cqr.ncscores_[pair_key]) == {"series_1", "series_2"}
@@ -288,11 +321,17 @@ def test_fit_and_ncscores_structure(
 def test_tscqr_bounds_are_calibrated_by_unique_id(mock_quantile_learner_single):
     """Each series must use only its own CQR nonconformity scores."""
     cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single,
-        horizon=2,
-        n_windows=2,
-        intervals=("LGBM-lo-90", "LGBM-hi-90"),
+        learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "LGBM-hi-90")
     )
+    cqr.id_col = "unique_id"
+    cqr.time_col = "ds"
+    cqr.target_col = "y"
+    cqr.nexcp = True
+    cqr.decay = 0.99
+    cqr.weighted_refit = True
+    cqr.horizon = 2
+    cqr.n_windows = 2
+    cqr.h = 2
     pair_key = "LGBM-lo-90:LGBM-hi-90"
     cqr.ncscores_ = {
         pair_key: {
@@ -301,7 +340,6 @@ def test_tscqr_bounds_are_calibrated_by_unique_id(mock_quantile_learner_single):
         }
     }
     cqr.n = 2
-
     lower, upper = cqr._compute_bounds(
         q_low=np.full(4, 90.0),
         q_high=np.full(4, 110.0),
@@ -310,7 +348,6 @@ def test_tscqr_bounds_are_calibrated_by_unique_id(mock_quantile_learner_single):
         prediction_ids=np.array(["stable", "stable", "volatile", "volatile"]),
         alpha=0.1,
     )
-
     np.testing.assert_array_equal(lower, [89.0, 88.0, 80.0, 70.0])
     np.testing.assert_array_equal(upper, [111.0, 112.0, 120.0, 130.0])
 
@@ -320,14 +357,19 @@ def test_predict_interval_single_pair_formatting(
 ):
     """Validate output column formatting with -cqr suffix for a single interval pair."""
     cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single,
-        horizon=3,
-        n_windows=2,
-        intervals=("LGBM-lo-90", "LGBM-hi-90"),
+        learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "LGBM-hi-90")
     )
-    cqr.fit(sample_time_series_data)
+    cqr.id_col = "unique_id"
+    cqr.time_col = "ds"
+    cqr.target_col = "y"
+    cqr.nexcp = True
+    cqr.decay = 0.99
+    cqr.weighted_refit = True
+    cqr.horizon = 3
+    cqr.n_windows = 2
+    cqr.h = 3
+    cqr.fit(sample_time_series_data, horizon=3, n_windows=2)
     pred_df = cqr.predict_interval(h=3)
-
     assert "LGBM-lo-90-cqr" in pred_df.columns
     assert "LGBM-hi-90-cqr" in pred_df.columns
 
@@ -338,14 +380,19 @@ def test_predict_interval_multi_pair_formatting(
     """Validate output column formatting with -cqr suffix for multiple interval pairs."""
     pairs = [("LGBM-lo-90", "LGBM-hi-90"), ("LGBM-lo-50", "LGBM-hi-50")]
     cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_multi,
-        horizon=3,
-        n_windows=2,
-        intervals=pairs,
+        learner=mock_quantile_learner_multi, intervals=pairs
     )
-    cqr.fit(sample_time_series_data)
+    cqr.id_col = "unique_id"
+    cqr.time_col = "ds"
+    cqr.target_col = "y"
+    cqr.nexcp = True
+    cqr.decay = 0.99
+    cqr.weighted_refit = True
+    cqr.horizon = 3
+    cqr.n_windows = 2
+    cqr.h = 3
+    cqr.fit(sample_time_series_data, horizon=3, n_windows=2)
     pred_df = cqr.predict_interval(h=3)
-
     assert "LGBM-lo-90-cqr" in pred_df.columns
     assert "LGBM-hi-90-cqr" in pred_df.columns
     assert "LGBM-lo-50-cqr" in pred_df.columns
@@ -358,13 +405,18 @@ def test_evaluate_output_structure_and_metrics(
     """Verify structure, columns, and metric calculations in evaluate() output."""
     pairs = [("LGBM-lo-90", "LGBM-hi-90"), ("LGBM-lo-50", "LGBM-hi-50")]
     cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_multi,
-        horizon=3,
-        n_windows=2,
-        intervals=pairs,
+        learner=mock_quantile_learner_multi, intervals=pairs
     )
-    cqr.fit(sample_time_series_data)
-
+    cqr.id_col = "unique_id"
+    cqr.time_col = "ds"
+    cqr.target_col = "y"
+    cqr.nexcp = True
+    cqr.decay = 0.99
+    cqr.weighted_refit = True
+    cqr.horizon = 3
+    cqr.n_windows = 2
+    cqr.h = 3
+    cqr.fit(sample_time_series_data, horizon=3, n_windows=2)
     test_dates = pd.date_range("2024-01-31", periods=3, freq="D")
     df_test = pd.DataFrame(
         {
@@ -374,9 +426,7 @@ def test_evaluate_output_structure_and_metrics(
             "exog_feat": [0.0] * 6,
         }
     )
-
     eval_df = cqr.evaluate(df_test=df_test, h=3)
-
     expected_cols = [
         "model",
         "level",
@@ -386,12 +436,11 @@ def test_evaluate_output_structure_and_metrics(
         "mwis",
     ]
     assert list(eval_df.columns) == expected_cols
-
     assert len(eval_df) == 4
     assert set(eval_df["model"]) == {"LGBM", "LGBM-cqr"}
     assert set(eval_df["level"]) == {"90%", "50%"}
-    assert np.allclose(eval_df.loc[eval_df["level"] == "90%", "alpha"], 0.10)
-    assert np.allclose(eval_df.loc[eval_df["level"] == "50%", "alpha"], 0.50)
+    assert np.allclose(eval_df.loc[eval_df["level"] == "90%", "alpha"], 0.1)
+    assert np.allclose(eval_df.loc[eval_df["level"] == "50%", "alpha"], 0.5)
     prediction_input = mock_quantile_learner_multi.predict.call_args.kwargs["X_df"]
     assert list(prediction_input.columns) == ["unique_id", "ds", "exog_feat"]
     assert "y" not in prediction_input
@@ -401,12 +450,18 @@ def test_predict_rejects_unbalanced_forecast_panel(
     mock_quantile_learner_single, sample_time_series_data
 ):
     cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single,
-        horizon=2,
-        n_windows=2,
-        intervals=("LGBM-lo-90", "LGBM-hi-90"),
+        learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "LGBM-hi-90")
     )
-    cqr.fit(sample_time_series_data)
+    cqr.id_col = "unique_id"
+    cqr.time_col = "ds"
+    cqr.target_col = "y"
+    cqr.nexcp = True
+    cqr.decay = 0.99
+    cqr.weighted_refit = True
+    cqr.horizon = 2
+    cqr.n_windows = 2
+    cqr.h = 2
+    cqr.fit(sample_time_series_data, horizon=2, n_windows=2)
     mock_quantile_learner_single.predict.side_effect = None
     mock_quantile_learner_single.predict.return_value = pd.DataFrame(
         {
@@ -416,7 +471,6 @@ def test_predict_rejects_unbalanced_forecast_panel(
             "LGBM-hi-90": [20.0] * 3,
         }
     )
-
     with pytest.raises(ValueError, match="exactly 2 rows for every series"):
         cqr.predict_interval(h=2)
 
@@ -425,12 +479,18 @@ def test_predict_rejects_crossing_quantiles(
     mock_quantile_learner_single, sample_time_series_data
 ):
     cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single,
-        horizon=1,
-        n_windows=2,
-        intervals=("LGBM-lo-90", "LGBM-hi-90"),
+        learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "LGBM-hi-90")
     )
-    cqr.fit(sample_time_series_data)
+    cqr.id_col = "unique_id"
+    cqr.time_col = "ds"
+    cqr.target_col = "y"
+    cqr.nexcp = True
+    cqr.decay = 0.99
+    cqr.weighted_refit = True
+    cqr.horizon = 1
+    cqr.n_windows = 2
+    cqr.h = 1
+    cqr.fit(sample_time_series_data, horizon=1, n_windows=2)
     mock_quantile_learner_single.predict.side_effect = None
     mock_quantile_learner_single.predict.return_value = pd.DataFrame(
         {
@@ -440,7 +500,6 @@ def test_predict_rejects_crossing_quantiles(
             "LGBM-hi-90": [20.0, 20.0],
         }
     )
-
     with pytest.raises(ValueError, match="Crossing quantiles detected"):
         cqr.predict_interval(h=1)
 
@@ -448,12 +507,16 @@ def test_predict_rejects_crossing_quantiles(
 def test_evaluate_metric_values_correctness(mock_quantile_learner_single):
     """Test exact mathematical outputs of evaluate() on deterministic bounds."""
     cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single,
-        horizon=2,
-        intervals=("LGBM-lo-90", "LGBM-hi-90"),
+        learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "LGBM-hi-90")
     )
-
-    # Mock do predict_interval contendo tanto os limites não-corrigidos quanto os corrigidos por CQR
+    cqr.id_col = "unique_id"
+    cqr.time_col = "ds"
+    cqr.target_col = "y"
+    cqr.nexcp = True
+    cqr.decay = 0.99
+    cqr.weighted_refit = True
+    cqr.horizon = 2
+    cqr.h = 2
     cqr.predict_interval = MagicMock(
         return_value=pd.DataFrame(
             {
@@ -466,8 +529,6 @@ def test_evaluate_metric_values_correctness(mock_quantile_learner_single):
             }
         )
     )
-
-    # y = [15.0 (coberto), 25.0 (fora/acima por 5 unidades)]
     df_test = pd.DataFrame(
         {
             "unique_id": ["s1", "s1"],
@@ -475,34 +536,29 @@ def test_evaluate_metric_values_correctness(mock_quantile_learner_single):
             "y": [15.0, 25.0],
         }
     )
-
     eval_df = cqr.evaluate(df_test=df_test, h=2)
-
-    # Filtra apenas a métrica do CQR para asserção determinística
     cqr_eval = eval_df[eval_df["model"] == "LGBM-cqr"].iloc[0]
-
-    # Coverage: 1 de 2 cobertos -> 0.5
     assert cqr_eval["coverage_rate"] == 0.5
-    # Width: (20 - 10) = 10.0
     assert cqr_eval["interval_width_mean"] == 10.0
-    # MWIS:
-    # Obs 1: 10 + 0 + 0 = 10
-    # Obs 2: 10 + (2/0.1)*(25 - 20) = 10 + 20*5 = 110
-    # Mean MWIS: (10 + 110) / 2 = 60.0
     assert cqr_eval["mwis"] == 60.0
 
 
 def test_tscqr_predict_raw(mock_quantile_learner_single, sample_time_series_data):
     """Verify _predict_raw returns valid 2D numpy array format without NaNs."""
     cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single,
-        horizon=3,
-        n_windows=2,
-        intervals=("LGBM-lo-90", "LGBM-hi-90"),
+        learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "LGBM-hi-90")
     )
-    cqr.fit(sample_time_series_data)
+    cqr.id_col = "unique_id"
+    cqr.time_col = "ds"
+    cqr.target_col = "y"
+    cqr.nexcp = True
+    cqr.decay = 0.99
+    cqr.weighted_refit = True
+    cqr.horizon = 3
+    cqr.n_windows = 2
+    cqr.h = 3
+    cqr.fit(sample_time_series_data, horizon=3, n_windows=2)
     preds_raw = cqr._predict_raw(h=3)
-
     assert isinstance(preds_raw, np.ndarray)
     assert preds_raw.ndim == 2
     assert preds_raw.shape == (2, 3)
@@ -511,18 +567,13 @@ def test_tscqr_predict_raw(mock_quantile_learner_single, sample_time_series_data
     assert not np.isinf(preds_raw).any()
 
 
-# --- Pattern Matching & Quantile Validation Errors ---
-
-
 def test_quantile_pair_mismatch_model_raises_error(mock_quantile_learner_single):
     """Ensure ValueError is raised if pair models don't match (e.g. LGBM vs XGB)."""
     with pytest.raises(
         ValueError, match="Model name mismatch in quantile pair: 'LGBM' vs 'XGB'"
     ):
         ConformalizedQuantileTimeSeriesRegressor(
-            learner=mock_quantile_learner_single,
-            horizon=3,
-            intervals=("LGBM-lo-90", "XGB-hi-90"),
+            learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "XGB-hi-90")
         )
 
 
@@ -532,9 +583,7 @@ def test_quantile_pair_mismatch_level_raises_error(mock_quantile_learner_single)
         ValueError, match="Coverage level mismatch in quantile pair: '90' vs '50'"
     ):
         ConformalizedQuantileTimeSeriesRegressor(
-            learner=mock_quantile_learner_single,
-            horizon=3,
-            intervals=("LGBM-lo-90", "LGBM-hi-50"),
+            learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "LGBM-hi-50")
         )
 
 
@@ -545,7 +594,6 @@ def test_quantile_pair_invalid_bound_indicator_raises_error(
     with pytest.raises(ValueError, match="Invalid lower quantile column name"):
         ConformalizedQuantileTimeSeriesRegressor(
             learner=mock_quantile_learner_single,
-            horizon=3,
             intervals=("LGBM-mid-90", "LGBM-hi-90"),
         )
 
@@ -554,11 +602,8 @@ def test_predict_requires_configured_quantile_columns(
     mock_quantile_learner_single, sample_time_series_data
 ):
     cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single,
-        horizon=2,
-        n_windows=2,
-        intervals=("LGBM-lo-90", "LGBM-hi-90"),
-    ).fit(sample_time_series_data)
+        learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "LGBM-hi-90")
+    ).fit(sample_time_series_data, horizon=2, n_windows=2)
     mock_quantile_learner_single.predict.side_effect = None
     mock_quantile_learner_single.predict.return_value = pd.DataFrame(
         {
@@ -567,6 +612,5 @@ def test_predict_requires_configured_quantile_columns(
             "LGBM-lo-90": [10.0] * 4,
         }
     )
-
     with pytest.raises(KeyError, match="LGBM-hi-90"):
         cqr.predict_interval(h=2)

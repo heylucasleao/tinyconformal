@@ -1,6 +1,6 @@
 [project]
 name = "tinyconformal"
-version = "0.6.3"
+version = "0.7.0"
 description = "A small toolbox for conformal prediction"
 license = "MIT"
 authors = [{name = "Lucas Leão", email = "heylucasleao@gmail.com"}]
@@ -19,7 +19,7 @@ requires-python = ">=3.10"
 
 [project.optional-dependencies]
 plot = [
-    "tinyshift[plot]",
+    "tinyshift[plot]>=1.9.0",
 ]
 
 notebook = [
@@ -34,11 +34,11 @@ series = [
 ]
 
 all = [
-    "tinyshift[series,plot,notebook]",
+    "tinyshift[series,plot,notebook]>=1.9.0",
 ]
 
 dev = [
-    "tinyshift[all]",
+    "tinyshift[all]>=1.9.0",
     "pytest>=7.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",

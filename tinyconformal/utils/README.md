@@ -50,22 +50,21 @@ must remain in the same order as the corresponding forecast DataFrame.
 
 ## First-stage forecaster diagnostics
 
-Both the tabular and time-series CPS estimators calibrate a dispersion model on
-top of a first-stage location forecaster. `FirstStageEvaluator` checks that
-forecaster in isolation, before any conformal scaling, from out-of-sample
-predictions supplied by the caller (a `cross_val_predict` backtest for tabular
-data, or a Nixtla `cross_validation` backtest for panels).
+`FirstStageEvaluator.evaluate` checks a time-series location forecaster in
+isolation, before any conformal scaling, using predictions from a held-out test
+period. It requires panel identifiers and timestamps, using the Nixtla defaults
+`unique_id` and `ds`. For tabular cross-conformal models, use
+`calibration_table` on held-out predictions instead.
 
 ```python
-from sklearn.model_selection import cross_val_predict
 from tinyconformal.utils import FirstStageEvaluator
 
-oof_predictions = cross_val_predict(learner, X_train, y_train, cv=5)
-backtest = pd.DataFrame({"y": y_train, "y_pred": oof_predictions})
-
-FirstStageEvaluator.evaluate(backtest)
-FirstStageEvaluator.calibration_table(backtest, n_bins=10)
+FirstStageEvaluator.evaluate(
+    test_predictions,
+    prediction_col="LinearRegression",
+)
 ```
 
-Pass `id_col` and `time_col` to also compute Forecast Instability across
-consecutive predictions of the same series.
+For nonstandard schemas, pass `id_col` and `time_col` explicitly. The evaluator
+sorts observations by those columns and computes Forecast Instability without
+crossing series boundaries.

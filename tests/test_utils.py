@@ -9,7 +9,33 @@ from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.exceptions import NotFittedError
 from sklearn.utils.validation import check_is_fitted
 
-from tinyconformal.utils import MultiQuantileRegressor, NewsvendorSolver
+from tinyconformal.utils import (
+    FirstStageEvaluator,
+    MultiQuantileRegressor,
+    NewsvendorSolver,
+)
+
+
+def test_first_stage_evaluator_uses_default_time_series_columns():
+    backtest = pd.DataFrame(
+        {
+            "unique_id": ["a", "b", "a", "b"],
+            "ds": [2, 2, 1, 1],
+            "y": [2.0, 10.0, 1.0, 10.0],
+            "forecast": [3.0, 10.0, 1.0, 10.0],
+        }
+    )
+
+    result = FirstStageEvaluator.evaluate(backtest, prediction_col="forecast")
+
+    assert result.loc[0, "forecast_instability"] == pytest.approx(0.3333)
+
+
+def test_first_stage_evaluator_requires_time_series_columns():
+    tabular = pd.DataFrame({"y": [1.0, 2.0], "y_pred": [1.0, 2.0]})
+
+    with pytest.raises(KeyError, match="unique_id.*ds"):
+        FirstStageEvaluator.evaluate(tabular)
 
 
 def test_mqr_fit_and_predict_requested_quantiles():
