@@ -31,6 +31,10 @@ class PredictiveDistribution(ABC):
     def ppf(self, quantiles):
         """Evaluate the generalized inverse CDF for each distribution."""
 
+    def sf(self, values):
+        """Evaluate the survival function, ``P(Y > value)``."""
+        return 1.0 - np.asarray(self.cdf(values))
+
     def interval(self, coverage: float = 0.95) -> np.ndarray:
         """Return equal-tailed intervals with the requested central coverage."""
         if not isinstance(coverage, (int, float, np.integer, np.floating)):

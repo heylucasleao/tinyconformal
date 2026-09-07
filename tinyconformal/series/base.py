@@ -172,17 +172,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
     ) -> None:
         """Calculates nonconformity scores for the predictions and updates the residuals dictionary."""
 
-    @abstractmethod
-    def predict_interval(self, *args, **kwargs) -> pd.DataFrame:
-        """
-        Generate prediction intervals for the input data.
-        To be implemented by subclasses.
-        """
-
-    @abstractmethod
-    def evaluate(self, *args, **kwargs) -> pd.DataFrame:
-        """Evaluate predictions according to the subclass interval semantics."""
-
     def _compute_qhat(
         self, ncscore: np.ndarray, q_level: float, axis: int | None = None
     ):

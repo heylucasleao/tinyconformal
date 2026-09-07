@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-
 import pandas as pd
 from sklearn.base import BaseEstimator
+
 from tinyconformal.utils.imports import requires_extra
 
-from .forecast import (
-    _DiscretePanelConformalForecast,
-)
 from .base import TSCPS
+from .forecast import DiscretePanelConformalForecast
 
 
 class ContinuousTimeSeriesConformalPredictiveSystem(TSCPS):
@@ -164,7 +162,7 @@ class DiscreteTimeSeriesConformalPredictiveSystem(TSCPS):
         self,
         h: int | None = None,
         X_df: pd.DataFrame | None = None,
-    ) -> _DiscretePanelConformalForecast:
+    ) -> DiscretePanelConformalForecast:
         """Return a discrete predictive forecast on the Nixtla panel grid.
 
         The returned object exposes :meth:`cdf`, :meth:`ppf`, :meth:`pmf`,

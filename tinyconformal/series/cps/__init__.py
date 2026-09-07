@@ -1,11 +1,7 @@
-"""Conformal predictive-system models and distributions for time series."""
+"""Public conformal predictive-system models for time series."""
 
-from .distribution import (
-    DiscreteHorizonConformalDistribution as DiscreteHorizonConformalDistribution,
-)
-from .distribution import (
-    HorizonConformalDistribution as HorizonConformalDistribution,
-)
+from .eval import TimeSeriesCPSEvaluator
+from .forecast import DiscretePanelConformalForecast, PanelConformalForecast
 from .wrapper import (
     ContinuousTimeSeriesConformalPredictiveSystem,
     DiscreteTimeSeriesConformalPredictiveSystem,
@@ -13,5 +9,8 @@ from .wrapper import (
 
 __all__ = [
     "ContinuousTimeSeriesConformalPredictiveSystem",
+    "DiscretePanelConformalForecast",
     "DiscreteTimeSeriesConformalPredictiveSystem",
+    "PanelConformalForecast",
+    "TimeSeriesCPSEvaluator",
 ]
