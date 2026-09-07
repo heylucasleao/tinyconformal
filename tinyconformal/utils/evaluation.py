@@ -15,9 +15,9 @@ class FirstStageEvaluator:
 
     A time-series CPS calibrates a dispersion model on top of a first-stage
     location forecaster (``learner``). This evaluator checks that forecaster on
-    its own, before any conformal scaling, using out-of-sample rolling-origin
-    predictions supplied by the caller. For tabular cross-conformal models,
-    use :meth:`calibration_table` instead.
+    its own, before any conformal scaling, using predictions for a held-out
+    test period supplied by the caller. For tabular cross-conformal models, use
+    :meth:`calibration_table` instead.
 
     Notes on Metrics & Interpretation
     ---------------------------------
@@ -72,9 +72,10 @@ class FirstStageEvaluator:
 
         Notes
         -----
-        Input predictions should come from cross-validation, rolling-origin
-        backtesting, or a held-out period. Evaluating in-sample fitted values
-        gives optimistic results.
+        Input predictions should come from a held-out test period that was not
+        used for fitting or calibration. Evaluating in-sample fitted values, or
+        reporting tuning cross-validation results as final performance, gives
+        optimistic estimates.
         """
         required = [target_col, prediction_col, id_col, time_col]
         missing = [column for column in required if column not in df_res.columns]

@@ -51,16 +51,16 @@ must remain in the same order as the corresponding forecast DataFrame.
 ## First-stage forecaster diagnostics
 
 `FirstStageEvaluator.evaluate` checks a time-series location forecaster in
-isolation, before any conformal scaling, from out-of-sample rolling-origin
-predictions. It requires panel identifiers and timestamps, using the Nixtla
-defaults `unique_id` and `ds`. For tabular cross-conformal models, use
-`calibration_table` instead.
+isolation, before any conformal scaling, using predictions from a held-out test
+period. It requires panel identifiers and timestamps, using the Nixtla defaults
+`unique_id` and `ds`. For tabular cross-conformal models, use
+`calibration_table` on held-out predictions instead.
 
 ```python
 from tinyconformal.utils import FirstStageEvaluator
 
 FirstStageEvaluator.evaluate(
-    backtest,
+    test_predictions,
     prediction_col="LinearRegression",
 )
 ```
