@@ -196,13 +196,59 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         target_col: str = "y",
         n_jobs=-1,
     ):
-        """Fit rolling-origin residuals, conditional scales, and the forecaster.
+        """Fit TSCPS residual distributions and conditional scales.
 
-        Parameters configure this calibration run rather than the estimator
-        constructor. ``horizon`` is the largest supported prediction horizon;
-        ``n_windows`` and ``step_size`` define the rolling origins. With the
-        default ``nexcp=True``, recent windows receive exponentially larger
-        weights according to ``decay``.
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            Long-format training panel with identifier, timestamp, target, and
+            optional exogenous feature columns.
+        horizon : int
+            Maximum forecast horizon calibrated in each rolling-origin window.
+        n_windows : int, default=10
+            Number of rolling-origin windows used to collect residual paths.
+        step_size : int or None, default=None
+            Distance between consecutive origins. ``None`` uses ``horizon``.
+        static_features : list of str or None, default=None
+            Time-invariant feature columns passed to the forecasting learner.
+        nexcp : bool, default=True
+            Give recent calibration windows exponentially larger weights.
+        decay : float, default=0.99
+            Exponential decay factor in ``(0, 1)`` used when ``nexcp=True``.
+        weighted_refit : bool, default=True
+            Pass recency weights to compatible forecast and dispersion learner
+            fits when ``nexcp=True``.
+        id_col : str, default="unique_id"
+            Series identifier column.
+        time_col : str, default="ds"
+            Timestamp column.
+        target_col : str, default="y"
+            Target column.
+        n_jobs : int, default=-1
+            Parallel jobs for rolling-origin and conditional-scale calibration.
+
+        Returns
+        -------
+        self
+            Fitted predictive system with standardized residual distributions
+            and final forecast and dispersion learners.
+
+        Raises
+        ------
+        TypeError
+            If calibration or discrete-support parameters have invalid types.
+        ValueError
+            If parameters, columns, panel layout, targets, learner outputs, or
+            history length are invalid.
+        RuntimeError
+            If no residual scores are produced or scale calibration fails.
+
+        Notes
+        -----
+        Point residuals are collected by rolling-origin backtesting. The scale
+        learner is cross-fitted by calibration window, residuals are
+        standardized, and both final learners are fitted using all available
+        training information. Predictions cannot exceed the fitted horizon.
         """
         self.id_col, self.time_col, self.target_col = id_col, time_col, target_col
         if self.discrete:

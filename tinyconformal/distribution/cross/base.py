@@ -66,7 +66,7 @@ class CrossConformalPredictiveSystem(BaseEstimator):
         self.minimum = minimum
 
     def fit(self, X, y, cv=5, n_jobs: int | None = None):
-        """Cross-fit standardized scores, then refit both models on all data.
+        """Cross-fit CPS scores and refit both learners on all observations.
 
         Parameters
         ----------
@@ -82,7 +82,22 @@ class CrossConformalPredictiveSystem(BaseEstimator):
         Returns
         -------
         self
-            Fitted predictive system.
+            Fitted predictive system containing out-of-fold standardized
+            residuals and final location and dispersion learners.
+
+        Raises
+        ------
+        ValueError
+            If targets are non-finite, violate the configured discrete support,
+            or cross-fitted predictions have invalid shapes or values.
+
+        Notes
+        -----
+        Location predictions are generated out of fold. Absolute location
+        residuals become scale targets, and scale predictions are also generated
+        out of fold before standardization. Finally, both learner templates are
+        cloned and fitted on all observations. ``cv`` and ``n_jobs`` describe
+        this fit and are stored as ``cv_`` and ``n_jobs_``.
         """
         y = _as_1d_finite(y, "y")
         if self.discrete and np.any(y != np.floor(y)):

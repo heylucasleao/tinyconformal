@@ -155,12 +155,57 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         target_col: str = "y",
         n_jobs: int = -1,
     ):
-        """Fit horizon-wise CQR scores and refit the quantile forecaster.
+        """Fit TSCQR with rolling-origin quantile-score calibration.
 
-        ``horizon`` and ``n_windows`` define the rolling-origin calibration
-        design. By default, ``nexcp=True`` exponentially favors recent windows;
-        set it to ``False`` for equal calibration weights. Schema, static
-        features, refit weighting, and parallelism are configured for this fit.
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            Long-format training panel with identifier, timestamp, target, and
+            optional exogenous feature columns.
+        horizon : int
+            Maximum forecast horizon calibrated in each window.
+        n_windows : int, default=3
+            Number of rolling-origin calibration windows.
+        step_size : int or None, default=None
+            Distance between consecutive origins. ``None`` uses ``horizon``.
+        static_features : list of str or None, default=None
+            Time-invariant feature columns passed to the learner.
+        nexcp : bool, default=True
+            Give recent calibration windows exponentially larger weights.
+        decay : float, default=0.99
+            Exponential decay factor in ``(0, 1)`` used when ``nexcp=True``.
+        weighted_refit : bool, default=True
+            Pass recency weights to compatible learner fits when ``nexcp=True``.
+        id_col : str, default="unique_id"
+            Series identifier column.
+        time_col : str, default="ds"
+            Timestamp column.
+        target_col : str, default="y"
+            Target column.
+        n_jobs : int, default=-1
+            Parallel jobs used to process calibration windows.
+
+        Returns
+        -------
+        self
+            Fitted estimator with scores for every configured interval pair,
+            series, and forecast horizon.
+
+        Raises
+        ------
+        TypeError
+            If calibration parameters have invalid types.
+        ValueError
+            If parameters, required columns, quantile outputs, panel layout, or
+            history length are invalid.
+        RuntimeError
+            If calibration produces no nonconformity scores.
+
+        Notes
+        -----
+        Temporary learner clones produce out-of-sample quantile forecasts. The
+        original learner is then fitted on the complete panel. Prediction
+        horizons cannot exceed the fitted ``horizon``.
         """
         return super().fit(
             df,
