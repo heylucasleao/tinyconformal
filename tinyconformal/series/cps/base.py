@@ -43,7 +43,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
     ``predict_distribution`` returns one self-contained forecast whose methods
     produce pandas DataFrames aligned to the original panel grid.
 
-    Parameters
+    Constructor parameters
     ----------
     learner : BaseEstimator
         Unfitted Nixtla-compatible forecasting estimator.  Its ``fit`` method
@@ -52,25 +52,26 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
     dispersion_learner : BaseEstimator
         Regression estimator for the positive conditional scale. It is
         cross-fitted on absolute rolling-origin errors using series and horizon.
+    discrete : bool, default=False
+        Whether to construct integer-support predictive distributions.
+    minimum : int or None, default=0
+        Lower support boundary used when ``discrete=True``. Ignored for
+        continuous distributions.
+
+    Fit parameters
+    --------------
     horizon : int
         Maximum forecast horizon calibrated during rolling-origin backtesting.
     n_windows : int, default=10
         Number of backtesting windows.  Each series contributes one residual
         trajectory per window.
-    nexcp : bool, default=False
+    nexcp : bool, default=True
         Whether to weight calibration windows by exponential recency decay.
     decay : float, default=0.99
         Decay factor in ``(0, 1)`` used when ``nexcp=True``.
     weighted_refit : bool, default=True
         Whether recency weights are also passed to the forecasting learner and,
         when supported, the dispersion learner during fitting.
-    discrete : bool, default=False
-        Whether to construct integer-support predictive distributions.
-    minimum : int or None, default=0
-        Lower support boundary used when ``discrete=True``. Use ``0`` for
-        counts, ``1`` for strictly positive outcomes, another integer for a
-        known lower bound, or ``None`` when negative integers are valid.
-        Ignored for continuous distributions.
     id_col : str, default="unique_id"
         Column identifying the individual time series.
     time_col : str, default="ds"
@@ -187,7 +188,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         n_windows: int = 10,
         step_size=None,
         static_features=None,
-        nexcp: bool = False,
+        nexcp: bool = True,
         decay: float = 0.99,
         weighted_refit: bool = True,
         id_col: str = "unique_id",
@@ -195,7 +196,14 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         target_col: str = "y",
         n_jobs=-1,
     ):
-        """Fit rolling-origin residuals, conditional scales, and the forecaster."""
+        """Fit rolling-origin residuals, conditional scales, and the forecaster.
+
+        Parameters configure this calibration run rather than the estimator
+        constructor. ``horizon`` is the largest supported prediction horizon;
+        ``n_windows`` and ``step_size`` define the rolling origins. With the
+        default ``nexcp=True``, recent windows receive exponentially larger
+        weights according to ``decay``.
+        """
         self.id_col, self.time_col, self.target_col = id_col, time_col, target_col
         if self.discrete:
             self._validate_columns(df)

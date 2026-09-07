@@ -147,7 +147,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         n_windows: int = 3,
         step_size: int | None = None,
         static_features: list | None = None,
-        nexcp: bool = False,
+        nexcp: bool = True,
         decay: float = 0.99,
         weighted_refit: bool = True,
         id_col: str = "unique_id",
@@ -155,7 +155,13 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         target_col: str = "y",
         n_jobs: int = -1,
     ):
-        """Fit horizon-wise CQR scores and refit the quantile forecaster."""
+        """Fit horizon-wise CQR scores and refit the quantile forecaster.
+
+        ``horizon`` and ``n_windows`` define the rolling-origin calibration
+        design. By default, ``nexcp=True`` exponentially favors recent windows;
+        set it to ``False`` for equal calibration weights. Schema, static
+        features, refit weighting, and parallelism are configured for this fit.
+        """
         return super().fit(
             df,
             horizon=horizon,

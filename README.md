@@ -179,8 +179,7 @@ row-aligned DataFrames. Use
 targets; those distributions additionally provide `pmf`.
 
 MSCP, TSCQR, and TSCPS share the optional NexCP-style temporal weighting
-contract. With `nexcp=False` (the default), calibration windows have equal
-weight. With `nexcp=True`, weights decay exponentially from the newest window
+contract. With `nexcp=True` (the default), weights decay exponentially from the newest window
 using `decay=0.99`, the value used in the NexCP paper experiments. This weights
 calibration scores and, when `weighted_refit=True`, adds an internal recency
 weight column to every rolling-origin fit and to the final learner refit. A
