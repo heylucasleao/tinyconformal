@@ -18,6 +18,7 @@ class PanelConformalForecast:
     """Panel-aligned facade over one conformal predictive distribution batch."""
 
     def __init__(self, frame, distribution, model, id_col, time_col):
+        """Store an isolated forecast frame and its row-aligned distribution."""
         self._frame = frame.copy()
         self._distribution = distribution
         self.model = model
@@ -25,6 +26,7 @@ class PanelConformalForecast:
         self.time_col = time_col
 
     def __len__(self) -> int:
+        """Return the number of forecast rows."""
         return len(self._distribution)
 
     @property
@@ -38,9 +40,11 @@ class PanelConformalForecast:
 
     @staticmethod
     def _label(value) -> str:
+        """Format a stable numeric component for a result column name."""
         return np.format_float_positional(float(value), precision=12, trim="-")
 
     def _apply(self, method: str, inputs, labeler, row_label: str) -> pd.DataFrame:
+        """Evaluate a distribution method and append its output to the panel."""
         inputs_array = np.asarray(inputs)
         values = np.asarray(getattr(self._distribution, method)(inputs))
         result = self.to_frame()

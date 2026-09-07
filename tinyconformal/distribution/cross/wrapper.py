@@ -28,6 +28,7 @@ class ContinuousCrossConformalPredictiveSystem(CrossConformalPredictiveSystem):
     """
 
     def __init__(self, learner, dispersion_learner, cv=5, n_jobs=None):
+        """Configure a continuous cross-fitted conformal predictive system."""
         super().__init__(
             learner=learner,
             dispersion_learner=dispersion_learner,
@@ -65,6 +66,7 @@ class DiscreteCrossConformalPredictiveSystem(CrossConformalPredictiveSystem):
         n_jobs=None,
         minimum: int | None = 0,
     ):
+        """Configure an integer-support cross-fitted conformal predictive system."""
         super().__init__(
             learner=learner,
             dispersion_learner=dispersion_learner,

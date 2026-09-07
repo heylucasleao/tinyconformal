@@ -14,6 +14,7 @@ class ResidualConformalTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
     """Reusable signed-residual backtesting layer for MSCP and TSCPS."""
 
     def _generate_residuals(self, y_hat: np.ndarray, y_true: np.ndarray) -> np.ndarray:
+        """Return signed forecast residuals in predictive-distribution orientation."""
         return core_conformal.signed_forecast_residuals(y_true, y_hat)
 
     def _finalize_residuals(
@@ -21,6 +22,7 @@ class ResidualConformalTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         residuals_by_model: dict[str, list[np.ndarray]],
         series_ids: list,
     ) -> dict[str, dict[object, np.ndarray]]:
+        """Stack window residuals into matrices keyed by model and series."""
         return {
             model: {
                 series_id: np.vstack([window_scores[row] for window_scores in windows])
@@ -32,6 +34,7 @@ class ResidualConformalTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
     def _prepare_and_validate_steps(
         self, df: pd.DataFrame, step_size: int | None
     ) -> tuple[np.ndarray, int, int]:
+        """Validate calibration length and return the shared temporal grid."""
         df = df.sort_values(by=[self.id_col, self.time_col])
         time_steps = np.sort(df[self.time_col].unique())
         total_steps = len(time_steps)
@@ -53,6 +56,7 @@ class ResidualConformalTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         w: int,
         step_size: int,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Split one rolling-origin window into training and validation panels."""
         val_end_idx = total_steps - (w * step_size)
         val_start_idx = val_end_idx - self.horizon
         train_cutoff = time_steps[val_start_idx - 1]
@@ -69,6 +73,7 @@ class ResidualConformalTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         val_df: pd.DataFrame,
         static_features: list | None = None,
     ) -> pd.DataFrame:
+        """Fit an isolated forecaster and predict one validation window."""
         temp_model = copy.deepcopy(self.learner)
         self._fit_forecaster(temp_model, train_df, static_features=static_features)
         predict_cols = [self.id_col, self.time_col, *self.exog_cols_]
@@ -76,6 +81,7 @@ class ResidualConformalTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         return self._invoke(temp_model.predict, h=self.horizon, X_df=X_val)
 
     def _extract_target(self, target_df: pd.DataFrame) -> np.ndarray:
+        """Return the target panel as a series-by-horizon matrix."""
         return self._pivot_panel(target_df, self.target_col).to_numpy()
 
     def _compute_window_residuals(
@@ -85,6 +91,7 @@ class ResidualConformalTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         n_series: int,
         residuals_by_model: dict[str, list],
     ) -> None:
+        """Validate, align, and collect residuals for one forecast window."""
         model_cols = self._infer_model_cols(fcst)
         target_pivot, y_true = self._extract_target_panel(val_df, n_series)
         for model in model_cols:

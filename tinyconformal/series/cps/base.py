@@ -134,6 +134,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         time_col: str = "ds",
         target_col: str = "y",
     ):
+        """Configure forecasting, conditional-scale, and support behavior."""
         super().__init__(
             learner=learner,
             horizon=horizon,
@@ -206,6 +207,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
 
     @requires_extra("series")
     def fit(self, df, step_size=None, static_features=None, n_jobs=-1):
+        """Fit rolling-origin residuals, conditional scales, and the forecaster."""
         if self.discrete:
             self._validate_columns(df)
             target = np.asarray(df[self.target_col], dtype=float)

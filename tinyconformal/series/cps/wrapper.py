@@ -61,6 +61,7 @@ class ContinuousTimeSeriesConformalPredictiveSystem(TSCPS):
         time_col: str = "ds",
         target_col: str = "y",
     ):
+        """Configure a continuous time-series conformal predictive system."""
         super().__init__(
             learner=learner,
             dispersion_learner=dispersion_learner,
@@ -134,6 +135,7 @@ class DiscreteTimeSeriesConformalPredictiveSystem(TSCPS):
         time_col: str = "ds",
         target_col: str = "y",
     ):
+        """Configure an integer-support time-series conformal predictive system."""
         super().__init__(
             learner=learner,
             dispersion_learner=dispersion_learner,

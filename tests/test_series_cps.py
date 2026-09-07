@@ -5,7 +5,9 @@ import pandas as pd
 import pytest
 from sklearn.dummy import DummyRegressor
 
-from tinyconformal.distribution.cross import ContinuousConformalDistribution
+from tinyconformal.distribution.cross.distribution import (
+    ContinuousConformalDistribution,
+)
 from tinyconformal.series import (
     ContinuousTimeSeriesConformalPredictiveSystem,
     DiscreteTimeSeriesConformalPredictiveSystem,

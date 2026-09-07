@@ -42,6 +42,7 @@ class ConditionalScaleCalibrator:
         decay: float = 0.99,
         weighted_refit: bool = True,
     ):
+        """Configure the scale learner and rolling-origin calibration policy."""
         self.learner = learner
         self.horizon = horizon
         self.n_windows = n_windows

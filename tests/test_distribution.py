@@ -11,7 +11,8 @@ from tinyconformal.utils.solver import NewsvendorSolver
 
 
 def test_distribution_public_api_only_exports_modeling_classes():
-    import tinyconformal.distribution as distribution
+    from tinyconformal import distribution
+    from tinyconformal.distribution import cross
 
     assert distribution.__all__ == [
         "ContinuousCrossConformalPredictiveSystem",
@@ -19,6 +20,8 @@ def test_distribution_public_api_only_exports_modeling_classes():
     ]
     assert not hasattr(distribution, "PredictiveDistribution")
     assert not hasattr(distribution, "CrossConformalPredictiveSystem")
+    assert not hasattr(cross, "ContinuousConformalDistribution")
+    assert not hasattr(cross, "DiscreteConformalDistribution")
 
 
 def test_distribution_models_do_not_expose_predict_alias():
@@ -46,6 +49,7 @@ def test_continuous_cps_cdf_ppf_and_interval():
     assert not hasattr(distribution, "sample")
 
     np.testing.assert_allclose(distribution.cdf(np.array([[10], [11]])), [0.5, 2 / 3])
+    np.testing.assert_allclose(distribution.sf(np.array([[10], [11]])), [0.5, 1 / 3])
     np.testing.assert_allclose(distribution.ppf(0.5), [10, 10])
     assert distribution.ppf([0.25, 0.50, 0.75]).shape == (2, 3)
     assert distribution.interval(0.8).shape == (2, 2)
@@ -82,12 +86,13 @@ def test_cps_stores_cross_fitted_location_scale_and_standardized_scores():
         _fitted_dummy(), _fitted_scale(), cv=2
     ).fit(np.arange(6).reshape(-1, 1), np.array([8, 9, 10, 11, 12, 13]))
 
-    assert cps.residuals_.shape == (6,)
-    assert cps.scales_.shape == (6,)
+    assert cps.calibration_.residuals.shape == (6,)
+    assert cps.calibration_.scales.shape == (6,)
     np.testing.assert_allclose(
-        cps.standardized_residuals_, cps.residuals_ / cps.scales_
+        cps.calibration_.standardized_residuals,
+        cps.calibration_.residuals / cps.calibration_.scales,
     )
-    assert np.all(cps.scales_ > 0)
+    assert np.all(cps.calibration_.scales > 0)
 
 
 def test_newsvendor_uses_distribution_ppf_row_wise():

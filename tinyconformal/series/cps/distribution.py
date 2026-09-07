@@ -90,6 +90,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         scales=None,
         weights=None,
     ):
+        """Initialize aligned locations, residuals, horizons, scales, and weights."""
         self.locations = self._validate_locations(locations)
         self.horizon_steps = self._validate_horizon_steps(horizon_steps)
         self.residuals, self.series_ids = self._prepare_residuals(residuals, series_ids)
@@ -183,10 +184,12 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
             raise ValueError("horizon_steps contains an uncalibrated horizon index.")
 
     def __len__(self) -> int:
+        """Return the number of row-aligned predictive distributions."""
         return self.locations.size
 
     @property
     def n_calibration(self) -> int:
+        """Return the number of rolling-origin calibration trajectories."""
         return self._n_calibration
 
     def _row_residuals(self) -> np.ndarray:
@@ -254,6 +257,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         return residuals if self.weights is not None else np.sort(residuals, axis=1)
 
     def cdf(self, values):
+        """Evaluate unweighted or temporally weighted cumulative probabilities."""
         if self.weights is None:
             return super().cdf(values)
         values, squeeze = self._rowwise_or_grid(values, "values")
@@ -376,6 +380,7 @@ class DiscreteHorizonConformalDistribution(
         scales=None,
         weights=None,
     ):
+        """Initialize an integer-support horizon conformal distribution."""
         super().__init__(
             locations,
             residuals,
@@ -389,12 +394,14 @@ class DiscreteHorizonConformalDistribution(
         self.minimum = None if minimum is None else int(minimum)
 
     def ppf(self, quantiles):
+        """Return ceiling-rounded predictive quantiles on the configured support."""
         result = np.ceil(super().ppf(quantiles))
         if self.minimum is not None:
             result = np.maximum(result, self.minimum)
         return result.astype(int)
 
     def cdf(self, values):
+        """Evaluate the CDF after flooring values to integer support points."""
         values = np.floor(np.asarray(values, dtype=float))
         result = super().cdf(values)
         if self.minimum is None:

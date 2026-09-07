@@ -24,6 +24,7 @@ distribution = cps.predict_distribution(X_test)
 median = distribution.ppf(0.5)
 intervals = distribution.interval(coverage=0.90)
 probabilities = distribution.cdf(values)
+exceedance = distribution.sf(values)
 ```
 
 There is intentionally no `predict` shortcut: request the predictive
@@ -63,7 +64,7 @@ distributions:
 | `cross/base.py` | `CrossConformalPredictiveSystem` estimator lifecycle: cross-fitting, refitting, and distribution construction |
 | `cross/wrapper.py` | Public `Continuous`/`DiscreteCrossConformalPredictiveSystem` convenience classes |
 | `cross/distribution.py` | Empirical residual predictive distributions (`ContinuousConformalDistribution`, `DiscreteConformalDistribution`) |
-| `cross/__init__.py` | Package exports and compatibility imports |
+| `cross/__init__.py` | Public package exports |
 
 Dependencies flow toward the smaller components: `cross/base.py` coordinates
 `cross/distribution.py` and is subclassed by `cross/wrapper.py`, while
