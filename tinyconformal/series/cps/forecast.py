@@ -82,6 +82,10 @@ class PanelConformalForecast:
         result[f"Q({self._label(1.0 - alpha / 2.0)})"] = bounds[:, 1]
         return result
 
+    def evaluate(self, y, coverages=(0.5, 0.8, 0.9, 0.95)) -> pd.DataFrame:
+        """Evaluate the underlying predictive distribution."""
+        return self.distribution.evaluate(y, coverages=coverages)
+
 
 class DiscretePanelConformalForecast(PanelConformalForecast):
     """Panel conformal forecast that additionally exposes a PMF."""

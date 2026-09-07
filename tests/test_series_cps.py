@@ -9,7 +9,6 @@ from tinyconformal.distribution.cross import ContinuousConformalDistribution
 from tinyconformal.series import (
     ContinuousTimeSeriesConformalPredictiveSystem,
     DiscreteTimeSeriesConformalPredictiveSystem,
-    TimeSeriesCPSEvaluator,
 )
 from tinyconformal.series.cps.distribution import HorizonConformalDistribution
 from tinyconformal.utils import NewsvendorSolver
@@ -19,13 +18,12 @@ def test_series_public_api_only_exports_modeling_classes():
     from tinyconformal import series
 
     assert series.__all__ == [
-        "MultiStepConformalTimeSeriesRegressor ",
         "ConformalizedQuantileTimeSeriesRegressor",
         "ContinuousTimeSeriesConformalPredictiveSystem",
         "DiscretePanelConformalForecast",
         "DiscreteTimeSeriesConformalPredictiveSystem",
+        "MultiStepConformalTimeSeriesRegressor",
         "PanelConformalForecast",
-        "TimeSeriesCPSEvaluator",
     ]
     assert not hasattr(series, "HorizonConformalDistribution")
 
@@ -147,14 +145,13 @@ def test_series_cps_quantiles_intervals_and_evaluation(
     nixtla_learner, dispersion_learner, panel
 ):
     cps = ContinuousTimeSeriesConformalPredictiveSystem(
-        nixtla_learner, dispersion_learner, horizon=2, n_windows=2, alpha=0.1
+        nixtla_learner, dispersion_learner, horizon=2, n_windows=2
     ).fit(panel, n_jobs=1)
 
     forecast = cps.predict_distribution(h=2)
     assert not hasattr(forecast, "sample")
     assert not hasattr(cps, "predict_quantiles")
     assert not hasattr(cps, "predict_interval")
-    assert not hasattr(cps, "evaluate")
     quantiles = forecast.ppf([0.1, 0.25, 0.5, 0.9])
     assert {"Q(0.1)", "Q(0.25)", "Q(0.5)", "Q(0.9)"} <= set(quantiles)
     rowwise_quantiles = forecast.ppf(
@@ -167,9 +164,7 @@ def test_series_cps_quantiles_intervals_and_evaluation(
 
     test = intervals[["unique_id", "ds"]].copy()
     test["y"] = 10.0
-    evaluation = TimeSeriesCPSEvaluator.evaluate(
-        forecast, test["y"].to_numpy(), coverages=[0.9]
-    )
+    evaluation = forecast.evaluate(test["y"].to_numpy(), coverages=[0.9])
     assert evaluation.loc[0, "coverage"] == 0.9
 
     direct_quantiles = forecast.ppf([0.1, 0.5, 0.9])

@@ -28,8 +28,6 @@ class ContinuousTimeSeriesConformalPredictiveSystem(TSCPS):
         Maximum forecast horizon to calibrate.
     n_windows : int, default=10
         Number of sequential backtesting windows.
-    alpha : float, default=0.05
-        Default significance level for evaluation.
     nexcp : bool, default=False
         Whether to weight calibration windows by exponential recency decay.
     decay : float, default=0.99
@@ -56,7 +54,6 @@ class ContinuousTimeSeriesConformalPredictiveSystem(TSCPS):
         dispersion_learner: BaseEstimator,
         horizon: int,
         n_windows: int = 10,
-        alpha: float = 0.05,
         nexcp: bool = False,
         decay: float = 0.99,
         weighted_refit: bool = True,
@@ -69,7 +66,6 @@ class ContinuousTimeSeriesConformalPredictiveSystem(TSCPS):
             dispersion_learner=dispersion_learner,
             horizon=horizon,
             n_windows=n_windows,
-            alpha=alpha,
             nexcp=nexcp,
             decay=decay,
             weighted_refit=weighted_refit,
@@ -98,8 +94,6 @@ class DiscreteTimeSeriesConformalPredictiveSystem(TSCPS):
         Maximum forecast horizon to calibrate.
     n_windows : int, default=10
         Number of sequential backtesting windows.
-    alpha : float, default=0.05
-        Default significance level for evaluation.
     nexcp : bool, default=False
         Whether to weight calibration windows by exponential recency decay.
     decay : float, default=0.99
@@ -132,7 +126,6 @@ class DiscreteTimeSeriesConformalPredictiveSystem(TSCPS):
         dispersion_learner: BaseEstimator,
         horizon: int,
         n_windows: int = 10,
-        alpha: float = 0.05,
         nexcp: bool = False,
         decay: float = 0.99,
         weighted_refit: bool = True,
@@ -146,7 +139,6 @@ class DiscreteTimeSeriesConformalPredictiveSystem(TSCPS):
             dispersion_learner=dispersion_learner,
             horizon=horizon,
             n_windows=n_windows,
-            alpha=alpha,
             nexcp=nexcp,
             decay=decay,
             weighted_refit=weighted_refit,

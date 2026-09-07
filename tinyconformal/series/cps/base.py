@@ -17,7 +17,7 @@ from tinyconformal.core.quantiles import temporal_decay_weights
 from tinyconformal.distribution.base import PredictiveDistribution
 from tinyconformal.utils.imports import requires_extra
 
-from ..mscp import MultiStepConformalTimeSeriesRegressor
+from ..residual import ResidualConformalTimeSeriesRegressor
 from .calibration import ConditionalScaleCalibrator
 from .distribution import (
     DiscreteHorizonConformalDistribution,
@@ -29,7 +29,7 @@ from .forecast import (
 )
 
 
-class TSCPS(MultiStepConformalTimeSeriesRegressor):
+class TSCPS(ResidualConformalTimeSeriesRegressor):
     """Conformal predictive system for multi-step panel forecasting.
 
     The regressor calibrates complete residual distributions for each forecast
@@ -57,9 +57,6 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
     n_windows : int, default=10
         Number of backtesting windows.  Each series contributes one residual
         trajectory per window.
-    alpha : float, default=0.05
-        Default significance level used by ``evaluate``. It does not restrict
-        the intervals or quantiles available from the fitted CPS.
     nexcp : bool, default=False
         Whether to weight calibration windows by exponential recency decay.
     decay : float, default=0.99
@@ -128,7 +125,6 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
         dispersion_learner: BaseEstimator,
         horizon: int,
         n_windows: int = 10,
-        alpha: float = 0.05,
         nexcp: bool = False,
         decay: float = 0.99,
         weighted_refit: bool = True,
@@ -145,7 +141,6 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
             nexcp=nexcp,
             decay=decay,
             weighted_refit=weighted_refit,
-            alpha=alpha,
             id_col=id_col,
             time_col=time_col,
             target_col=target_col,
@@ -354,17 +349,3 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
             DiscretePanelConformalForecast if self.discrete else PanelConformalForecast
         )
         return forecast_type(pred_df, distribution, model, self.id_col, self.time_col)
-
-    @property
-    def predict_interval(self):
-        """Hide the interval-only API inherited from the backtesting base."""
-        raise AttributeError(
-            "TSCPS exposes only predict_distribution(); call interval() on its result."
-        )
-
-    @property
-    def evaluate(self):
-        """Hide estimator evaluation in favor of TimeSeriesCPSEvaluator."""
-        raise AttributeError(
-            "Use TimeSeriesCPSEvaluator.evaluate() with a predictive forecast."
-        )
