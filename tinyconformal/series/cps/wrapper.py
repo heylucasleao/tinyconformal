@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-
 import pandas as pd
 from sklearn.base import BaseEstimator
+
 from tinyconformal.utils.imports import requires_extra
 
-from .forecast import (
-    _DiscretePanelConformalForecast,
-)
 from .base import TSCPS
+from .forecast import DiscretePanelConformalForecast
 
 
 class ContinuousTimeSeriesConformalPredictiveSystem(TSCPS):
@@ -30,8 +28,6 @@ class ContinuousTimeSeriesConformalPredictiveSystem(TSCPS):
         Maximum forecast horizon to calibrate.
     n_windows : int, default=10
         Number of sequential backtesting windows.
-    alpha : float, default=0.05
-        Default significance level for evaluation.
     nexcp : bool, default=False
         Whether to weight calibration windows by exponential recency decay.
     decay : float, default=0.99
@@ -58,7 +54,6 @@ class ContinuousTimeSeriesConformalPredictiveSystem(TSCPS):
         dispersion_learner: BaseEstimator,
         horizon: int,
         n_windows: int = 10,
-        alpha: float = 0.05,
         nexcp: bool = False,
         decay: float = 0.99,
         weighted_refit: bool = True,
@@ -66,12 +61,12 @@ class ContinuousTimeSeriesConformalPredictiveSystem(TSCPS):
         time_col: str = "ds",
         target_col: str = "y",
     ):
+        """Configure a continuous time-series conformal predictive system."""
         super().__init__(
             learner=learner,
             dispersion_learner=dispersion_learner,
             horizon=horizon,
             n_windows=n_windows,
-            alpha=alpha,
             nexcp=nexcp,
             decay=decay,
             weighted_refit=weighted_refit,
@@ -100,8 +95,6 @@ class DiscreteTimeSeriesConformalPredictiveSystem(TSCPS):
         Maximum forecast horizon to calibrate.
     n_windows : int, default=10
         Number of sequential backtesting windows.
-    alpha : float, default=0.05
-        Default significance level for evaluation.
     nexcp : bool, default=False
         Whether to weight calibration windows by exponential recency decay.
     decay : float, default=0.99
@@ -134,7 +127,6 @@ class DiscreteTimeSeriesConformalPredictiveSystem(TSCPS):
         dispersion_learner: BaseEstimator,
         horizon: int,
         n_windows: int = 10,
-        alpha: float = 0.05,
         nexcp: bool = False,
         decay: float = 0.99,
         weighted_refit: bool = True,
@@ -143,12 +135,12 @@ class DiscreteTimeSeriesConformalPredictiveSystem(TSCPS):
         time_col: str = "ds",
         target_col: str = "y",
     ):
+        """Configure an integer-support time-series conformal predictive system."""
         super().__init__(
             learner=learner,
             dispersion_learner=dispersion_learner,
             horizon=horizon,
             n_windows=n_windows,
-            alpha=alpha,
             nexcp=nexcp,
             decay=decay,
             weighted_refit=weighted_refit,
@@ -164,7 +156,7 @@ class DiscreteTimeSeriesConformalPredictiveSystem(TSCPS):
         self,
         h: int | None = None,
         X_df: pd.DataFrame | None = None,
-    ) -> _DiscretePanelConformalForecast:
+    ) -> DiscretePanelConformalForecast:
         """Return a discrete predictive forecast on the Nixtla panel grid.
 
         The returned object exposes :meth:`cdf`, :meth:`ppf`, :meth:`pmf`,

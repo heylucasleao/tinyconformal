@@ -8,7 +8,7 @@ data use long format with `unique_id`, `ds`, and `y` by default.
 
 | Model | Output | Use case |
 |---|---|---|
-| `MultiStepConformalTimeSeriesRegressor ` | MSCP bands | Point forecasters |
+| `MultiStepConformalTimeSeriesRegressor` | MSCP bands | Point forecasters |
 | `ConformalizedQuantileTimeSeriesRegressor` | TSCQR bands | Quantile forecasters |
 | `ContinuousTimeSeriesConformalPredictiveSystem` | Complete continuous distributions | Arbitrary quantiles, CDFs and intervals |
 | `DiscreteTimeSeriesConformalPredictiveSystem` | Complete integer distributions | Counts, PMFs and inventory decisions |
@@ -16,9 +16,9 @@ data use long format with `unique_id`, `ds`, and `y` by default.
 ## MSCP bands
 
 ```python
-from tinyconformal.series import MultiStepConformalTimeSeriesRegressor 
+from tinyconformal.series import MultiStepConformalTimeSeriesRegressor
 
-model = MultiStepConformalTimeSeriesRegressor (
+model = MultiStepConformalTimeSeriesRegressor(
     learner=nixtla_point_forecaster,
     horizon=14,
     n_windows=5,
@@ -59,14 +59,16 @@ cps = ContinuousTimeSeriesConformalPredictiveSystem(
 forecast = cps.predict_distribution(h=14, X_df=future_exog)
 median = forecast.ppf(0.5)
 probabilities = forecast.cdf(values)
+exceedance = forecast.sf(values)
 quantiles = forecast.ppf([0.1, 0.5, 0.9])
 intervals = forecast.interval(coverage=0.95)
 ```
 
 TSCPS accepts a Nixtla learner configured with exactly one forecast model. Its
-`cdf`, `ppf`, and `interval` methods return long pandas DataFrames on
+`cdf`, `sf`, `ppf`, and `interval` methods return long pandas DataFrames on
 the original panel grid. The discrete system has the same workflow and adds
-`pmf`; its `minimum` parameter defines the integer support boundary.
+`pmf`; its `minimum` parameter defines the integer support boundary. Results use
+mathematical column names such as `Q(0.9)`, `P(Y<=5)`, `P(Y>5)`, and `P(Y=5)`.
 
 Set `nexcp=True` to apply exponential recency weights controlled by `decay`.
 When `weighted_refit=True`, compatible forecasting and dispersion learners also

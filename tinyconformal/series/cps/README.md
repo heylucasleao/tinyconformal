@@ -6,12 +6,14 @@ Nixtla-style panel forecasters. It is an internal package behind
 `DiscreteTimeSeriesConformalPredictiveSystem`; users should normally import
 those models from `tinyconformal.series`.
 
-## Public models
+## Public API
 
 | Model | Support | Available functionals |
 |---|---|---|
 | `ContinuousTimeSeriesConformalPredictiveSystem` | Real-valued | CDF, quantiles and central intervals |
 | `DiscreteTimeSeriesConformalPredictiveSystem` | Integer-valued | CDF, PMF, integer quantiles and central intervals |
+| `PanelConformalForecast` | Real-valued forecast facade | CDF, survival probabilities, quantiles and intervals |
+| `DiscretePanelConformalForecast` | Integer forecast facade | Adds probability masses |
 
 ```python
 from sklearn.ensemble import RandomForestRegressor
@@ -28,28 +30,36 @@ forecast = cps.predict_distribution(h=14, X_df=future_exog)
 median = forecast.ppf(0.5)
 interval = forecast.interval(coverage=0.9)
 probabilities = forecast.cdf(values)
+exceedance = forecast.sf(values)
+metrics = forecast.evaluate(observed_values)
 ```
 
 The returned forecast owns both the point-forecast panel and its calibrated
 distribution. Its methods return pandas DataFrames aligned with the panel rows.
-Discrete forecasts additionally expose `pmf`.
+Discrete forecasts additionally expose `pmf`. The underlying mathematical
+object is available as `forecast.distribution`. Output columns use mathematical
+labels such as `Q(0.9)`, `P(Y<=5)`, `P(Y>5)`, and `P(Y=5)`.
 
 ## Internal modules
 
 | Module | Responsibility |
 |---|---|
-| `base.py` | `TSCPS` estimator lifecycle, panel prediction, distribution construction and evaluation |
+| `base.py` | `TSCPS` estimator lifecycle, panel prediction and distribution construction |
 | `wrapper.py` | Public `Continuous`/`DiscreteTimeSeriesConformalPredictiveSystem` convenience classes |
-| `calibration.py` | `ConditionalScaleCalibrator`: cross-fitting conditional scales and fitting the final dispersion model |
+| `calibration.py` | Conditional-scale cross-fitting and its fitted `ConditionalScaleCalibration` state |
 | `distribution.py` | Horizon- and series-specific empirical predictive distributions |
 | `forecast.py` | DataFrame facade that keeps distribution results aligned with the forecast panel |
-| `__init__.py` | Package exports and compatibility imports |
+| `__init__.py` | Public package exports |
 
 Dependencies flow toward the smaller components: `base.py` coordinates the
 other modules and is subclassed by `wrapper.py`, while `calibration.py`,
 `distribution.py`, and `forecast.py` do not import the base estimator. This
 direction avoids circular imports and keeps the statistical objects
 independent from the estimator lifecycle.
+
+Rolling-origin residual collection is shared with MSCP through
+`series.residual.ResidualConformalTimeSeriesRegressor`; CPS does not inherit
+MSCP's interval-specific API or significance-level state.
 
 ## Calibration flow
 
@@ -91,13 +101,12 @@ only residuals collected at that same step for the same series.
 
 `HorizonConformalDistribution` combines each point forecast with its selected
 standardized residuals and predicted conditional scale. Its continuous support
-provides `cdf`, `ppf`, and `interval`. The discrete specialization rounds
+provides `cdf`, `sf`, `ppf`, and `interval`. The discrete specialization rounds
 quantiles upward, enforces the configured `minimum`, and calculates
 `pmf(k) = cdf(k) - cdf(k - 1)`.
 
 These distribution classes remain implementation details and are intentionally
-excluded from the package `__all__`. They are re-exported from
-`tinyconformal.series.cps` to preserve existing internal imports and tests.
+excluded from the package `__all__` and module attributes.
 
 ## Alignment and extension rules
 

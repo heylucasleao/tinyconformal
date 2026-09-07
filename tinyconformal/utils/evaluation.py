@@ -13,19 +13,18 @@ import pandas as pd
 class FirstStageEvaluator:
     r"""Operational diagnostics for a first-stage conditional-mean forecaster.
 
-    Both the tabular and time-series CPS estimators calibrate a dispersion
-    model on top of a first-stage location forecaster (``learner``). This
-    evaluator checks that first-stage forecaster on its own, before any
-    conformal scaling, using out-of-sample predictions supplied by the caller
-    (e.g. ``sklearn.model_selection.cross_val_predict`` for tabular data or a
-    Nixtla ``cross_validation`` backtest for panels).
+    A time-series CPS calibrates a dispersion model on top of a first-stage
+    location forecaster (``learner``). This evaluator checks that forecaster on
+    its own, before any conformal scaling, using predictions for a held-out
+    test period supplied by the caller. For tabular cross-conformal models, use
+    :meth:`calibration_table` instead.
 
     Notes on Metrics & Interpretation
     ---------------------------------
     - **WAPE**: Total absolute error divided by total observed demand. Lower is better.
     - **Score**: Composite operational loss defined as WAPE + |PBias|. Lower is better.
     - **Forecast Instability**: Relative change between consecutive forecasts of the same
-      series. Only computed when ``id_col`` and ``time_col`` are both provided. Lower is better.
+      series, ordered by ``time_col``. Lower is better.
     - **PBias (Bias)**: Fractional global volume deviation ($\frac{\sum \hat{y} - \sum y}{\sum y}$).
       * *Interpretation*: Should be close to 0. A negative bias indicates overall under-forecasting (risk of stockouts),
         while a positive bias indicates over-forecasting (excess holding costs).
@@ -47,8 +46,8 @@ class FirstStageEvaluator:
         df_res: pd.DataFrame,
         target_col: str = "y",
         prediction_col: str = "y_pred",
-        id_col: str | None = None,
-        time_col: str | None = None,
+        id_col: str = "unique_id",
+        time_col: str = "ds",
     ) -> pd.DataFrame:
         """Evaluate the operational quality of out-of-sample mean forecasts.
 
@@ -60,12 +59,10 @@ class FirstStageEvaluator:
             Column containing the observed target.
         prediction_col : str, default="y_pred"
             Column containing the first-stage conditional-mean prediction.
-        id_col : str or None, default=None
-            Column identifying each series. Required, together with
-            ``time_col``, to compute Forecast Instability.
-        time_col : str or None, default=None
-            Column containing ordered timestamps. Required, together with
-            ``id_col``, to compute Forecast Instability.
+        id_col : str, default="unique_id"
+            Column identifying each time series.
+        time_col : str, default="ds"
+            Column containing ordered timestamps.
 
         Returns
         -------
@@ -75,13 +72,12 @@ class FirstStageEvaluator:
 
         Notes
         -----
-        Input predictions should come from cross-validation, rolling-origin
-        backtesting, or a held-out period. Evaluating in-sample fitted values
-        gives optimistic results.
+        Input predictions should come from a held-out test period that was not
+        used for fitting or calibration. Evaluating in-sample fitted values, or
+        reporting tuning cross-validation results as final performance, gives
+        optimistic estimates.
         """
-        required = [target_col, prediction_col] + [
-            column for column in (id_col, time_col) if column is not None
-        ]
+        required = [target_col, prediction_col, id_col, time_col]
         missing = [column for column in required if column not in df_res.columns]
         if missing:
             raise KeyError(f"Columns not found in the input DataFrame: {missing}")
@@ -115,13 +111,8 @@ class FirstStageEvaluator:
             else 0.0
         )
 
-        # Forecast Instability requires id_col/time_col; NaN keeps the column stable otherwise.
-        forecast_instability = (
-            cls._forecast_instability(
-                valid, prediction_col=prediction_col, id_col=id_col, time_col=time_col
-            )
-            if id_col is not None and time_col is not None
-            else np.nan
+        forecast_instability = cls._forecast_instability(
+            valid, prediction_col=prediction_col, id_col=id_col, time_col=time_col
         )
 
         return pd.DataFrame(

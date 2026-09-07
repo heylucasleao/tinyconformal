@@ -17,19 +17,19 @@ from tinyconformal.core.quantiles import temporal_decay_weights
 from tinyconformal.distribution.base import PredictiveDistribution
 from tinyconformal.utils.imports import requires_extra
 
-from ..mscp import MultiStepConformalTimeSeriesRegressor
+from ..residual import ResidualConformalTimeSeriesRegressor
 from .calibration import ConditionalScaleCalibrator
 from .distribution import (
     DiscreteHorizonConformalDistribution,
     HorizonConformalDistribution,
 )
 from .forecast import (
-    _DiscretePanelConformalForecast,
-    _PanelConformalForecast,
+    DiscretePanelConformalForecast,
+    PanelConformalForecast,
 )
 
 
-class TSCPS(MultiStepConformalTimeSeriesRegressor):
+class TSCPS(ResidualConformalTimeSeriesRegressor):
     """Conformal predictive system for multi-step panel forecasting.
 
     The regressor calibrates complete residual distributions for each forecast
@@ -57,9 +57,6 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
     n_windows : int, default=10
         Number of backtesting windows.  Each series contributes one residual
         trajectory per window.
-    alpha : float, default=0.05
-        Default significance level used by ``evaluate``. It does not restrict
-        the intervals or quantiles available from the fitted CPS.
     nexcp : bool, default=False
         Whether to weight calibration windows by exponential recency decay.
     decay : float, default=0.99
@@ -128,7 +125,6 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
         dispersion_learner: BaseEstimator,
         horizon: int,
         n_windows: int = 10,
-        alpha: float = 0.05,
         nexcp: bool = False,
         decay: float = 0.99,
         weighted_refit: bool = True,
@@ -138,6 +134,7 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
         time_col: str = "ds",
         target_col: str = "y",
     ):
+        """Configure forecasting, conditional-scale, and support behavior."""
         super().__init__(
             learner=learner,
             horizon=horizon,
@@ -145,7 +142,6 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
             nexcp=nexcp,
             decay=decay,
             weighted_refit=weighted_refit,
-            alpha=alpha,
             id_col=id_col,
             time_col=time_col,
             target_col=target_col,
@@ -182,11 +178,12 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
         window and retained in ``dispersion_learners_`` for future distributions.
         """
         self.raw_residuals_ = self.ncscores_
-        (
-            self.ncscores_,
-            self.oof_scales_,
-            self.dispersion_learners_,
-        ) = self._scale_calibrator.fit_transform(self.raw_residuals_, n_jobs=n_jobs)
+        self.scale_calibration_ = self._scale_calibrator.fit(
+            self.raw_residuals_, n_jobs=n_jobs
+        )
+        self.ncscores_ = self.scale_calibration_.standardized_residuals
+        self.oof_scales_ = self.scale_calibration_.oof_scales
+        self.dispersion_learners_ = self.scale_calibration_.pipelines
 
     def _validate_fit_configuration(self) -> None:
         """Validate CPS-specific learner and discrete-target configuration."""
@@ -210,6 +207,7 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
 
     @requires_extra("series")
     def fit(self, df, step_size=None, static_features=None, n_jobs=-1):
+        """Fit rolling-origin residuals, conditional scales, and the forecaster."""
         if self.discrete:
             self._validate_columns(df)
             target = np.asarray(df[self.target_col], dtype=float)
@@ -302,7 +300,7 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
         self,
         h: int | None = None,
         X_df: pd.DataFrame | None = None,
-    ) -> _PanelConformalForecast:
+    ) -> PanelConformalForecast:
         """Return predictive distributions aligned to the Nixtla panel grid.
 
         Parameters
@@ -319,9 +317,9 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
 
         Returns
         -------
-        _PanelConformalForecast
+        PanelConformalForecast
             Row-aligned predictive forecast sorted by ``id_col`` and
-            ``time_col``. :meth:`cdf`, :meth:`ppf`, :meth:`interval`, and
+            ``time_col``. :meth:`cdf`, :meth:`sf`, :meth:`ppf`, :meth:`interval`, and
             :meth:`to_frame` return pandas DataFrames on the
             same panel grid. Forecasts from a discrete CPS additionally expose
             :meth:`pmf` and return integer quantiles.
@@ -350,40 +348,6 @@ class TSCPS(MultiStepConformalTimeSeriesRegressor):
         model = model_cols[0]
         distribution = self._build_distribution(pred_df, model, h=h, n_series=n_series)
         forecast_type = (
-            _DiscretePanelConformalForecast
-            if self.discrete
-            else _PanelConformalForecast
+            DiscretePanelConformalForecast if self.discrete else PanelConformalForecast
         )
         return forecast_type(pred_df, distribution, model, self.id_col, self.time_col)
-
-    @property
-    def predict_interval(self):
-        """Intervals are available from the predictive forecast object."""
-        raise AttributeError(
-            "TSCPS does not expose predict_interval; call "
-            "predict_distribution(...).interval(coverage) instead."
-        )
-
-    @requires_extra("series")
-    def evaluate(
-        self,
-        df_test: pd.DataFrame,
-        h: int | None = None,
-        alpha: float | None = None,
-    ) -> pd.DataFrame:
-        """Evaluate an interval obtained from the predictive forecast object."""
-        alpha = self._get_alpha(alpha)
-        forecast = self.predict_distribution(
-            h=h, X_df=self._prediction_features(df_test)
-        )
-        eval_df = self._merge_predictions_with_targets(
-            forecast.interval(1.0 - alpha), df_test
-        )
-
-        y_true = eval_df[self.target_col].to_numpy()
-        records = self._extract_bound_records(eval_df, y_true, alpha)
-        return (
-            pd.DataFrame(records)
-            .sort_values(by=["model", "level"])
-            .reset_index(drop=True)
-        )

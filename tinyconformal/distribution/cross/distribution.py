@@ -12,6 +12,7 @@ from ..base import DiscretePredictiveDistribution, EmpiricalResidualDistribution
 
 
 def _as_1d_finite(values, name: str) -> np.ndarray:
+    """Return a non-empty finite one-dimensional float array."""
     array = np.asarray(values, dtype=float)
     if array.ndim != 1:
         raise ValueError(f"{name} must be one-dimensional.")
@@ -23,6 +24,7 @@ def _as_1d_finite(values, name: str) -> np.ndarray:
 
 
 def _as_positive_scales(values, name: str = "scales") -> np.ndarray:
+    """Return validated finite and strictly positive scales."""
     scales = _as_1d_finite(values, name)
     if np.any(scales <= 0.0):
         raise ValueError(f"{name} must contain only strictly positive values.")
@@ -38,6 +40,7 @@ class _ResidualPredictiveDistribution(EmpiricalResidualDistribution):
         residuals: np.ndarray,
         scales: np.ndarray | None = None,
     ):
+        """Store aligned locations, standardized residuals, and row scales."""
         self.locations = _as_1d_finite(locations, "locations")
         self.residuals = np.sort(_as_1d_finite(residuals, "residuals"))
         self.scales = (
@@ -49,10 +52,12 @@ class _ResidualPredictiveDistribution(EmpiricalResidualDistribution):
             raise ValueError("scales and locations must have the same shape.")
 
     def __len__(self) -> int:
+        """Return the number of row-aligned predictive distributions."""
         return self.locations.size
 
     @property
     def n_calibration(self) -> int:
+        """Return the number of cross-fitted residuals."""
         return self.residuals.size
 
     def _row_residuals(self) -> np.ndarray:
@@ -88,6 +93,7 @@ class DiscreteConformalDistribution(
         scales: np.ndarray | None = None,
         minimum: int | None = 0,
     ):
+        """Initialize an integer-support empirical predictive distribution."""
         super().__init__(locations, residuals, scales=scales)
         if minimum is not None and not isinstance(minimum, (int, np.integer)):
             raise TypeError("minimum must be an integer or None.")

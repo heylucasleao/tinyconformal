@@ -184,12 +184,10 @@ weight column to every rolling-origin fit and to the final learner refit. A
 learner without `weight_col` support raises an explicit error. TSCPS also passes
 window weights to dispersion estimators that support `sample_weight`.
 
-Runnable distribution examples are organized in `examples/distribution/`:
+The runnable `examples/distribution/cps.ipynb` notebook covers continuous and
+discrete cross-conformal predictive systems in one place.
 
-- `cps_continuous.ipynb`
-- `cps_discrete.ipynb`
-
-They cover CDF, PMF where applicable, PPF, arbitrary quantiles, empirical
+It covers CDF, SF, PMF where applicable, PPF, arbitrary quantiles, empirical
 coverage, and Newsvendor optimization.
 
 The complete OOF workflow for ICP, CQR, CPS, and both binary classification

@@ -153,7 +153,7 @@ def _resolve_distribution_inputs(df, distribution):
             raise TypeError("df must be a pandas DataFrame.")
         return df, distribution
     to_frame = getattr(df, "to_frame", None)
-    underlying = getattr(df, "_distribution", None)
+    underlying = getattr(df, "distribution", None)
     frame = to_frame() if callable(to_frame) else None
     if not isinstance(frame, pd.DataFrame) or underlying is None:
         raise TypeError(

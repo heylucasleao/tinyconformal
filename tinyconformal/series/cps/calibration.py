@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import inspect
+from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -17,6 +19,15 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
 from tinyconformal.core.quantiles import temporal_decay_weights
+
+
+@dataclass
+class ConditionalScaleCalibration:
+    """Fitted conditional-scale state used by a time-series CPS."""
+
+    standardized_residuals: dict[str, dict[Any, np.ndarray]]
+    oof_scales: dict[str, dict[Any, np.ndarray]]
+    pipelines: dict[str, Pipeline]
 
 
 class ConditionalScaleCalibrator:
@@ -31,6 +42,7 @@ class ConditionalScaleCalibrator:
         decay: float = 0.99,
         weighted_refit: bool = True,
     ):
+        """Configure the scale learner and rolling-origin calibration policy."""
         self.learner = learner
         self.horizon = horizon
         self.n_windows = n_windows
@@ -210,7 +222,7 @@ class ConditionalScaleCalibrator:
             scales[window] = window_scales
         return scales
 
-    def fit_transform(self, residuals_by_model, n_jobs: int = -1):
+    def fit(self, residuals_by_model, n_jobs: int = -1) -> ConditionalScaleCalibration:
         """Cross-fit conditional scales and standardize calibration residuals.
 
         Parameters
@@ -225,17 +237,9 @@ class ConditionalScaleCalibrator:
 
         Returns
         -------
-        standardized : dict
-            Residuals keyed by forecast model and series identifier. Each value
-            has shape ``(n_windows, horizon)`` and contains the signed scores
-            ``residual / OOF scale``.
-        oof_scales : dict
-            Positive out-of-fold scale predictions with the same nested keys and
-            per-series shapes as ``standardized``.
-        fitted_models : dict
-            Final dispersion pipelines keyed by forecast-model name. Each
-            pipeline is refitted on every calibration window and is intended to
-            predict scales for future forecasts.
+        ConditionalScaleCalibration
+            Fitted state containing standardized residuals, positive OOF scales,
+            and the final dispersion pipelines refitted on every window.
 
         Notes
         -----
@@ -287,7 +291,11 @@ class ConditionalScaleCalibrator:
                 self._targets(residuals),
                 np.arange(self.n_windows),
             )
-        return standardized, oof_scales, fitted_models
+        return ConditionalScaleCalibration(
+            standardized_residuals=standardized,
+            oof_scales=oof_scales,
+            pipelines=fitted_models,
+        )
 
     def predict(self, pipeline: Pipeline, series_ids, horizon_steps) -> np.ndarray:
         """Predict conditional scales for future series-horizon rows.
@@ -296,7 +304,7 @@ class ConditionalScaleCalibrator:
         ----------
         pipeline : Pipeline
             Fitted dispersion pipeline, normally one of the final pipelines
-            returned by :meth:`fit_transform`.
+            stored in the calibration returned by :meth:`fit`.
         series_ids : array-like
             Series identifier for each future forecast row.
         horizon_steps : array-like

@@ -8,12 +8,32 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from numpy.typing import ArrayLike
+
+from tinyconformal.distribution.base import PredictiveDistribution
+
+__all__ = ["DiscretePanelConformalForecast", "PanelConformalForecast"]
 
 
-class _PanelConformalForecast:
-    """Panel-aligned facade over one horizon-wise predictive distribution."""
+class PanelConformalForecast:
+    """Panel-aligned facade over a batch of CPS predictive distributions.
 
-    def __init__(self, frame, distribution, model, id_col, time_col):
+    Instances are returned by
+    :meth:`TSCPS.predict_distribution
+    <tinyconformal.series.cps.base.TSCPS.predict_distribution>`; users normally
+    do not construct this class directly. Every distributional method preserves
+    the rows and point-forecast columns returned by :meth:`to_frame`.
+    """
+
+    def __init__(
+        self,
+        frame: pd.DataFrame,
+        distribution: PredictiveDistribution,
+        model: str,
+        id_col: str,
+        time_col: str,
+    ):
+        """Store an isolated forecast frame and its row-aligned distribution."""
         self._frame = frame.copy()
         self._distribution = distribution
         self.model = model
@@ -21,167 +41,249 @@ class _PanelConformalForecast:
         self.time_col = time_col
 
     def __len__(self) -> int:
+        """Return the number of forecast rows."""
         return len(self._distribution)
 
+    @property
+    def distribution(self) -> PredictiveDistribution:
+        """Return the row-aligned predictive distribution."""
+        return self._distribution
+
     def to_frame(self) -> pd.DataFrame:
-        """Return the point-forecast panel without distributional columns."""
+        """Return the point-forecast panel without distributional columns.
+
+        Returns
+        -------
+        pandas.DataFrame
+            A copy containing the series identifier, timestamp, point forecast,
+            and any future exogenous columns retained during prediction.
+            Changing it does not mutate this forecast.
+        """
         return self._frame.copy()
 
     def _output_frame(self) -> pd.DataFrame:
-        """Return an isolated frame to which distribution outputs can be added."""
+        """Return an isolated frame for distribution outputs."""
         return self._frame.copy()
 
     @staticmethod
     def _label(value) -> str:
-        """Format a numeric value as a stable column-name component."""
+        """Format a stable numeric component for a result column name."""
         return np.format_float_positional(float(value), precision=12, trim="-")
 
-    def _single_output_column(self, inputs, prefix, label_transform) -> str:
-        """Name a one-dimensional distribution result."""
-        if inputs.ndim != 0:
-            return f"{self.model}-{prefix}"
-        label = inputs if label_transform is None else label_transform(inputs)
-        return f"{self.model}-{prefix}-{self._label(label)}"
-
-    def _matrix_output_labels(self, inputs, n_columns, label_transform):
-        """Resolve labels for the columns of a matrix result."""
-        labels = np.ravel(inputs)
-        if labels.size != n_columns:
-            return np.arange(n_columns)
-        return labels if label_transform is None else label_transform(labels)
-
-    def _apply(
-        self, method: str, inputs, prefix: str, label_transform=None
-    ) -> pd.DataFrame:
+    def _apply(self, method: str, inputs, labeler, row_label: str) -> pd.DataFrame:
         """Evaluate a distribution method and append its output to the panel."""
         inputs_array = np.asarray(inputs)
         values = np.asarray(getattr(self._distribution, method)(inputs))
         result = self._output_frame()
         if values.ndim == 1:
-            column = self._single_output_column(inputs_array, prefix, label_transform)
+            column = labeler(inputs_array) if inputs_array.ndim == 0 else row_label
             result[column] = values
             return result
-        labels = self._matrix_output_labels(
-            inputs_array, values.shape[1], label_transform
-        )
-        for index, label in enumerate(labels):
-            result[f"{self.model}-{prefix}-{self._label(label)}"] = values[:, index]
+        labels = np.ravel(inputs_array)
+        common_grid = inputs_array.ndim == 1 and labels.size == values.shape[1]
+        for index in range(values.shape[1]):
+            column = labeler(labels[index]) if common_grid else f"{row_label}-{index}"
+            result[column] = values[:, index]
         return result
 
-    def cdf(self, values) -> pd.DataFrame:
-        """Evaluate the cumulative distribution function on the forecast panel.
+    def cdf(self, values: ArrayLike) -> pd.DataFrame:
+        """Evaluate the cumulative distribution function on the panel.
 
         Parameters
         ----------
-        values : float or array-like
-            Target values at which to evaluate each predictive CDF. A scalar is
-            applied to every forecast row. A one-dimensional array defines a
-            common evaluation grid for every row. A two-dimensional array with
+        values : float or array-like of float
+            Target values at which to evaluate each predictive CDF. A scalar
+            is applied to every forecast row. A one-dimensional array defines
+            a common evaluation grid. A two-dimensional array with
             ``len(self)`` rows is evaluated row-wise.
 
         Returns
         -------
         pandas.DataFrame
-            Forecast panel sorted by ``id_col`` and ``time_col``, including the
-            original point-forecast columns and the evaluated probabilities. A
-            scalar produces ``<model>-cdf-<value>``; a common grid produces one
-            such column per value. Row-wise input produces one output column per
-            input column, numbered when no common value labels are available.
+            The point-forecast panel plus the evaluated probabilities. Scalar
+            and common-grid columns use mathematical names such as
+            ``P(Y<=5)``. Row-wise input uses ``P(Y<=value)`` (with a numeric
+            suffix when it contains multiple columns).
 
         Raises
         ------
         ValueError
-            If a value is non-finite or the input shape is not a scalar, a
-            one-dimensional grid, or a matrix with ``len(self)`` rows.
+            If a value is non-finite or the input shape is unsupported.
 
         Notes
         -----
-        Output rows remain positionally aligned with the rows returned by
-        :meth:`to_frame`. CDF values lie in ``[0, 1]``.
+        CDF values lie in ``[0, 1]`` and remain positionally aligned with
+        :meth:`to_frame`.
         """
-        return self._apply("cdf", values, "cdf")
+        return self._apply(
+            "cdf", values, lambda value: f"P(Y<={self._label(value)})", "P(Y<=value)"
+        )
 
-    def ppf(self, quantiles) -> pd.DataFrame:
-        """Evaluate predictive quantiles on the forecast panel.
+    def sf(self, values: ArrayLike) -> pd.DataFrame:
+        """Evaluate exceedance probabilities on the forecast panel.
 
         Parameters
         ----------
-        quantiles : float or array-like
-            Probabilities in ``[0, 1]``. A scalar is applied to every forecast
-            row. A one-dimensional array defines common quantile levels for
-            every row. A two-dimensional array with ``len(self)`` rows specifies
-            row-wise quantile levels.
+        values : float or array-like of float
+            Thresholds at which to evaluate ``P(Y > value)``. A scalar is
+            applied to every forecast row. A one-dimensional array defines a
+            common threshold grid. A two-dimensional array with ``len(self)``
+            rows is evaluated row-wise.
 
         Returns
         -------
         pandas.DataFrame
-            Forecast panel sorted by ``id_col`` and ``time_col``, including the
-            original point-forecast columns and the requested quantiles. Scalar
-            and common-grid columns are named ``<model>-q-<percentage>``; for
-            example, quantile ``0.9`` produces ``<model>-q-90``. Row-wise input
-            produces one output column per input column, numbered when no common
-            quantile labels are available.
+            The point-forecast panel plus exceedance probabilities. Scalar and
+            common-grid columns use mathematical names such as ``P(Y>5)``.
+            Row-wise input uses ``P(Y>value)`` (with a numeric suffix when it
+            contains multiple columns).
 
         Raises
         ------
         ValueError
-            If any quantile lies outside ``[0, 1]`` or the input shape is not a
-            scalar, a one-dimensional grid, or a matrix with ``len(self)`` rows.
+            If a value is non-finite or the input shape is unsupported.
 
         Notes
         -----
-        Output rows remain positionally aligned with the rows returned by
-        :meth:`to_frame`. Discrete CPS forecasts return integer quantiles.
+        The survival function is the complementary CDF, ``1 - F(value)``.
         """
-        return self._apply("ppf", quantiles, "q", label_transform=lambda q: 100.0 * q)
+        return self._apply(
+            "sf", values, lambda value: f"P(Y>{self._label(value)})", "P(Y>value)"
+        )
+
+    def ppf(self, quantiles: ArrayLike) -> pd.DataFrame:
+        """Evaluate predictive quantiles on the forecast panel.
+
+        Parameters
+        ----------
+        quantiles : float or array-like of float
+            Probabilities in ``[0, 1]``. A scalar is applied to every forecast
+            row. A one-dimensional array defines a common quantile grid. A
+            two-dimensional array with ``len(self)`` rows supplies row-wise
+            quantile levels.
+
+        Returns
+        -------
+        pandas.DataFrame
+            The point-forecast panel plus requested quantiles. Scalar and
+            common-grid columns use mathematical names such as ``Q(0.9)``.
+            Row-wise input uses ``Q(p)`` (with a numeric suffix when it contains
+            multiple columns). Discrete forecasts return integer quantiles.
+
+        Raises
+        ------
+        ValueError
+            If a quantile is non-finite, outside ``[0, 1]``, or the input shape
+            is unsupported.
+
+        Examples
+        --------
+        ``forecast.ppf([0.1, 0.5, 0.9])`` returns the 10th percentile, median,
+        and 90th percentile for every forecast row.
+        """
+        return self._apply(
+            "ppf", quantiles, lambda value: f"Q({self._label(value)})", "Q(p)"
+        )
 
     def interval(self, coverage: float = 0.95) -> pd.DataFrame:
-        """Return a central interval on the forecast panel grid."""
+        """Return an equal-tailed central predictive interval.
+
+        Parameters
+        ----------
+        coverage : float, default=0.95
+            Central probability covered by the interval. It must be strictly
+            between 0 and 1. For example, ``0.9`` requests a 90% interval with
+            5% probability in each tail.
+
+        Returns
+        -------
+        pandas.DataFrame
+            The point-forecast panel plus lower and upper quantiles named by
+            their probability levels, for example ``Q(0.05)`` and ``Q(0.95)``
+            for 90% coverage.
+
+        Raises
+        ------
+        ValueError
+            If ``coverage`` is not strictly between 0 and 1.
+        TypeError
+            If ``coverage`` is not numeric.
+        """
         bounds = np.asarray(self._distribution.interval(coverage))
-        level = self._label(100.0 * float(coverage))
+        alpha = 1.0 - float(coverage)
         result = self._output_frame()
-        result[f"{self.model}-lo-{level}"] = bounds[:, 0]
-        result[f"{self.model}-hi-{level}"] = bounds[:, 1]
+        result[f"Q({self._label(alpha / 2.0)})"] = bounds[:, 0]
+        result[f"Q({self._label(1.0 - alpha / 2.0)})"] = bounds[:, 1]
         return result
 
     def evaluate(self, y, coverages=(0.5, 0.8, 0.9, 0.95)) -> pd.DataFrame:
-        """Evaluate the underlying predictive distribution."""
-        return self._distribution.evaluate(y, coverages=coverages)
+        """Evaluate central-interval calibration against observed outcomes.
+
+        Parameters
+        ----------
+        y : array-like of float
+            One finite observed target per forecast row, in the same positional
+            order as :meth:`to_frame`.
+        coverages : iterable of float, default=(0.5, 0.8, 0.9, 0.95)
+            Central interval coverages to evaluate. Every value must lie
+            strictly between 0 and 1.
+
+        Returns
+        -------
+        pandas.DataFrame
+            One row per requested coverage containing empirical coverage,
+            average interval width, and mean Winkler interval score.
+
+        Raises
+        ------
+        ValueError
+            If ``y`` does not contain exactly one finite value per forecast row,
+            or if a requested coverage is invalid.
+
+        Notes
+        -----
+        Observations are positionally aligned rather than joined by identifier
+        and timestamp. Sort or merge targets to match :meth:`to_frame` before
+        calling this method.
+        """
+        return self.distribution.evaluate(y, coverages=coverages)
 
 
-class _DiscretePanelConformalForecast(_PanelConformalForecast):
-    """Panel-aligned facade that additionally exposes integer probability mass."""
+class DiscretePanelConformalForecast(PanelConformalForecast):
+    """Panel forecast for integer targets, additionally exposing a PMF."""
 
-    def pmf(self, values) -> pd.DataFrame:
-        """Evaluate probability masses on a discrete forecast panel.
+    def pmf(self, values: ArrayLike) -> pd.DataFrame:
+        """Evaluate probability masses on the discrete forecast panel.
 
         Parameters
         ----------
         values : int or array-like of int
             Integer support values at which to evaluate each predictive PMF. A
             scalar is applied to every forecast row. A one-dimensional array
-            defines a common support grid for every row. A two-dimensional array
-            with ``len(self)`` rows is evaluated row-wise.
+            defines a common support grid. A two-dimensional array with
+            ``len(self)`` rows is evaluated row-wise.
 
         Returns
         -------
         pandas.DataFrame
-            Forecast panel sorted by ``id_col`` and ``time_col``, including the
-            original point-forecast columns and the probability masses. A scalar
-            produces ``<model>-pmf-<value>``; a common grid produces one such
-            column per value. Row-wise input produces one output column per input
-            column, numbered when no common value labels are available.
+            The point-forecast panel plus mathematically named masses, such as
+            ``P(Y=5)``. Use :meth:`sf` separately to obtain exceedance
+            probabilities such as ``P(Y>5)``.
 
         Raises
         ------
         ValueError
-            If a value is non-finite or non-integer, or if the input shape is not
-            a scalar, a one-dimensional grid, or a matrix with ``len(self)``
-            rows.
+            If a value is non-finite or non-integer, the input is empty, or its
+            shape is unsupported.
 
         Notes
         -----
-        This method is available only on forecasts returned by a discrete CPS.
-        Each mass is computed as ``CDF(k) - CDF(k - 1)``.
+        This method exists only for discrete CPS forecasts. Each probability
+        mass is evaluated on the integer support of the underlying distribution.
         """
-        return self._apply("pmf", values, "pmf")
+        inputs = np.asarray(values)
+        if inputs.size == 0:
+            raise ValueError("pmf values must not be empty.")
+        return self._apply(
+            "pmf", values, lambda value: f"P(Y={self._label(value)})", "P(Y=value)"
+        )

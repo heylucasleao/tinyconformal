@@ -50,12 +50,8 @@ class CrossConformalPredictiveSystem(BaseEstimator):
         Location estimator refitted on all observations.
     dispersion_learner_ : estimator
         Dispersion estimator refitted on all absolute OOF location errors.
-    residuals_ : ndarray of shape (n_samples,)
-        Signed out-of-fold location residuals ``y - y_hat``.
-    scales_ : ndarray of shape (n_samples,)
-        Out-of-fold conditional scale predictions.
-    standardized_residuals_ : ndarray of shape (n_samples,)
-        Cross-fitted residuals ``residuals_ / scales_``.
+    calibration_ : CrossFittedCPSCalibration
+        Encapsulated out-of-fold residuals, scales, and standardized residuals.
     n_calibration_ : int
         Number of cross-fitted calibration scores.
     """
@@ -69,6 +65,7 @@ class CrossConformalPredictiveSystem(BaseEstimator):
         discrete: bool = False,
         minimum: int | None = 0,
     ):
+        """Configure the location model, scale model, and cross-fitting policy."""
         self.learner = learner
         self.dispersion_learner = dispersion_learner
         self.cv = cv
@@ -105,13 +102,11 @@ class CrossConformalPredictiveSystem(BaseEstimator):
             cv=self.cv,
             n_jobs=self.n_jobs,
         )
-        self.residuals_ = calibration.residuals
-        self.scales_ = calibration.scales
-        self.standardized_residuals_ = calibration.standardized_residuals
-        self.n_calibration_ = self.standardized_residuals_.size
+        self.calibration_ = calibration
+        self.n_calibration_ = calibration.standardized_residuals.size
 
         self.learner_ = clone(self.learner).fit(X, y)
-        scale_targets = np.maximum(np.abs(self.residuals_), 1e-6)
+        scale_targets = np.maximum(np.abs(calibration.residuals), 1e-6)
         self.dispersion_learner_ = clone(self.dispersion_learner).fit(X, scale_targets)
         return self
 
@@ -147,7 +142,7 @@ class CrossConformalPredictiveSystem(BaseEstimator):
         The returned batch is positionally aligned with ``X``. Reordering one
         without the other invalidates that correspondence.
         """
-        check_is_fitted(self, attributes=["standardized_residuals_", "n_calibration_"])
+        check_is_fitted(self, attributes=["calibration_", "n_calibration_"])
         locations = _as_1d_finite(self.learner_.predict(X), "learner predictions")
         scales = _as_positive_scales(
             self.dispersion_learner_.predict(X), "dispersion learner predictions"
@@ -157,10 +152,10 @@ class CrossConformalPredictiveSystem(BaseEstimator):
         if self.discrete:
             return DiscreteConformalDistribution(
                 locations,
-                self.standardized_residuals_,
+                self.calibration_.standardized_residuals,
                 scales=scales,
                 minimum=self.minimum,
             )
         return ContinuousConformalDistribution(
-            locations, self.standardized_residuals_, scales=scales
+            locations, self.calibration_.standardized_residuals, scales=scales
         )
