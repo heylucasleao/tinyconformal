@@ -109,7 +109,7 @@ excluded from the package `__all__` and module attributes.
 
 ## Alignment and extension rules
 
-- Keep forecast rows sorted by identifier and timestamp. Distribution rows are
+- Keep forecast rows in the order returned by the learner. Distribution rows are
   positional and must not be reordered independently.
 - Preserve one calibration matrix per series; do not pool residuals across
   identifiers implicitly.

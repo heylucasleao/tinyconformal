@@ -361,7 +361,7 @@ def test_sequential_backtesting_short_series_raises_value_error(mock_point_learn
         }
     )
     with pytest.raises(ValueError, match="Time series has 5 unique time steps"):
-        cdr._sequential_backtesting(short_df)
+        cdr._sequential_backtesting(short_df, n_series=1)
 
 
 def test_get_alpha_and_get_horizon_defaults(mock_point_learner):

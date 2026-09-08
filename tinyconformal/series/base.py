@@ -55,6 +55,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         self.static_features_ = []
         self.ncscores_ = None
         self.n = 0
+        self.calibration_weights_ = None
         self._quantile_warning_registry = set()
 
     @abstractmethod
@@ -68,11 +69,10 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
 
     def _prepare_and_validate_steps(
         self, df: pd.DataFrame, step_size: int
-    ) -> tuple[np.ndarray, int, int]:
+    ) -> tuple[np.ndarray, int]:
         """Validate calibration length and return the shared temporal grid."""
         time_steps = pd.unique(df[self.time_col])
         total_steps = len(time_steps)
-        n_series = df[self.id_col].nunique()
         required_steps = self.horizon + (self.n_windows - 1) * step_size
         if total_steps <= required_steps:
             raise ValueError(
@@ -80,7 +80,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
                 f"n_windows={self.n_windows}, horizon={self.horizon}, step_size={step_size} "
                 f"requires at least {required_steps + 1} steps."
             )
-        return time_steps, total_steps, n_series
+        return time_steps, total_steps
 
     def _split_train_val_window(
         self,
@@ -132,7 +132,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         if not self.nexcp:
             return np.quantile(ncscore, q_level, method="higher", axis=axis)
         if weights is None:
-            weights = temporal_decay_weights(np.asarray(ncscore).shape[0], self.decay)
+            weights = temporal_decay_weights(ncscore.shape[0], self.decay)
         return weighted_quantile(ncscore, q_level, weights, axis=axis)
 
     def _validate_nexcp(self) -> None:
@@ -275,6 +275,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
     def _sequential_backtesting(
         self,
         df: pd.DataFrame,
+        n_series: int,
         step_size: int | None = None,
         static_features: list | None = None,
         n_jobs: int = -1,
@@ -288,9 +289,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         ):
             raise ValueError("step_size must be a positive integer.")
 
-        time_steps, total_steps, n_series = self._prepare_and_validate_steps(
-            df, step_size
-        )
+        time_steps, total_steps = self._prepare_and_validate_steps(df, step_size)
 
         def process_window(w):
             train_df, val_df = self._split_train_val_window(
@@ -435,14 +434,15 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             )
         ]
 
+        series_ids = pd.unique(df[self.id_col]).tolist()
         window_scores_by_model = self._sequential_backtesting(
             df,
             step_size=step_size,
             static_features=self.static_features_ or None,
             n_jobs=n_jobs,
+            n_series=len(series_ids),
         )
 
-        series_ids = pd.unique(df[self.id_col]).tolist()
         self.ncscores_ = self._stack_window_scores_by_series(
             window_scores_by_model, series_ids
         )
@@ -455,6 +455,9 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
 
         first_model = next(iter(self.ncscores_))
         self.n = self._calibration_size(self.ncscores_[first_model])
+        self.calibration_weights_ = (
+            temporal_decay_weights(self.n, self.decay) if self.nexcp else None
+        )
 
         self._fit_forecaster(
             self.learner, df, static_features=self.static_features_ or None

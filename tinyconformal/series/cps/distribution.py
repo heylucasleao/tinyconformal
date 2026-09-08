@@ -29,7 +29,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
     Parameters
     ----------
     locations : ndarray of shape (n_predictions,)
-        Point forecasts in sorted Nixtla panel order.
+        Point forecasts in Nixtla panel order.
     residuals : ndarray or mapping
         Signed residuals ``y - y_hat`` from sequential backtesting. A matrix
         applies the same calibration distribution to every prediction. A
@@ -298,7 +298,7 @@ class DiscreteHorizonConformalDistribution(
     Parameters
     ----------
     locations : ndarray of shape (n_predictions,)
-        Point forecasts in sorted Nixtla panel order.
+        Point forecasts in Nixtla panel order.
     residuals : ndarray of shape (n_calibration_trajectories, horizon)
         Signed residuals ``y - y_hat`` obtained by sequential backtesting.
     horizon_steps : ndarray of shape (n_predictions,)

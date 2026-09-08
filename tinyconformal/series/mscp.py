@@ -11,7 +11,6 @@ from sklearn.base import BaseEstimator
 from tinyconformal.core import conformal as core_conformal
 from tinyconformal.core.quantiles import (
     central_conformal_quantile_levels,
-    temporal_decay_weights,
 )
 from tinyconformal.utils.imports import requires_extra
 
@@ -161,7 +160,7 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
 
         lower_bound = np.empty_like(y_hat, dtype=float)
         upper_bound = np.empty_like(y_hat, dtype=float)
-        weights = temporal_decay_weights(self.n, self.decay) if self.nexcp else None
+        weights = self.calibration_weights_
         for row, series_id in enumerate(series_ids):
             row_slice = slice(row * h, (row + 1) * h)
             ncscore = scores_by_id[series_id][:, :h]
