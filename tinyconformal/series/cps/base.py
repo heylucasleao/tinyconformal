@@ -151,6 +151,9 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         self.ncscores_ = self.scale_calibration_.standardized_residuals
         self.oof_scales_ = self.scale_calibration_.oof_scales
         self.dispersion_learners_ = self.scale_calibration_.pipelines
+        self.weights_ = (
+            temporal_decay_weights(self.n, self.decay) if self.nexcp else None
+        )
 
     def _validate_fit_configuration(self) -> None:
         """Validate CPS-specific learner and discrete-target configuration."""
@@ -288,7 +291,6 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
     ) -> PredictiveDistribution:
         """Combine point forecasts, scales, and residuals into a distribution."""
         horizon_steps = np.tile(np.arange(h), n_series)
-        weights = temporal_decay_weights(self.n, self.decay) if self.nexcp else None
         scores_by_id = self._require_calibrated_model(model)
         # Convert OOF-standardized scores from (y_hat - y) / scale to
         # the (y - y_hat) / scale orientation used by predictive distributions.
@@ -308,7 +310,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
                 minimum=self.minimum,
                 series_ids=series_ids,
                 scales=scales,
-                weights=weights,
+                weights=self.weights_,
             )
         return HorizonConformalDistribution(
             locations,
@@ -316,7 +318,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
             horizon_steps,
             series_ids=series_ids,
             scales=scales,
-            weights=weights,
+            weights=self.weights_,
         )
 
     @requires_extra("series")
