@@ -87,7 +87,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         self.residuals, self.series_ids = self._prepare_residuals(residuals, series_ids)
         self.scales = self._validate_scales(scales)
         self._n_calibration, calibrated_horizon = self._residual_shape()
-        self.weights = None if weights is None else np.asarray(weights, dtype=float)
+        self.weights = weights
         self._validate_calibrated_horizon(calibrated_horizon)
 
     def _validate_scales(self, scales) -> np.ndarray:
