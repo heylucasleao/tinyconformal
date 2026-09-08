@@ -30,16 +30,14 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
     ----------
     locations : ndarray of shape (n_predictions,)
         Point forecasts in Nixtla panel order.
-    residuals : ndarray or mapping
-        Signed residuals ``y - y_hat`` from sequential backtesting. A matrix
-        applies the same calibration distribution to every prediction. A
-        mapping associates each series identifier with its own matrix of shape
+    residuals : mapping
+        Signed residuals ``y - y_hat`` from sequential backtesting, keyed by
+        series identifier. Each value is a matrix of shape
         ``(n_calibration_trajectories, horizon)``.
     horizon_steps : ndarray of shape (n_predictions,)
         Zero-based horizon index associated with every point forecast.
-    series_ids : ndarray of shape (n_predictions,), optional
-        Series identifier for every prediction. Required when ``residuals`` is
-        a mapping.
+    series_ids : ndarray of shape (n_predictions,)
+        Series identifier for every prediction.
     scales : ndarray of shape (n_predictions,), optional
         Positive conditional scale for each prediction. Defaults to one.
     weights : ndarray of shape (n_calibration_trajectories,), optional
@@ -50,8 +48,8 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
     ----------
     locations : ndarray of shape (n_predictions,)
         Point forecasts defining the location of each predictive distribution.
-    residuals : ndarray or dict
-        Sorted signed calibration residuals, either pooled or keyed by series.
+    residuals : mapping
+        Signed calibration residuals keyed by series.
     horizon_steps : ndarray of shape (n_predictions,)
         Horizon step used to select the residual distribution for each row.
     scales : ndarray of shape (n_predictions,)
@@ -75,16 +73,17 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
     def __init__(
         self,
         locations,
-        residuals,
+        residuals: Mapping,
         horizon_steps,
-        series_ids=None,
+        series_ids,
         scales=None,
         weights=None,
     ):
         """Initialize aligned locations, residuals, horizons, scales, and weights."""
         self.locations = self._validate_locations(locations)
         self.horizon_steps = self._validate_horizon_steps(horizon_steps)
-        self.residuals, self.series_ids = self._prepare_residuals(residuals, series_ids)
+        self.residuals = residuals
+        self.series_ids = series_ids
         self.scales = self._validate_scales(scales)
         self._n_calibration, calibrated_horizon = self._residual_shape()
         self.weights = weights
@@ -113,16 +112,8 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
             raise ValueError("horizon_steps and locations must have the same shape.")
         return horizon_steps
 
-    def _prepare_residuals(self, residuals, series_ids):
-        """Store pooled or per-series calibration residuals."""
-        if isinstance(residuals, Mapping):
-            return residuals, series_ids
-        return residuals, None
-
     def _residual_shape(self) -> tuple[int, int]:
         """Return the common calibration-window and horizon dimensions."""
-        if not isinstance(self.residuals, Mapping):
-            return self.residuals.shape
         return next(iter(self.residuals.values())).shape
 
     def _validate_calibrated_horizon(self, calibrated_horizon: int) -> None:
@@ -179,31 +170,59 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         If ``locations[i]`` is ``100``, the corresponding empirical predictive
         values queried by the distribution are therefore ``[90, 102, 115]``.
 
-        When residuals are stored per series, each prediction row selects from
-        its series-specific matrix. A pooled residual matrix instead selects
-        horizon columns directly. Without temporal weights the errors are
-        sorted here because the unweighted PPF selects them by conformal rank.
-        With temporal weights their calibration-window order is preserved so
-        that the weights remain aligned; weighted CDF and PPF methods sort or
-        aggregate them together with their weights as needed.
+        Each prediction row selects from its series-specific matrix. Without
+        temporal weights the errors are sorted here because the unweighted PPF
+        selects them by conformal rank. With temporal weights their calibration-
+        window order is preserved so that the weights remain aligned; weighted
+        CDF and PPF methods sort or aggregate them together with their weights
+        as needed.
         """
-        # TSCPS uses per-series residuals; pooled residuals mirror CrossCPS semantics.
-        if self.series_ids is not None:
-            residuals = np.vstack(
-                [
-                    self.residuals[series_id][:, horizon_step]
-                    for series_id, horizon_step in zip(
-                        self.series_ids, self.horizon_steps
-                    )
-                ]
-            )
-        else:
-            residuals = self.residuals[:, self.horizon_steps].T
+        residuals = np.vstack(
+            [
+                self.residuals[series_id][:, horizon_step]
+                for series_id, horizon_step in zip(
+                    self.series_ids, self.horizon_steps
+                )
+            ]
+        )
         residuals = self.scales[:, None] * residuals
         return residuals if self.weights is not None else np.sort(residuals, axis=1)
 
     def cdf(self, values):
-        """Evaluate unweighted or temporally weighted cumulative probabilities."""
+        """Evaluate unweighted or temporally weighted cumulative probabilities.
+
+        Parameters
+        ----------
+        values : float or array-like
+            Target values at which to evaluate the CDF. A scalar is applied to
+            every distribution. A one-dimensional array defines a common grid.
+            A two-dimensional array is evaluated row-wise.
+
+        Returns
+        -------
+        numpy.ndarray
+            Cumulative probabilities aligned with the forecast rows. Scalar
+            and single-column row-wise inputs return one value per
+            distribution; a grid returns one column per evaluation value.
+
+        Notes
+        -----
+        :meth:`_row_residuals` first selects the standardized calibration
+        residuals for each prediction's series and horizon, then multiplies
+        them by that row's conditional scale. Each target value is converted
+        to an error threshold by subtracting the corresponding point forecast.
+
+        Without temporal weights, the inherited CDF counts the residuals less
+        than or equal to that threshold and converts the count to a conformal
+        cumulative probability. With temporal weights, this method instead
+        sums the weights of the calibration windows whose residuals satisfy
+        the same comparison.
+
+        Unlike PPF evaluation, CDF evaluation does not require sorting because
+        either a count or a weighted sum is invariant to residual order. In the
+        weighted path, preserving calibration-window order keeps every
+        residual aligned with the weight used in the sum.
+        """
         if self.weights is None:
             return super().cdf(values)
         values, squeeze = self._rowwise_or_grid(values, "values")
@@ -267,7 +286,43 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         return np.argmax(cumulative[:, :, None] >= quantiles[:, None, :], axis=1)
 
     def ppf(self, quantiles):
-        """Evaluate predictive quantiles, using window weights when configured."""
+        """Evaluate unweighted or temporally weighted predictive quantiles.
+
+        Parameters
+        ----------
+        quantiles : float or array-like
+            Probabilities in ``[0, 1]``. A scalar is applied to every
+            distribution. A one-dimensional array defines a common quantile
+            grid. A two-dimensional array is evaluated row-wise.
+
+        Returns
+        -------
+        numpy.ndarray
+            Predictive quantiles aligned with the forecast rows. Scalar and
+            single-column row-wise inputs return one value per distribution;
+            a grid returns one column per requested probability.
+
+        Notes
+        -----
+        :meth:`_row_residuals` first selects the standardized calibration
+        residuals for each prediction's series and horizon, then multiplies
+        them by that row's conditional scale. This recovers possible future
+        errors in the target's original units.
+
+        Without temporal weights, the residuals are sorted and the inherited
+        PPF selects the residual at the finite-sample conformal rank. With
+        temporal weights, their calibration-window order is initially
+        preserved. :meth:`_sorted_weighted_residuals` then sorts each row and
+        applies the same permutation to the weights, after which the first
+        residual whose cumulative weight reaches the requested probability is
+        selected.
+
+        In both cases, the corresponding point forecast is added only after
+        the residual quantile has been selected. Thus the computation follows
+        the sequence: select by series and horizon, restore the original scale,
+        select by either conformal rank or cumulative weight, and add the point
+        forecast.
+        """
         if self.weights is None:
             return super().ppf(quantiles)
         quantiles, squeeze = self._rowwise_or_grid(quantiles, "quantiles")
@@ -296,16 +351,17 @@ class DiscreteHorizonConformalDistribution(
     ----------
     locations : ndarray of shape (n_predictions,)
         Point forecasts in Nixtla panel order.
-    residuals : ndarray of shape (n_calibration_trajectories, horizon)
-        Signed residuals ``y - y_hat`` obtained by sequential backtesting.
+    residuals : mapping
+        Signed residuals ``y - y_hat`` obtained by sequential backtesting,
+        keyed by series identifier. Each value has shape
+        ``(n_calibration_trajectories, horizon)``.
     horizon_steps : ndarray of shape (n_predictions,)
         Zero-based forecast step associated with each prediction row.
     minimum : int or None, default=0
         Lower boundary of the integer support.  If ``None``, no lower boundary
         is imposed.
-    series_ids : ndarray of shape (n_predictions,), optional
-        Series identifier for every prediction. Required when ``residuals`` is
-        a mapping.
+    series_ids : ndarray of shape (n_predictions,)
+        Series identifier for every prediction.
     scales : ndarray of shape (n_predictions,), optional
         Positive conditional scale for each prediction. Defaults to one.
     weights : ndarray of shape (n_calibration_trajectories,), optional
@@ -321,10 +377,10 @@ class DiscreteHorizonConformalDistribution(
     def __init__(
         self,
         locations,
-        residuals,
+        residuals: Mapping,
         horizon_steps,
+        series_ids,
         minimum: int | None = 0,
-        series_ids=None,
         scales=None,
         weights=None,
     ):
