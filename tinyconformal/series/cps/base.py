@@ -235,7 +235,6 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         standardized, and both final learners are fitted using all available
         training information. Predictions cannot exceed the fitted horizon.
         """
-        self.id_col, self.time_col, self.target_col = id_col, time_col, target_col
         super().fit(
             df,
             horizon=horizon,
