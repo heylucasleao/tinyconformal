@@ -8,7 +8,11 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..base import DiscretePredictiveDistribution, EmpiricalResidualDistribution
+from ..base import (
+    DiscretePredictiveDistribution,
+    EmpiricalResidualDistribution,
+    _IntegerSupportMixin,
+)
 
 
 def _as_1d_finite(values, name: str) -> np.ndarray:
@@ -70,7 +74,9 @@ class ContinuousConformalDistribution(_ResidualPredictiveDistribution):
 
 
 class DiscreteConformalDistribution(
-    _ResidualPredictiveDistribution, DiscretePredictiveDistribution
+    _IntegerSupportMixin,
+    _ResidualPredictiveDistribution,
+    DiscretePredictiveDistribution,
 ):
     """Batch of cross-fitted conformal distributions for integer counts.
 
@@ -94,10 +100,7 @@ class DiscreteConformalDistribution(
         minimum: int | None = 0,
     ):
         """Initialize an integer-support empirical predictive distribution."""
-        super().__init__(locations, residuals, scales=scales)
-        if minimum is not None and not isinstance(minimum, (int, np.integer)):
-            raise TypeError("minimum must be an integer or None.")
-        self.minimum = None if minimum is None else int(minimum)
+        super().__init__(locations, residuals, scales=scales, minimum=minimum)
 
     def ppf(self, quantiles):
         """Evaluate integer predictive quantiles.
@@ -123,10 +126,7 @@ class DiscreteConformalDistribution(
             If a quantile is non-finite or outside ``[0, 1]``, or the input has
             an unsupported shape.
         """
-        result = np.ceil(super().ppf(quantiles))
-        if self.minimum is not None:
-            result = np.maximum(result, self.minimum)
-        return result.astype(int)
+        return super().ppf(quantiles)
 
     def cdf(self, values):
         """Evaluate the discrete predictive cumulative distribution functions.
@@ -152,16 +152,7 @@ class DiscreteConformalDistribution(
         ValueError
             If a value is non-finite or the input has an unsupported shape.
         """
-        values = np.floor(np.asarray(values, dtype=float))
-        result = super().cdf(values)
-        if self.minimum is None:
-            return result
-        below = values < self.minimum
-        if np.ndim(values) == 0:
-            return np.zeros_like(result) if bool(below) else result
-        if result.ndim == 1:
-            return np.where(np.ravel(below), 0.0, result)
-        return np.where(np.broadcast_to(below, np.shape(result)), 0.0, result)
+        return super().cdf(values)
 
     def pmf(self, values) -> np.ndarray:
         """Evaluate probability masses at integer support values.

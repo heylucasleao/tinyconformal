@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import inspect
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,6 +18,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
 from tinyconformal.core.quantiles import temporal_decay_weights
+from tinyconformal.utils.inspection import accepts_parameter
 
 
 @dataclass
@@ -84,15 +84,6 @@ class ConditionalScaleCalibrator:
         )
 
     @staticmethod
-    def _accepts_parameter(method, parameter: str) -> bool:
-        """Check whether a method accepts a named or arbitrary keyword argument."""
-        signature = inspect.signature(method)
-        return parameter in signature.parameters or any(
-            item.kind == inspect.Parameter.VAR_KEYWORD
-            for item in signature.parameters.values()
-        )
-
-    @staticmethod
     def _targets(residuals: np.ndarray) -> np.ndarray:
         """Convert residuals into positive dispersion targets."""
         return np.maximum(np.abs(residuals).reshape(-1), 1e-6)
@@ -119,7 +110,7 @@ class ConditionalScaleCalibrator:
         if (
             self.nexcp
             and self.weighted_refit
-            and self._accepts_parameter(self.learner.fit, "sample_weight")
+            and accepts_parameter(self.learner.fit, "sample_weight")
         ):
             window_weights = temporal_decay_weights(self.n_windows, self.decay)[windows]
             repeats = len(features) // len(windows)

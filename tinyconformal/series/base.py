@@ -19,6 +19,7 @@ from tinyconformal.core.quantiles import (
     weighted_quantile,
 )
 from tinyconformal.utils.imports import requires_extra
+from tinyconformal.utils.inspection import accepts_parameter
 
 
 class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
@@ -150,20 +151,12 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             raise TypeError("weighted_refit must be a boolean.")
         temporal_decay_weights(1, self.decay)
 
-    @staticmethod
-    def _accepts_parameter(method, parameter: str) -> bool:
-        signature = inspect.signature(method)
-        return parameter in signature.parameters or any(
-            item.kind == inspect.Parameter.VAR_KEYWORD
-            for item in signature.parameters.values()
-        )
-
     def _fit_forecaster(self, learner, df, static_features=None) -> None:
         """Fit a Nixtla learner, optionally applying NexCP recency weights."""
         fit_df = df
         weight_col = None
         if self.nexcp and self.weighted_refit:
-            if not self._accepts_parameter(learner.fit, "weight_col"):
+            if not accepts_parameter(learner.fit, "weight_col"):
                 raise TypeError(
                     f"{type(learner).__name__}.fit must accept weight_col when "
                     "nexcp=True and weighted_refit=True."
@@ -410,27 +403,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             )
         return records
 
-    def _extract_predictions(self, fcst_df: pd.DataFrame) -> np.ndarray:
-        """
-        Pivots Nixtla long-format DataFrame predictions into a 2D NumPy array.
-        Ensures strict row and column alignment sorting.
-        """
-        if self.model_col_ is None:
-            model_cols = [
-                c for c in fcst_df.columns if c not in [self.id_col, self.time_col]
-            ]
-            if not model_cols:
-                raise ValueError(
-                    "No prediction model column was detected in the model output DataFrame."
-                )
-            self.model_col_ = model_cols[0]
-
-        pivoted = fcst_df.pivot(
-            index=self.id_col, columns=self.time_col, values=self.model_col_
-        )
-        pivoted = pivoted.sort_index(axis=0).sort_index(axis=1)
-        return pivoted.values
-
     def _validate_columns(self, df: pd.DataFrame):
         """
         Validates presence of required structural columns in input DataFrames.
@@ -651,21 +623,3 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         )
 
         return self
-
-    def _predict_raw(
-        self,
-        h: int | None = None,
-        X_df: pd.DataFrame | None = None,
-    ) -> np.ndarray:
-        """
-        Generates base model point predictions from Nixtla estimator into standard ndarray.
-        """
-        h = self._get_horizon(h)
-        self._check_is_fitted()
-
-        preds_df = self._invoke(
-            self.learner.predict,
-            h=h,
-            X_df=X_df,
-        )
-        return self._extract_predictions(preds_df)

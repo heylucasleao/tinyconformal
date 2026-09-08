@@ -13,6 +13,7 @@ import numpy as np
 from tinyconformal.distribution.base import (
     DiscretePredictiveDistribution,
     EmpiricalResidualDistribution,
+    _IntegerSupportMixin,
 )
 
 
@@ -335,7 +336,9 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
 
 
 class DiscreteHorizonConformalDistribution(
-    HorizonConformalDistribution, DiscretePredictiveDistribution
+    _IntegerSupportMixin,
+    HorizonConformalDistribution,
+    DiscretePredictiveDistribution,
 ):
     """Horizon-wise conformal predictive distributions on integer support.
 
@@ -388,27 +391,13 @@ class DiscreteHorizonConformalDistribution(
             series_ids=series_ids,
             scales=scales,
             weights=weights,
+            minimum=minimum,
         )
-        if minimum is not None and not isinstance(minimum, (int, np.integer)):
-            raise TypeError("minimum must be an integer or None.")
-        self.minimum = None if minimum is None else int(minimum)
 
     def ppf(self, quantiles):
         """Return ceiling-rounded predictive quantiles on the configured support."""
-        result = np.ceil(super().ppf(quantiles))
-        if self.minimum is not None:
-            result = np.maximum(result, self.minimum)
-        return result.astype(int)
+        return super().ppf(quantiles)
 
     def cdf(self, values):
         """Evaluate the CDF after flooring values to integer support points."""
-        values = np.floor(np.asarray(values, dtype=float))
-        result = super().cdf(values)
-        if self.minimum is None:
-            return result
-        below = values < self.minimum
-        if values.ndim == 0:
-            return np.zeros_like(result) if bool(below) else result
-        if result.ndim == 1:
-            return np.where(np.ravel(below), 0.0, result)
-        return np.where(np.broadcast_to(below, np.shape(result)), 0.0, result)
+        return super().cdf(values)

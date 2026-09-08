@@ -281,39 +281,6 @@ def test_infer_model_cols_raises_value_error(mock_point_learner):
         cdr._infer_model_cols(df_empty)
 
 
-def test_extract_predictions_and_target_sorting(mock_point_learner):
-    """Test 2D array conversion and strict row/column sorting in pivot extraction."""
-    cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner)
-    cdr.id_col = "unique_id"
-    cdr.time_col = "ds"
-    cdr.target_col = "y"
-    cdr.nexcp = True
-    cdr.decay = 0.99
-    cdr.weighted_refit = True
-    cdr.horizon = 2
-    cdr.h = 2
-    fcst_df = pd.DataFrame(
-        {
-            "unique_id": ["id_2", "id_2", "id_1", "id_1"],
-            "ds": ["2024-01-02", "2024-01-01", "2024-01-02", "2024-01-01"],
-            "LGBM": [20.0, 10.0, 40.0, 30.0],
-        }
-    )
-    target_df = pd.DataFrame(
-        {
-            "unique_id": ["id_2", "id_2", "id_1", "id_1"],
-            "ds": ["2024-01-02", "2024-01-01", "2024-01-02", "2024-01-01"],
-            "y": [2.0, 1.0, 4.0, 3.0],
-        }
-    )
-    preds_arr = cdr._extract_predictions(fcst_df)
-    target_arr = cdr._pivot_panel(target_df, cdr.target_col).to_numpy()
-    expected_preds = np.array([[30.0, 40.0], [10.0, 20.0]])
-    expected_targets = np.array([[3.0, 4.0], [1.0, 2.0]])
-    np.testing.assert_array_equal(preds_arr, expected_preds)
-    np.testing.assert_array_equal(target_arr, expected_targets)
-
-
 def test_compute_qhat(mock_point_learner):
     """Verify _compute_qhat correctly calls np.quantile with method='higher'."""
     cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner)
@@ -479,24 +446,6 @@ def test_get_alpha_and_get_horizon_defaults(mock_point_learner):
     assert cdr._get_horizon(5) == 5
 
 
-def test_predict_raw_direct(mock_point_learner, sample_distribution_data):
-    """Test direct execution of _predict_raw returning 2D numpy array of predictions."""
-    cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner)
-    cdr.id_col = "unique_id"
-    cdr.time_col = "ds"
-    cdr.target_col = "y"
-    cdr.nexcp = True
-    cdr.decay = 0.99
-    cdr.weighted_refit = True
-    cdr.horizon = 3
-    cdr.n_windows = 2
-    cdr.h = 3
-    cdr.fit(sample_distribution_data, horizon=3, n_windows=2)
-    preds_raw = cdr._predict_raw(h=3)
-    assert isinstance(preds_raw, np.ndarray)
-    assert preds_raw.shape == (2, 3)
-
-
 def test_fit_and_predict_with_exogenous_features(
     mock_point_learner, sample_distribution_data
 ):
@@ -543,22 +492,6 @@ def test_fit_empty_ncscores_raises_runtime_error(
     monkeypatch.setattr(cdr, "_sequential_backtesting", lambda *args, **kwargs: {})
     with pytest.raises(RuntimeError, match="No nonconformity scores were extracted"):
         cdr.fit(sample_distribution_data, horizon=3, n_windows=2)
-
-
-def test_extract_predictions_no_model_col_raises_error(mock_point_learner):
-    """Ensure ValueError is raised if forecast DataFrame contains only structural columns."""
-    cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner)
-    cdr.id_col = "unique_id"
-    cdr.time_col = "ds"
-    cdr.target_col = "y"
-    cdr.nexcp = True
-    cdr.decay = 0.99
-    cdr.weighted_refit = True
-    cdr.horizon = 2
-    cdr.h = 2
-    invalid_fcst = pd.DataFrame({"unique_id": ["id_1"], "ds": ["2024-01-01"]})
-    with pytest.raises(ValueError, match="No prediction model column was detected"):
-        cdr._extract_predictions(invalid_fcst)
 
 
 @pytest.mark.parametrize("h_val", [1, 2, 3])

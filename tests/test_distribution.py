@@ -75,6 +75,14 @@ def test_discrete_cps_rejects_non_integer_targets():
         cps.fit(np.array([[0], [1]]), np.array([1.0, 1.5]))
 
 
+def test_discrete_cps_rejects_invalid_minimum_during_fit():
+    cps = DiscreteCrossConformalPredictiveSystem(
+        _fitted_dummy(), _fitted_scale(), minimum="zero"
+    )
+    with pytest.raises(TypeError, match="minimum must be an integer or None"):
+        cps.fit(np.array([[0], [1]]), np.array([1, 2]), cv=2)
+
+
 def test_cps_stores_cross_fitted_location_scale_and_standardized_scores():
     cps = ContinuousCrossConformalPredictiveSystem(
         _fitted_dummy(), _fitted_scale()

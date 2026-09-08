@@ -99,6 +99,15 @@ class CrossConformalPredictiveSystem(BaseEstimator):
         cloned and fitted on all observations. ``cv`` and ``n_jobs`` describe
         this fit and are stored as ``cv_`` and ``n_jobs_``.
         """
+        if not isinstance(self.discrete, (bool, np.bool_)):
+            raise TypeError("discrete must be a boolean.")
+        if (
+            self.discrete
+            and self.minimum is not None
+            and not isinstance(self.minimum, (int, np.integer))
+        ):
+            raise TypeError("minimum must be an integer or None.")
+
         y = _as_1d_finite(y, "y")
         if self.discrete and np.any(y != np.floor(y)):
             raise ValueError("Discrete CPS targets must be integer-valued.")
