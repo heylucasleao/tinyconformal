@@ -99,7 +99,6 @@ def test_normalize_intervals_single_tuple(mock_quantile_learner_single):
     cqr.decay = 0.99
     cqr.weighted_refit = True
     cqr.horizon = 5
-    cqr.h = 5
     assert cqr.intervals_ == [("LGBM-lo-90", "LGBM-hi-90")]
 
 
@@ -116,7 +115,6 @@ def test_normalize_intervals_list_of_tuples(mock_quantile_learner_multi):
     cqr.decay = 0.99
     cqr.weighted_refit = True
     cqr.horizon = 5
-    cqr.h = 5
     assert cqr.intervals_ == [
         ("LGBM-lo-90", "LGBM-hi-90"),
         ("LGBM-lo-50", "LGBM-hi-50"),
@@ -158,7 +156,6 @@ def test_generate_residuals(mock_quantile_learner_single):
     cqr.decay = 0.99
     cqr.weighted_refit = True
     cqr.horizon = 3
-    cqr.h = 3
     q_low = np.array([10.0, 10.0, 10.0])
     q_high = np.array([20.0, 20.0, 20.0])
     y_true = np.array([15.0, 25.0, 5.0])
@@ -178,7 +175,6 @@ def test_sample_correction(mock_quantile_learner_single):
     cqr.decay = 0.99
     cqr.weighted_refit = True
     cqr.horizon = 5
-    cqr.h = 5
     cqr.n = 100
     q_level = cqr._sample_correction(alpha=0.05)
     assert pytest.approx(q_level, abs=0.0001) == 95 / 99
@@ -197,7 +193,6 @@ def test_sequential_backtesting_insufficient_time_steps(mock_quantile_learner_si
     cqr.weighted_refit = True
     cqr.horizon = 10
     cqr.n_windows = 5
-    cqr.h = 10
     short_df = pd.DataFrame(
         {
             "unique_id": ["s1"] * 10,
@@ -224,7 +219,6 @@ def test_sequential_backtesting_missing_quantile_column(
     cqr.weighted_refit = True
     cqr.horizon = 3
     cqr.n_windows = 2
-    cqr.h = 3
     mock_quantile_learner_single.predict.side_effect = lambda h, X_df=None: (
         pd.DataFrame(
             {
@@ -251,7 +245,6 @@ def test_window_residuals_align_shuffled_forecasts_by_keys(
     cqr.decay = 0.99
     cqr.weighted_refit = True
     cqr.horizon = 2
-    cqr.h = 2
     val_df = pd.DataFrame(
         {
             "unique_id": ["s1", "s1", "s2", "s2"],
@@ -289,7 +282,6 @@ def test_backtesting_does_not_fit_original_learner_per_window(
     cqr.weighted_refit = True
     cqr.horizon = 3
     cqr.n_windows = 2
-    cqr.h = 3
     cqr.fit(sample_time_series_data, n_jobs=1, horizon=3, n_windows=2)
     assert mock_quantile_learner_single.fit.call_count == 1
 
@@ -309,7 +301,6 @@ def test_fit_and_ncscores_structure(
     cqr.weighted_refit = True
     cqr.horizon = 3
     cqr.n_windows = 2
-    cqr.h = 3
     cqr.fit(sample_time_series_data, horizon=3, n_windows=2)
     pair_key = "LGBM-lo-90:LGBM-hi-90"
     assert pair_key in cqr.ncscores_
@@ -331,7 +322,6 @@ def test_tscqr_bounds_are_calibrated_by_unique_id(mock_quantile_learner_single):
     cqr.weighted_refit = True
     cqr.horizon = 2
     cqr.n_windows = 2
-    cqr.h = 2
     pair_key = "LGBM-lo-90:LGBM-hi-90"
     cqr.ncscores_ = {
         pair_key: {
@@ -367,7 +357,6 @@ def test_predict_interval_single_pair_formatting(
     cqr.weighted_refit = True
     cqr.horizon = 3
     cqr.n_windows = 2
-    cqr.h = 3
     cqr.fit(sample_time_series_data, horizon=3, n_windows=2)
     pred_df = cqr.predict_interval(h=3)
     assert "LGBM-lo-90-cqr" in pred_df.columns
@@ -390,7 +379,6 @@ def test_predict_interval_multi_pair_formatting(
     cqr.weighted_refit = True
     cqr.horizon = 3
     cqr.n_windows = 2
-    cqr.h = 3
     cqr.fit(sample_time_series_data, horizon=3, n_windows=2)
     pred_df = cqr.predict_interval(h=3)
     assert "LGBM-lo-90-cqr" in pred_df.columns
@@ -415,7 +403,6 @@ def test_evaluate_output_structure_and_metrics(
     cqr.weighted_refit = True
     cqr.horizon = 3
     cqr.n_windows = 2
-    cqr.h = 3
     cqr.fit(sample_time_series_data, horizon=3, n_windows=2)
     test_dates = pd.date_range("2024-01-31", periods=3, freq="D")
     df_test = pd.DataFrame(
@@ -460,7 +447,6 @@ def test_predict_rejects_unbalanced_forecast_panel(
     cqr.weighted_refit = True
     cqr.horizon = 2
     cqr.n_windows = 2
-    cqr.h = 2
     cqr.fit(sample_time_series_data, horizon=2, n_windows=2)
     mock_quantile_learner_single.predict.side_effect = None
     mock_quantile_learner_single.predict.return_value = pd.DataFrame(
@@ -489,7 +475,6 @@ def test_predict_rejects_crossing_quantiles(
     cqr.weighted_refit = True
     cqr.horizon = 1
     cqr.n_windows = 2
-    cqr.h = 1
     cqr.fit(sample_time_series_data, horizon=1, n_windows=2)
     mock_quantile_learner_single.predict.side_effect = None
     mock_quantile_learner_single.predict.return_value = pd.DataFrame(
@@ -516,7 +501,6 @@ def test_evaluate_metric_values_correctness(mock_quantile_learner_single):
     cqr.decay = 0.99
     cqr.weighted_refit = True
     cqr.horizon = 2
-    cqr.h = 2
     cqr.predict_interval = MagicMock(
         return_value=pd.DataFrame(
             {

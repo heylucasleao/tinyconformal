@@ -85,7 +85,6 @@ def test_validate_columns_missing_raises_error(mock_point_learner):
     cdr.decay = 0.99
     cdr.weighted_refit = True
     cdr.horizon = 3
-    cdr.h = 3
     invalid_df = pd.DataFrame({"unique_id": ["id_1"], "ds": ["2024-01-01"]})
     with pytest.raises(ValueError, match="required columns are missing"):
         cdr._validate_columns(invalid_df)
@@ -101,7 +100,6 @@ def test_get_horizon_exceeds_fitted_horizon(mock_point_learner):
     cdr.decay = 0.99
     cdr.weighted_refit = True
     cdr.horizon = 5
-    cdr.h = 5
     with pytest.raises(ValueError, match="exceeds fitted calibration horizon"):
         cdr._get_horizon(h=10)
 
@@ -116,7 +114,6 @@ def test_sample_correction_finite_bounds(mock_point_learner):
     cdr.decay = 0.99
     cdr.weighted_refit = True
     cdr.horizon = 3
-    cdr.h = 3
     cdr.n = 20
     alpha = 0.1
     low_q, high_q = cdr._sample_correction(alpha)
@@ -135,7 +132,6 @@ def test_mscp_fit_and_residuals(mock_point_learner, sample_distribution_data):
     cdr.weighted_refit = True
     cdr.horizon = 3
     cdr.n_windows = 2
-    cdr.h = 3
     cdr.fit(sample_distribution_data, horizon=3, n_windows=2)
     assert "LGBMRegressor" in cdr.ncscores_
     assert set(cdr.ncscores_["LGBMRegressor"]) == {"id_1", "id_2"}
@@ -156,7 +152,6 @@ def test_mscp_predict_interval_output(mock_point_learner, sample_distribution_da
     cdr.weighted_refit = True
     cdr.horizon = 3
     cdr.n_windows = 2
-    cdr.h = 3
     cdr.fit(sample_distribution_data, horizon=3, n_windows=2)
     pred_df = cdr.predict_interval(h=3)
     assert "LGBMRegressor" in pred_df.columns
@@ -175,7 +170,6 @@ def test_mscp_evaluate_dataframe(mock_point_learner, sample_distribution_data):
     cdr.weighted_refit = True
     cdr.horizon = 3
     cdr.n_windows = 2
-    cdr.h = 3
     cdr.fit(sample_distribution_data, horizon=3, n_windows=2)
     test_dates = pd.date_range("2024-01-26", periods=3, freq="D")
     test_df = pd.DataFrame(
@@ -231,7 +225,6 @@ def test_infer_model_cols(mock_point_learner):
     cdr.decay = 0.99
     cdr.weighted_refit = True
     cdr.horizon = 3
-    cdr.h = 3
     cdr.exog_cols_ = ["exog_1"]
     df_fcst = pd.DataFrame(
         {
@@ -258,7 +251,6 @@ def test_infer_model_cols_raises_value_error(mock_point_learner):
     cdr.decay = 0.99
     cdr.weighted_refit = True
     cdr.horizon = 3
-    cdr.h = 3
     df_empty = pd.DataFrame({"unique_id": ["id_1"], "ds": ["2024-01-01"]})
     with pytest.raises(ValueError, match="Could not infer any prediction model column"):
         cdr._infer_model_cols(df_empty)
@@ -304,7 +296,6 @@ def test_compute_qhat(mock_point_learner):
     cdr.decay = 0.99
     cdr.weighted_refit = True
     cdr.horizon = 3
-    cdr.h = 3
     ncscore = np.array([1.0, 2.0, 5.0, 10.0])
     q_val = cdr._compute_qhat(ncscore, q_level=0.5)
     assert q_val == 5.0
@@ -320,7 +311,6 @@ def test_mscp_compute_bounds_direct(mock_point_learner):
     cdr.decay = 0.99
     cdr.weighted_refit = True
     cdr.horizon = 2
-    cdr.h = 2
     cdr.ncscores_ = {"LGBM": {"id_1": np.array([[-2.0, -1.0], [2.0, 3.0]])}}
     cdr.n = 2
     y_hat = np.array([10.0, 20.0])
@@ -345,7 +335,6 @@ def test_window_residuals_align_shuffled_forecasts_by_keys(mock_point_learner):
     cdr.decay = 0.99
     cdr.weighted_refit = True
     cdr.horizon = 2
-    cdr.h = 2
     val_df = pd.DataFrame(
         {
             "unique_id": ["id_1", "id_1", "id_2", "id_2"],
@@ -376,7 +365,6 @@ def test_predict_before_fit_raises_clear_error(mock_point_learner):
     cdr.decay = 0.99
     cdr.weighted_refit = True
     cdr.horizon = 2
-    cdr.h = 2
     with pytest.raises(RuntimeError, match="must be fitted before prediction"):
         cdr.predict_interval(h=2)
 
@@ -414,7 +402,6 @@ def test_fit_rejects_non_positive_step_size(
     cdr.weighted_refit = True
     cdr.horizon = 2
     cdr.n_windows = 2
-    cdr.h = 2
     with pytest.raises(ValueError, match="step_size must be a positive integer"):
         cdr.fit(sample_distribution_data, step_size=0, horizon=2, n_windows=2)
 
@@ -430,7 +417,6 @@ def test_sequential_backtesting_short_series_raises_value_error(mock_point_learn
     cdr.weighted_refit = True
     cdr.horizon = 10
     cdr.n_windows = 5
-    cdr.h = 10
     short_df = pd.DataFrame(
         {
             "unique_id": ["s1"] * 5,
@@ -452,7 +438,6 @@ def test_get_alpha_and_get_horizon_defaults(mock_point_learner):
     cdr.decay = 0.99
     cdr.weighted_refit = True
     cdr.horizon = 7
-    cdr.h = 7
     assert cdr._get_alpha(None) == 0.05
     assert cdr._get_alpha(0.1) == 0.1
     assert cdr._get_horizon(None) == 7
@@ -474,7 +459,6 @@ def test_fit_and_predict_with_exogenous_features(
     cdr.weighted_refit = True
     cdr.horizon = 3
     cdr.n_windows = 2
-    cdr.h = 3
     cdr.fit(df, horizon=3, n_windows=2)
     assert cdr.exog_cols_ == ["exog_var"]
     X_future = pd.DataFrame(
@@ -503,7 +487,6 @@ def test_fit_empty_ncscores_raises_runtime_error(
     cdr.weighted_refit = True
     cdr.horizon = 3
     cdr.n_windows = 2
-    cdr.h = 3
     monkeypatch.setattr(cdr, "_sequential_backtesting", lambda *args, **kwargs: {})
     with pytest.raises(RuntimeError, match="No nonconformity scores were extracted"):
         cdr.fit(sample_distribution_data, horizon=3, n_windows=2)
@@ -523,7 +506,6 @@ def test_mscp_predict_interval_different_horizons(
     cdr.weighted_refit = True
     cdr.horizon = 3
     cdr.n_windows = 2
-    cdr.h = 3
     cdr.fit(sample_distribution_data, horizon=3, n_windows=2)
     pred_df = cdr.predict_interval(h=h_val)
     assert len(pred_df) == 2 * h_val
@@ -557,7 +539,6 @@ def test_mscp_custom_column_names(mock_point_learner):
     cdr.weighted_refit = True
     cdr.horizon = 2
     cdr.n_windows = 2
-    cdr.h = 2
     cdr.fit(
         custom_df,
         horizon=2,
@@ -583,7 +564,6 @@ def test_fit_default_step_size_fallback(mock_point_learner, sample_distribution_
     cdr.weighted_refit = True
     cdr.horizon = 3
     cdr.n_windows = 2
-    cdr.h = 3
     cdr.fit(sample_distribution_data, step_size=None, horizon=3, n_windows=2)
     assert all(
         scores.shape == (2, 3) for scores in cdr.ncscores_["LGBMRegressor"].values()
@@ -601,7 +581,6 @@ def test_mscp_bounds_are_calibrated_by_unique_id(mock_point_learner):
     cdr.weighted_refit = True
     cdr.horizon = 2
     cdr.n_windows = 2
-    cdr.h = 2
     cdr.ncscores_ = {
         "LGBM": {
             "stable": np.array([[-1.0, -2.0], [1.0, 2.0]]),
@@ -631,7 +610,6 @@ def test_evaluate_inner_join_behavior(mock_point_learner, sample_distribution_da
     cdr.weighted_refit = True
     cdr.horizon = 3
     cdr.n_windows = 2
-    cdr.h = 3
     cdr.fit(sample_distribution_data, horizon=3, n_windows=2)
     test_dates = pd.date_range("2024-01-26", periods=3, freq="D")
     test_df = pd.DataFrame(
@@ -660,7 +638,6 @@ def test_predict_rejects_inconsistent_forecast_time_grids(
     cdr.weighted_refit = True
     cdr.horizon = 2
     cdr.n_windows = 2
-    cdr.h = 2
     cdr.fit(sample_distribution_data, horizon=2, n_windows=2)
     mock_point_learner.predict.side_effect = None
     mock_point_learner.predict.return_value = pd.DataFrame(
@@ -825,7 +802,6 @@ def test_nexcp_weighted_refit_requires_weight_col_support(sample_distribution_da
     cdr.weighted_refit = True
     cdr.horizon = 2
     cdr.n_windows = 2
-    cdr.h = 2
     with pytest.raises(TypeError, match="weight_col"):
         cdr.fit(
             sample_distribution_data,

@@ -85,7 +85,6 @@ def test_series_cps_uses_sequential_backtesting_and_horizon_residuals(
     cps.weighted_refit = True
     cps.horizon = 2
     cps.n_windows = 2
-    cps.h = 2
     cps.fit(panel, n_jobs=1, horizon=2, n_windows=2)
     assert set(cps.ncscores_["Model"]) == {"a", "b"}
     assert all(scores.shape == (2, 2) for scores in cps.ncscores_["Model"].values())
@@ -206,7 +205,6 @@ def test_discrete_series_cps_rejects_noninteger_target(
     cps.weighted_refit = True
     cps.horizon = 2
     cps.n_windows = 2
-    cps.h = 2
     with pytest.raises(ValueError, match="finite integers"):
         cps.fit(panel, n_jobs=1, horizon=2, n_windows=2)
 
@@ -233,7 +231,6 @@ def test_series_cps_rejects_multiple_forecast_models(
     cps.weighted_refit = True
     cps.horizon = 2
     cps.n_windows = 2
-    cps.h = 2
     with pytest.raises(ValueError, match="exactly one model"):
         cps.fit(panel, n_jobs=1, horizon=2, n_windows=2)
 
