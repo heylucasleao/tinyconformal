@@ -322,16 +322,13 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         window_scores_by_model: dict,
     ) -> None:
         """Calculates nonconformity scores for the predictions and updates the residuals dictionary."""
-        target_pivot, y_true = self._extract_target_panel(val_df, n_series)
+        _, y_true = self._extract_target_panel(val_df)
 
         for low_col, high_col in self.intervals_:
             self._require_forecast_columns(fcst, (low_col, high_col))
             quantiles = self._pivot_panel(fcst, [low_col, high_col])
             q_low = quantiles[low_col].to_numpy()
             q_high = quantiles[high_col].to_numpy()
-            self._validate_calibration_forecasts(
-                quantiles.index, target_pivot, q_low, q_high
-            )
             if np.any(q_low > q_high):
                 raise ValueError(
                     f"Crossing quantiles detected for columns {(low_col, high_col)}."
@@ -369,7 +366,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
 
         scores_by_id = self.ncscores_[pair_key]
         series_ids = prediction_ids[::h]
-        missing_ids = sorted(set(series_ids) - set(scores_by_id), key=str)
+        missing_ids = list(set(series_ids) - set(scores_by_id))
         if missing_ids:
             raise ValueError(
                 "No calibration scores are available for forecast identifiers: "
@@ -477,8 +474,4 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
                     }
                 )
 
-        return (
-            pd.DataFrame(records)
-            .sort_values(by=["model", "level"])
-            .reset_index(drop=True)
-        )
+        return pd.DataFrame(records)

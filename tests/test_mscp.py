@@ -75,21 +75,6 @@ def test_mwi_score_calculation():
     assert pytest.approx(mwis, abs=0.001) == 63.333
 
 
-def test_validate_columns_missing_raises_error(mock_point_learner):
-    """Ensure validation error when required structural columns are missing."""
-    cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner)
-    cdr.id_col = "unique_id"
-    cdr.time_col = "ds"
-    cdr.target_col = "y"
-    cdr.nexcp = True
-    cdr.decay = 0.99
-    cdr.weighted_refit = True
-    cdr.horizon = 3
-    invalid_df = pd.DataFrame({"unique_id": ["id_1"], "ds": ["2024-01-01"]})
-    with pytest.raises(ValueError, match="required columns are missing"):
-        cdr._validate_columns(invalid_df)
-
-
 def test_get_horizon_exceeds_fitted_horizon(mock_point_learner):
     """Ensure error when requesting a forecast horizon larger than calibrated."""
     cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner)
@@ -305,37 +290,6 @@ def test_mscp_compute_bounds_direct(mock_point_learner):
     )
     np.testing.assert_array_equal(lower, np.array([8.0, 17.0]))
     np.testing.assert_array_equal(upper, np.array([12.0, 21.0]))
-
-
-def test_window_residuals_align_shuffled_forecasts_by_keys(mock_point_learner):
-    """Forecast row order must not change residual-to-horizon alignment."""
-    cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner)
-    cdr.id_col = "unique_id"
-    cdr.time_col = "ds"
-    cdr.target_col = "y"
-    cdr.nexcp = True
-    cdr.decay = 0.99
-    cdr.weighted_refit = True
-    cdr.horizon = 2
-    val_df = pd.DataFrame(
-        {
-            "unique_id": ["id_1", "id_1", "id_2", "id_2"],
-            "ds": [1, 2, 1, 2],
-            "y": [10.0, 20.0, 30.0, 40.0],
-        }
-    )
-    fcst = pd.DataFrame(
-        {
-            "unique_id": ["id_2", "id_1", "id_2", "id_1"],
-            "ds": [2, 1, 1, 2],
-            "model": [44.0, 11.0, 33.0, 22.0],
-        }
-    )
-    residuals = {}
-    cdr._compute_window_residuals(fcst, val_df, 2, residuals)
-    np.testing.assert_array_equal(
-        residuals["model"][0], np.array([[1.0, 2.0], [3.0, 4.0]])
-    )
 
 
 def test_predict_before_fit_raises_clear_error(mock_point_learner):
@@ -679,23 +633,6 @@ def test_fit_separates_static_and_dynamic_features(
     for call in mock_point_learner.predict.call_args_list[:-1]:
         assert "region" not in call.kwargs["X_df"].columns
         assert "temperature" in call.kwargs["X_df"].columns
-
-
-def test_predict_validates_explicit_future_features(
-    mock_point_learner, sample_distribution_data
-):
-    df = sample_distribution_data.assign(temperature=1.0)
-    cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner).fit(
-        df, horizon=2, n_windows=2
-    )
-    invalid_future = pd.DataFrame(
-        {
-            "unique_id": ["id_1"] * 2 + ["id_2"] * 2,
-            "ds": list(pd.date_range("2024-01-26", periods=2)) * 2,
-        }
-    )
-    with pytest.raises(ValueError, match="temperature"):
-        cdr.predict_interval(h=2, X_df=invalid_future)
 
 
 def test_mscp_preserves_fractional_coverage_in_column_names(

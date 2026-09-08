@@ -150,7 +150,7 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         low_q, high_q = self._sample_correction(alpha)
         scores_by_id = self.ncscores_[model_name]
         series_ids = prediction_ids[::h]
-        missing_ids = sorted(set(series_ids) - set(scores_by_id), key=str)
+        missing_ids = list(set(series_ids) - set(scores_by_id))
         if missing_ids:
             raise ValueError(
                 "No calibration scores are available for forecast identifiers: "
@@ -282,8 +282,4 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         y_true = eval_df[self.target_col].to_numpy()
         records = self._extract_bound_records(eval_df, y_true, alpha)
 
-        return (
-            pd.DataFrame(records)
-            .sort_values(by=["model", "level"])
-            .reset_index(drop=True)
-        )
+        return pd.DataFrame(records)

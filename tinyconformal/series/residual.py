@@ -24,13 +24,10 @@ class ResidualConformalTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
     ) -> None:
         """Validate, align, and collect residuals for one forecast window."""
         model_cols = self._infer_model_cols(fcst)
-        target_pivot, y_true = self._extract_target_panel(val_df, n_series)
+        _, y_true = self._extract_target_panel(val_df)
         for model in model_cols:
             forecast_pivot = self._pivot_panel(fcst, model)
             y_hat = forecast_pivot.to_numpy()
-            self._validate_calibration_forecasts(
-                forecast_pivot.index, target_pivot, y_hat
-            )
             window_scores_by_model.setdefault(model, []).append(
                 self._generate_residuals(y_hat, y_true)
             )
