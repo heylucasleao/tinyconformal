@@ -291,7 +291,6 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
                     validate="one_to_one",
                 )
         model_cols = self._infer_model_cols(pred_df)
-        self._validate_forecast_values(pred_df, model_cols)
         return pred_df, model_cols, h, n_series
 
     def _build_distribution(

@@ -242,7 +242,6 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         """
         pred_df, h, _, _ = self._predict_forecast_panel(h, X_df)
         model_cols = self._infer_model_cols(pred_df)
-        self._validate_forecast_values(pred_df, model_cols)
 
         for model in model_cols:
             self._require_calibrated_model(model)

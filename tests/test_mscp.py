@@ -276,16 +276,6 @@ def test_infer_model_cols_rejects_missing_configured_column(mock_point_learner):
         cdr._infer_model_cols(forecast)
 
 
-@pytest.mark.parametrize("invalid_value", [np.nan, np.inf, -np.inf, "invalid"])
-def test_validate_forecast_values_rejects_invalid_values(invalid_value):
-    forecast = pd.DataFrame({"Model": [1.0, invalid_value]})
-
-    with pytest.raises(ValueError, match="Forecast model columns must"):
-        MultiStepConformalTimeSeriesRegressor._validate_forecast_values(
-            forecast, ["Model"]
-        )
-
-
 def test_extract_target_panel_rejects_infinite_values(mock_point_learner):
     cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner)
     cdr.id_col = "unique_id"

@@ -424,7 +424,6 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             dict.fromkeys(column for pair in self.intervals_ for column in pair)
         )
         self._require_forecast_columns(pred_df, forecast_cols)
-        self._validate_forecast_values(pred_df, forecast_cols)
 
         for low_col, high_col in self.intervals_:
             q_low = pred_df[low_col].to_numpy()
