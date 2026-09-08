@@ -522,7 +522,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             Fitted instance of the conformal regressor.
         """
 
-        self.h = horizon
         self.horizon = horizon
         self.n_windows = n_windows
         self.nexcp = nexcp
