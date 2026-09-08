@@ -141,7 +141,8 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             raise TypeError("nexcp must be a boolean.")
         if not isinstance(self.weighted_refit, (bool, np.bool_)):
             raise TypeError("weighted_refit must be a boolean.")
-        temporal_decay_weights(1, self.decay)
+        if self.nexcp:
+            temporal_decay_weights(1, self.decay)
 
     def _fit_forecaster(self, learner, df, static_features=None) -> None:
         """Fit a Nixtla learner, optionally applying NexCP recency weights."""
@@ -325,20 +326,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             for model, windows in window_scores_by_model.items()
         }
 
-    @staticmethod
-    def _calibration_size(scores) -> int:
-        """Return the sample size used by one fitted calibration distribution."""
-        if isinstance(scores, dict):
-            if not scores:
-                return 0
-            sizes = {len(values) for values in scores.values()}
-            if len(sizes) != 1:
-                raise RuntimeError(
-                    "Every series must have the same number of calibration scores."
-                )
-            return sizes.pop()
-        return len(scores)
-
     @requires_extra("series")
     def fit(
         self,
@@ -454,7 +441,8 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             )
 
         first_model = next(iter(self.ncscores_))
-        self.n = self._calibration_size(self.ncscores_[first_model])
+        first_series_scores = next(iter(self.ncscores_[first_model].values()))
+        self.n = len(first_series_scores)
         self.calibration_weights_ = (
             temporal_decay_weights(self.n, self.decay) if self.nexcp else None
         )
