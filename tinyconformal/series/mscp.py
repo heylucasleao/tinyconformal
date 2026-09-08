@@ -2,6 +2,8 @@
 # TinyConformal - A small toolbox for conformal prediction
 # Licensed under the MIT License
 
+import re
+
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
@@ -173,6 +175,36 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
 
         return lower_bound, upper_bound
 
+    def _extract_bound_records(
+        self, eval_df: pd.DataFrame, y_true: np.ndarray, alpha: float
+    ) -> list[dict]:
+        """Build one metrics record per lower/upper interval-column pair."""
+        bound_pattern = re.compile(r"^(?P<model>.+)-lo-(?P<level>\d+(?:\.\d+)?)$")
+        records = []
+        for column in eval_df.columns:
+            match = bound_pattern.match(column)
+            if not match:
+                continue
+            model = match.group("model")
+            level = match.group("level")
+            high_column = f"{model}-hi-{level}"
+            if high_column not in eval_df.columns:
+                continue
+            records.append(
+                {
+                    "model": model,
+                    "level": f"{level}%",
+                    "alpha": alpha,
+                    **core_conformal.interval_metrics(
+                        y_true,
+                        eval_df[column].to_numpy(),
+                        eval_df[high_column].to_numpy(),
+                        alpha,
+                    ),
+                }
+            )
+        return records
+
     @staticmethod
     def _coverage_label(alpha: float) -> str:
         """Format percentage coverage without discarding fractional levels."""
@@ -208,28 +240,11 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         pd.DataFrame
             Point forecasts and lower/upper interval columns for every model.
         """
-        h = self._get_horizon(h)
-        self._check_is_fitted()
-        X_df = self._validate_prediction_features(X_df, h)
-
-        pred_df = (
-            self._invoke(
-                self.learner.predict,
-                h=h,
-                X_df=X_df,
-            )
-            .sort_values(by=[self.id_col, self.time_col])
-            .reset_index(drop=True)
-        )
+        pred_df, h, _, _ = self._predict_forecast_panel(h, X_df)
         model_cols = self._infer_model_cols(pred_df)
-        self._validate_prediction_panel(pred_df, h)
 
         for model in model_cols:
-            if model not in self.ncscores_:
-                raise ValueError(
-                    f"Model column '{model}' was not present during calibration. "
-                    f"Calibrated model columns: {list(self.ncscores_)}"
-                )
+            self._require_calibrated_model(model)
             y_hat = pred_df[model].to_numpy()
 
             lower_bound, upper_bound = self._compute_bounds(
@@ -261,7 +276,9 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         """
         alpha = self._get_alpha(alpha)
         eval_df = self.predict_interval(
-            X_df=self._prediction_features(df_test), h=h, alpha=alpha
+            X_df=df_test if self.exog_cols_ else None,
+            h=h,
+            alpha=alpha,
         )
         eval_df = self._merge_predictions_with_targets(eval_df, df_test)
 
