@@ -1,7 +1,5 @@
 """Shared rolling-origin residual calibration for time-series estimators."""
 
-import copy
-
 import numpy as np
 import pandas as pd
 
@@ -30,59 +28,6 @@ class ResidualConformalTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
             }
             for model, windows in residuals_by_model.items()
         }
-
-    def _prepare_and_validate_steps(
-        self, df: pd.DataFrame, step_size: int | None
-    ) -> tuple[np.ndarray, int, int]:
-        """Validate calibration length and return the shared temporal grid."""
-        df = df.sort_values(by=[self.id_col, self.time_col])
-        time_steps = np.sort(df[self.time_col].unique())
-        total_steps = len(time_steps)
-        n_series = df[self.id_col].nunique()
-        val_end_idx = total_steps - ((self.n_windows - 1) * step_size)
-        val_start_idx = val_end_idx - self.horizon
-        if val_start_idx <= 0:
-            raise ValueError(
-                f"Time series length is too short for the specified n_windows "
-                f"({self.n_windows}) and horizon ({self.horizon})."
-            )
-        return time_steps, total_steps, n_series
-
-    def _split_train_val_window(
-        self,
-        df: pd.DataFrame,
-        time_steps: np.ndarray,
-        total_steps: int,
-        w: int,
-        step_size: int,
-    ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        """Split one rolling-origin window into training and validation panels."""
-        val_end_idx = total_steps - (w * step_size)
-        val_start_idx = val_end_idx - self.horizon
-        train_cutoff = time_steps[val_start_idx - 1]
-        val_cutoff = time_steps[val_end_idx - 1]
-        train_df = df[df[self.time_col] <= train_cutoff].copy()
-        val_df = df[
-            (df[self.time_col] > train_cutoff) & (df[self.time_col] <= val_cutoff)
-        ].copy()
-        return train_df, val_df
-
-    def _fit_predict_window(
-        self,
-        train_df: pd.DataFrame,
-        val_df: pd.DataFrame,
-        static_features: list | None = None,
-    ) -> pd.DataFrame:
-        """Fit an isolated forecaster and predict one validation window."""
-        temp_model = copy.deepcopy(self.learner)
-        self._fit_forecaster(temp_model, train_df, static_features=static_features)
-        predict_cols = [self.id_col, self.time_col, *self.exog_cols_]
-        X_val = val_df[predict_cols] if self.exog_cols_ else None
-        return self._invoke(temp_model.predict, h=self.horizon, X_df=X_val)
-
-    def _extract_target(self, target_df: pd.DataFrame) -> np.ndarray:
-        """Return the target panel as a series-by-horizon matrix."""
-        return self._pivot_panel(target_df, self.target_col).to_numpy()
 
     def _compute_window_residuals(
         self,

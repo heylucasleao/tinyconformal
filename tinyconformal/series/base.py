@@ -2,6 +2,7 @@
 # TinyConformal - A small toolbox for conformal prediction
 # Licensed under the MIT License
 
+import copy
 import inspect
 import re
 from abc import abstractmethod
@@ -67,29 +68,59 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         To be implemented by subclasses.
         """
 
-    @abstractmethod
     def _prepare_and_validate_steps(
-        self, df: pd.DataFrame, *args, **kwargs
+        self, df: pd.DataFrame, step_size: int
     ) -> tuple[np.ndarray, int, int]:
-        """Prepares time steps, validates time series length, and returns initial metrics."""
+        """Validate calibration length and return the shared temporal grid."""
+        time_steps = np.sort(df[self.time_col].unique())
+        total_steps = len(time_steps)
+        n_series = df[self.id_col].nunique()
+        required_steps = self.horizon + (self.n_windows - 1) * step_size
+        if total_steps <= required_steps:
+            raise ValueError(
+                f"Time series has {total_steps} unique time steps, but "
+                f"n_windows={self.n_windows}, horizon={self.horizon}, step_size={step_size} "
+                f"requires at least {required_steps + 1} steps."
+            )
+        return time_steps, total_steps, n_series
 
-    @abstractmethod
     def _split_train_val_window(
         self,
         df: pd.DataFrame,
-        *args,
-        **kwargs,
+        time_steps: np.ndarray,
+        total_steps: int,
+        w: int,
+        step_size: int,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        """Slices the dataframe into training and validation sets for a specific window index."""
+        """Split one rolling-origin window into sorted training and validation panels."""
+        val_end_idx = total_steps - w * step_size
+        val_start_idx = val_end_idx - self.horizon
+        train_cutoff = time_steps[val_start_idx - 1]
+        val_times = time_steps[val_start_idx:val_end_idx]
+        train_df = df[df[self.time_col] <= train_cutoff].reset_index(drop=True)
+        val_df = (
+            df[df[self.time_col].isin(val_times)]
+            .sort_values([self.id_col, self.time_col])
+            .reset_index(drop=True)
+        )
+        return train_df, val_df
 
-    @abstractmethod
     def _fit_predict_window(
         self,
-        df: pd.DataFrame,
-        *args,
-        **kwargs,
+        train_df: pd.DataFrame,
+        val_df: pd.DataFrame,
+        static_features: list | None = None,
     ) -> pd.DataFrame:
-        """Clones the learner, fits it on the training window, and predicts the validation window."""
+        """Fit an isolated forecaster and predict one validation window."""
+        learner = copy.deepcopy(self.learner)
+        self._fit_forecaster(learner, train_df, static_features=static_features)
+        predict_cols = [self.id_col, self.time_col, *self.exog_cols_]
+        X_val = val_df[predict_cols] if self.exog_cols_ else None
+        return (
+            self._invoke(learner.predict, h=self.horizon, X_df=X_val)
+            .sort_values([self.id_col, self.time_col])
+            .reset_index(drop=True)
+        )
 
     @abstractmethod
     def _compute_window_residuals(
@@ -426,7 +457,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         invalid = [column for column in static_features if column in structural]
         if invalid:
             raise ValueError(
-                "Structural and target columns cannot be static features: " f"{invalid}"
+                f"Structural and target columns cannot be static features: {invalid}"
             )
         return static_features
 

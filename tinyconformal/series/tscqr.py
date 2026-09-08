@@ -2,7 +2,6 @@
 # TinyConformal - A small toolbox for conformal prediction
 # Licensed under the MIT License
 
-import copy
 import re
 
 import numpy as np
@@ -328,78 +327,6 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             }
             for pair_key, windows in residuals_by_model.items()
         }
-
-    def _prepare_and_validate_steps(
-        self, df: pd.DataFrame, step_size: int
-    ) -> tuple[np.ndarray, int, int]:
-        """Validates if the time series has enough steps for the requested backtesting windows."""
-        unique_ids = df[self.id_col].unique()
-        n_series = len(unique_ids)
-
-        time_steps = np.sort(df[self.time_col].unique())
-        total_steps = len(time_steps)
-
-        required_steps = self.horizon + (self.n_windows - 1) * step_size
-        if total_steps <= required_steps:
-            raise ValueError(
-                f"Time series has {total_steps} unique time steps, but "
-                f"n_windows={self.n_windows}, horizon={self.horizon}, step_size={step_size} "
-                f"requires at least {required_steps + 1} steps."
-            )
-
-        return time_steps, total_steps, n_series
-
-    def _split_train_val_window(
-        self,
-        df: pd.DataFrame,
-        time_steps: np.ndarray,
-        total_steps: int,
-        w: int,
-        step_size: int,
-    ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        """Slices the dataframe into training and validation sets for a specific window index."""
-        val_end_idx = total_steps - w * step_size
-        val_start_idx = val_end_idx - self.horizon
-
-        cutoff_time = time_steps[val_start_idx - 1]
-        val_times = time_steps[val_start_idx:val_end_idx]
-
-        train_mask = df[self.time_col] <= cutoff_time
-        val_mask = df[self.time_col].isin(val_times)
-
-        train_df = df[train_mask].reset_index(drop=True)
-        val_df = (
-            df[val_mask]
-            .sort_values(by=[self.id_col, self.time_col])
-            .reset_index(drop=True)
-        )
-
-        return train_df, val_df
-
-    def _fit_predict_window(
-        self,
-        train_df: pd.DataFrame,
-        val_df: pd.DataFrame,
-        static_features: list | None,
-    ) -> pd.DataFrame:
-        """Clones the learner, fits it on the training window, and predicts the validation window."""
-        learner_clone = copy.deepcopy(self.learner)
-        self._fit_forecaster(learner_clone, train_df, static_features=static_features)
-
-        predict_cols = [self.id_col, self.time_col] + self.exog_cols_
-        X_val = val_df[predict_cols] if self.exog_cols_ else None
-
-        fcst = (
-            self._invoke(
-                learner_clone.predict,
-                h=self.horizon,
-                X_df=X_val,
-            )
-            .sort_values(by=[self.id_col, self.time_col])
-            .reset_index(drop=True)
-        )
-
-        return fcst
 
     def _compute_window_residuals(
         self,

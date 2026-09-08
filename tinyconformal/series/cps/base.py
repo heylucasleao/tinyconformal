@@ -11,7 +11,6 @@ from collections.abc import Mapping
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
-from sklearn.pipeline import Pipeline
 
 from tinyconformal.core.quantiles import temporal_decay_weights
 from tinyconformal.distribution.base import PredictiveDistribution
@@ -132,14 +131,6 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         self.discrete = discrete
         self.minimum = minimum
         self.dispersion_learner = dispersion_learner
-
-    def _scale_features(self, series_ids) -> pd.DataFrame:
-        """Build the series-and-horizon features used for dispersion modeling."""
-        return self._scale_calibrator.features(series_ids)
-
-    def _new_dispersion_pipeline(self) -> Pipeline:
-        """Create an unfitted conditional-dispersion pipeline."""
-        return self._scale_calibrator.new_pipeline()
 
     def _fit_conditional_scales(self, n_jobs: int = -1) -> None:
         """Cross-fit and apply conditional scales to rolling-origin residuals.
