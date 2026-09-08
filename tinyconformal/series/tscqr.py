@@ -320,7 +320,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         fcst: pd.DataFrame,
         val_df: pd.DataFrame,
         n_series: int,
-        residuals_by_model: dict,
+        window_scores_by_model: dict,
     ) -> None:
         """Calculates nonconformity scores for the predictions and updates the residuals dictionary."""
         target_pivot, y_true = self._extract_target_panel(val_df, n_series)
@@ -339,7 +339,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
                 )
 
             pair_key = f"{low_col}:{high_col}"
-            residuals_by_model.setdefault(pair_key, []).append(
+            window_scores_by_model.setdefault(pair_key, []).append(
                 self._generate_residuals(q_low, q_high, y_true)
             )
 

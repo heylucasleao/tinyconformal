@@ -20,7 +20,7 @@ class ResidualConformalTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         fcst: pd.DataFrame,
         val_df: pd.DataFrame,
         n_series: int,
-        residuals_by_model: dict[str, list],
+        window_scores_by_model: dict[str, list],
     ) -> None:
         """Validate, align, and collect residuals for one forecast window."""
         model_cols = self._infer_model_cols(fcst)
@@ -31,6 +31,6 @@ class ResidualConformalTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
             self._validate_calibration_forecasts(
                 forecast_pivot.index, target_pivot, y_hat
             )
-            residuals_by_model.setdefault(model, []).append(
+            window_scores_by_model.setdefault(model, []).append(
                 self._generate_residuals(y_hat, y_true)
             )

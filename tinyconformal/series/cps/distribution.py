@@ -184,10 +184,6 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         ):
             raise ValueError("horizon_steps contains an uncalibrated horizon index.")
 
-    def __len__(self) -> int:
-        """Return the number of row-aligned predictive distributions."""
-        return self.locations.size
-
     @property
     def n_calibration(self) -> int:
         """Return the number of rolling-origin calibration trajectories."""
@@ -393,11 +389,3 @@ class DiscreteHorizonConformalDistribution(
             weights=weights,
             minimum=minimum,
         )
-
-    def ppf(self, quantiles):
-        """Return ceiling-rounded predictive quantiles on the configured support."""
-        return super().ppf(quantiles)
-
-    def cdf(self, values):
-        """Evaluate the CDF after flooring values to integer support points."""
-        return super().cdf(values)

@@ -138,6 +138,10 @@ class EmpiricalResidualDistribution(PredictiveDistribution):
     conformal calibration sample and series/horizon-specific samples.
     """
 
+    def __len__(self) -> int:
+        """Return the number of row-aligned predictive distributions."""
+        return self.locations.size
+
     def _rowwise_or_grid(self, values, name: str) -> tuple[np.ndarray, bool]:
         array = np.asarray(values, dtype=float)
         if not np.all(np.isfinite(array)):

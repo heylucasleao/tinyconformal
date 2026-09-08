@@ -183,11 +183,17 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         Dynamically infers model prediction columns from the output DataFrame.
         """
         if self.model_col_ is not None:
-            return (
+            model_cols = (
                 [self.model_col_]
                 if isinstance(self.model_col_, str)
                 else self.model_col_
             )
+            missing = [column for column in model_cols if column not in df.columns]
+            if missing:
+                raise ValueError(
+                    f"Configured model columns are missing from forecast output: {missing}"
+                )
+            return model_cols
 
         excluded = {self.id_col, self.time_col, *self.exog_cols_}
         model_cols = [c for c in df.columns if c not in excluded]
@@ -310,9 +316,9 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         """Build and validate the target panel for one calibration window."""
         target_pivot = self._pivot_panel(val_df, self.target_col)
         y_true = target_pivot.to_numpy()
-        if y_true.shape != (n_series, self.horizon) or np.isnan(y_true).any():
+        if y_true.shape != (n_series, self.horizon) or not np.all(np.isfinite(y_true)):
             raise ValueError(
-                "Each series must contain exactly one target value for every "
+                "Each series must contain exactly one finite target value for every "
                 "calibration horizon step."
             )
         return target_pivot, y_true
@@ -327,7 +333,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         if (
             not forecast_index.equals(target_pivot.index)
             or any(array.shape != target_pivot.shape for array in forecast_arrays)
-            or any(np.isnan(array).any() for array in forecast_arrays)
+            or any(not np.all(np.isfinite(array)) for array in forecast_arrays)
         ):
             raise ValueError(
                 "Forecast and target rows are not aligned for every series and "
@@ -433,15 +439,17 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             delayed(process_window)(w) for w in reversed(range(self.n_windows))
         )
 
-        residuals_by_model = {}
+        window_scores_by_model = {}
         for fcst, val_df in results:
-            self._compute_window_residuals(fcst, val_df, n_series, residuals_by_model)
+            self._compute_window_residuals(
+                fcst, val_df, n_series, window_scores_by_model
+            )
 
-        return residuals_by_model
+        return window_scores_by_model
 
-    def _finalize_residuals(
+    def _stack_window_scores_by_series(
         self,
-        residuals_by_model: dict[str, list[np.ndarray]],
+        window_scores_by_model: dict[str, list[np.ndarray]],
         series_ids: list,
     ) -> dict:
         """Stack window scores into horizon matrices keyed by model and series."""
@@ -450,7 +458,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
                 series_id: np.vstack([window_scores[row] for window_scores in windows])
                 for row, series_id in enumerate(series_ids)
             }
-            for model, windows in residuals_by_model.items()
+            for model, windows in window_scores_by_model.items()
         }
 
     @staticmethod
@@ -566,7 +574,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             )
         ]
 
-        residuals_by_model = self._sequential_backtesting(
+        window_scores_by_model = self._sequential_backtesting(
             df,
             step_size=step_size,
             static_features=self.static_features_ or None,
@@ -574,7 +582,9 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         )
 
         series_ids = self._pivot_panel(df, self.target_col).index.tolist()
-        self.ncscores_ = self._finalize_residuals(residuals_by_model, series_ids)
+        self.ncscores_ = self._stack_window_scores_by_series(
+            window_scores_by_model, series_ids
+        )
         if not self.ncscores_:
             raise RuntimeError(
                 f"No nonconformity scores were extracted during backtesting. "

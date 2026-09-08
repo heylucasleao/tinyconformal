@@ -55,10 +55,6 @@ class _ResidualPredictiveDistribution(EmpiricalResidualDistribution):
         if self.scales.shape != self.locations.shape:
             raise ValueError("scales and locations must have the same shape.")
 
-    def __len__(self) -> int:
-        """Return the number of row-aligned predictive distributions."""
-        return self.locations.size
-
     @property
     def n_calibration(self) -> int:
         """Return the number of cross-fitted residuals."""
@@ -101,80 +97,3 @@ class DiscreteConformalDistribution(
     ):
         """Initialize an integer-support empirical predictive distribution."""
         super().__init__(locations, residuals, scales=scales, minimum=minimum)
-
-    def ppf(self, quantiles):
-        """Evaluate integer predictive quantiles.
-
-        Parameters
-        ----------
-        quantiles : float or array-like
-            Probabilities in ``[0, 1]``. A scalar is applied to every prediction
-            row, a one-dimensional array defines a common grid, and a matrix
-            with ``len(self)`` rows is evaluated row-wise.
-
-        Returns
-        -------
-        ndarray of int
-            Integer predictive quantiles, truncated at ``minimum`` when a lower
-            support boundary is configured. Scalar and single-column row-wise
-            inputs have shape ``(n_predictions,)``; a grid of ``m`` quantiles
-            has shape ``(n_predictions, m)``.
-
-        Raises
-        ------
-        ValueError
-            If a quantile is non-finite or outside ``[0, 1]``, or the input has
-            an unsupported shape.
-        """
-        return super().ppf(quantiles)
-
-    def cdf(self, values):
-        """Evaluate the discrete predictive cumulative distribution functions.
-
-        Parameters
-        ----------
-        values : float or array-like
-            Values at which to evaluate the CDF. Values are floored to the
-            nearest integer support point. A scalar is applied to every
-            prediction row, a one-dimensional array defines a common grid, and
-            a matrix with ``len(self)`` rows is evaluated row-wise.
-
-        Returns
-        -------
-        ndarray
-            Cumulative probabilities in ``[0, 1]``. Scalar and single-column
-            row-wise inputs have shape ``(n_predictions,)``; a grid of ``m``
-            values has shape ``(n_predictions, m)``. Values below ``minimum``
-            receive probability zero when a lower boundary is configured.
-
-        Raises
-        ------
-        ValueError
-            If a value is non-finite or the input has an unsupported shape.
-        """
-        return super().cdf(values)
-
-    def pmf(self, values) -> np.ndarray:
-        """Evaluate probability masses at integer support values.
-
-        Parameters
-        ----------
-        values : int or array-like of int
-            Support values at which to evaluate the PMF. A scalar is applied to
-            every prediction row, a one-dimensional array defines a common
-            grid, and a matrix with ``len(self)`` rows is evaluated row-wise.
-
-        Returns
-        -------
-        ndarray
-            Probability masses computed as ``CDF(k) - CDF(k - 1)``. Scalar and
-            single-column row-wise inputs have shape ``(n_predictions,)``; a
-            grid of ``m`` values has shape ``(n_predictions, m)``.
-
-        Raises
-        ------
-        ValueError
-            If any support value is non-finite or non-integer, or the input has
-            an unsupported shape.
-        """
-        return super().pmf(values)
