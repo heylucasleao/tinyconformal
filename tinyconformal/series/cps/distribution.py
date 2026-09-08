@@ -207,6 +207,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         that the weights remain aligned; weighted CDF and PPF methods sort or
         aggregate them together with their weights as needed.
         """
+        # TSCPS uses per-series residuals; pooled residuals mirror CrossCPS semantics.
         if self.series_ids is not None:
             residuals = np.vstack(
                 [
