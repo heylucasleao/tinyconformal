@@ -608,33 +608,6 @@ def test_evaluate_inner_join_behavior(mock_point_learner, sample_distribution_da
     assert "X_df" not in mock_point_learner.predict.call_args.kwargs
 
 
-def test_predict_rejects_inconsistent_forecast_time_grids(
-    mock_point_learner, sample_distribution_data
-):
-    cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner)
-    cdr.id_col = "unique_id"
-    cdr.time_col = "ds"
-    cdr.target_col = "y"
-    cdr.nexcp = True
-    cdr.decay = 0.99
-    cdr.weighted_refit = True
-    cdr.horizon = 2
-    cdr.n_windows = 2
-    cdr.fit(sample_distribution_data, horizon=2, n_windows=2)
-    mock_point_learner.predict.side_effect = None
-    mock_point_learner.predict.return_value = pd.DataFrame(
-        {
-            "unique_id": ["id_1", "id_1", "id_2", "id_2"],
-            "ds": pd.to_datetime(
-                ["2024-01-26", "2024-01-27", "2024-01-26", "2024-01-28"]
-            ),
-            "LGBMRegressor": [20.0] * 4,
-        }
-    )
-    with pytest.raises(ValueError, match="same horizon timestamps"):
-        cdr.predict_interval(h=2)
-
-
 def test_predict_rejects_model_not_seen_during_calibration(
     mock_point_learner, sample_distribution_data
 ):

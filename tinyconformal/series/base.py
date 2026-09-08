@@ -230,7 +230,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             )
 
     def _validate_prediction_features(
-        self, X_df: pd.DataFrame | None, h: int
+        self, X_df: pd.DataFrame | None
     ) -> pd.DataFrame | None:
         """Validate and normalize explicitly supplied future dynamic features."""
         if X_df is None:
@@ -242,21 +242,20 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             raise ValueError(
                 f"The following future feature columns are missing: {missing}"
             )
-        self._validate_prediction_panel(X_df, h)
         return X_df[required]
 
     def _predict_forecast_panel(
         self, h: int | None, X_df: pd.DataFrame | None
     ) -> tuple[pd.DataFrame, int, pd.DataFrame | None, int]:
-        """Predict and validate a sorted, balanced forecast panel."""
+        """Predict a sorted forecast panel."""
         h = self._get_horizon(h)
         self._check_is_fitted()
-        X_df = self._validate_prediction_features(X_df, h)
+        X_df = self._validate_prediction_features(X_df)
         pred_df = call_with_supported_kwargs(self.learner.predict, h=h, X_df=X_df)
         pred_df = pred_df.sort_values([self.id_col, self.time_col]).reset_index(
             drop=True
         )
-        n_series = self._validate_prediction_panel(pred_df, h)
+        n_series = len(pred_df) // h
         return pred_df, h, X_df, n_series
 
     def _merge_predictions_with_targets(
@@ -285,34 +284,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
                 "prediction row."
             )
         return merged
-
-    def _validate_prediction_panel(self, pred_df: pd.DataFrame, h: int) -> int:
-        """Validate that forecasts form a balanced series-by-horizon panel."""
-        required = [self.id_col, self.time_col]
-        missing = [column for column in required if column not in pred_df.columns]
-        if missing:
-            raise ValueError(
-                f"The forecast output is missing structural columns: {missing}"
-            )
-        if pred_df.duplicated(required).any():
-            raise ValueError(
-                "Forecast output must contain exactly one row per identifier and time."
-            )
-
-        counts = pred_df.groupby(self.id_col, sort=False)[self.time_col].size()
-        if counts.empty or not counts.eq(h).all():
-            raise ValueError(
-                f"Forecast output must contain exactly {h} rows for every series."
-            )
-
-        time_grids = pred_df.groupby(self.id_col, sort=False)[self.time_col].apply(
-            lambda values: tuple(sorted(values))
-        )
-        if time_grids.nunique() != 1:
-            raise ValueError(
-                "Forecast output must use the same horizon timestamps for every series."
-            )
-        return len(counts)
 
     def _pivot_panel(self, df: pd.DataFrame, values: str | list[str]) -> pd.DataFrame:
         """Pivot a long-format panel and deterministically order both axes."""

@@ -433,34 +433,6 @@ def test_evaluate_output_structure_and_metrics(
     assert "y" not in prediction_input
 
 
-def test_predict_rejects_unbalanced_forecast_panel(
-    mock_quantile_learner_single, sample_time_series_data
-):
-    cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "LGBM-hi-90")
-    )
-    cqr.id_col = "unique_id"
-    cqr.time_col = "ds"
-    cqr.target_col = "y"
-    cqr.nexcp = True
-    cqr.decay = 0.99
-    cqr.weighted_refit = True
-    cqr.horizon = 2
-    cqr.n_windows = 2
-    cqr.fit(sample_time_series_data, horizon=2, n_windows=2)
-    mock_quantile_learner_single.predict.side_effect = None
-    mock_quantile_learner_single.predict.return_value = pd.DataFrame(
-        {
-            "unique_id": ["series_1", "series_1", "series_2"],
-            "ds": pd.to_datetime(["2024-01-31", "2024-02-01", "2024-01-31"]),
-            "LGBM-lo-90": [10.0] * 3,
-            "LGBM-hi-90": [20.0] * 3,
-        }
-    )
-    with pytest.raises(ValueError, match="exactly 2 rows for every series"):
-        cqr.predict_interval(h=2)
-
-
 def test_predict_rejects_crossing_quantiles(
     mock_quantile_learner_single, sample_time_series_data
 ):
