@@ -122,14 +122,17 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         """Calculates nonconformity scores for the predictions and updates the residuals dictionary."""
 
     def _compute_qhat(
-        self, ncscore: np.ndarray, q_level: float, axis: int | None = None
+        self,
+        ncscore: np.ndarray,
+        q_level: float,
+        axis: int | None = None,
+        weights: np.ndarray | None = None,
     ):
-        """
-        Compute the q-hat quantile value based on nonconformity scores and the quantile level.
-        """
+        """Compute an unweighted or temporally weighted calibration quantile."""
         if not self.nexcp:
             return np.quantile(ncscore, q_level, method="higher", axis=axis)
-        weights = temporal_decay_weights(np.asarray(ncscore).shape[0], self.decay)
+        if weights is None:
+            weights = temporal_decay_weights(np.asarray(ncscore).shape[0], self.decay)
         return weighted_quantile(ncscore, q_level, weights, axis=axis)
 
     def _validate_nexcp(self) -> None:

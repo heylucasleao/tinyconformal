@@ -9,7 +9,10 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 
 from tinyconformal.core import conformal as core_conformal
-from tinyconformal.core.quantiles import conformal_quantile_level
+from tinyconformal.core.quantiles import (
+    conformal_quantile_level,
+    temporal_decay_weights,
+)
 from tinyconformal.utils.imports import requires_extra
 
 from .base import BaseConformalTimeSeriesRegressor
@@ -134,7 +137,11 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         intervals: tuple[str, str] | list[tuple[str, str]],
     ):
         self.intervals = intervals
-        self.intervals_, self.interval_alphas_ = self._normalize_intervals(intervals)
+        (
+            self.intervals_,
+            self.interval_alphas_,
+            self.interval_metadata_,
+        ) = self._normalize_intervals(intervals)
 
         super().__init__(learner=learner)
 
@@ -221,7 +228,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             n_jobs=n_jobs,
         )
 
-    def _parse_quantile_pair(self, low_col: str, high_col: str) -> dict[str, str]:
+    def _parse_quantile_pair(self, low_col: str, high_col: str) -> dict[str, str | int]:
         """
         Validates and extracts metadata from a quantile column pair.
 
@@ -275,8 +282,30 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
     ) -> tuple[
         list[tuple[str, str]],
         dict[tuple[str, str], float],
+        dict[tuple[str, str], dict[str, str | int]],
     ]:
-        """Normalize and validate interval pairs."""
+        """Normalize interval pairs and derive their calibration metadata.
+
+        Parameters
+        ----------
+        intervals : tuple or list of tuples
+            One ``(lower_column, upper_column)`` pair or a list of pairs. Column
+            names must follow ``<model>-lo-<level>`` and
+            ``<model>-hi-<level>``.
+
+        Returns
+        -------
+        pairs : list of tuple of str
+            Interval definitions normalized to a list of
+            ``(lower_column, upper_column)`` tuples.
+        alphas : dict
+            Significance level for each pair, keyed by the normalized tuple.
+            For example, columns with level ``90`` produce ``alpha=0.1``.
+        metadata_by_pair : dict
+            Parsed model name and integer coverage level for each pair, also
+            keyed by the normalized tuple. Each value has the form
+            ``{"model": model_name, "level": coverage_level}``.
+        """
         if isinstance(intervals, tuple) and len(intervals) == 2:
             pairs = [intervals]
         elif isinstance(intervals, list) and all(
@@ -293,11 +322,14 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             raise ValueError("intervals must contain at least one quantile pair.")
 
         alphas = {}
+        metadata_by_pair = {}
         for low_col, high_col in pairs:
             metadata = self._parse_quantile_pair(low_col, high_col)
-            alphas[(low_col, high_col)] = 1.0 - metadata["level"] / 100.0
+            pair = (low_col, high_col)
+            metadata_by_pair[pair] = metadata
+            alphas[pair] = 1.0 - metadata["level"] / 100.0
 
-        return pairs, alphas
+        return pairs, alphas, metadata_by_pair
 
     def _sample_correction(self, alpha: float) -> float:
         """Computes finite-sample quantile adjustment level."""
@@ -326,7 +358,6 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         y_true = val_df[self.target_col].to_numpy().reshape(shape)
 
         for low_col, high_col in self.intervals_:
-            self._require_forecast_columns(fcst, (low_col, high_col))
             q_low = fcst[low_col].to_numpy().reshape(shape)
             q_high = fcst[high_col].to_numpy().reshape(shape)
             if np.any(q_low > q_high):
@@ -337,16 +368,6 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             pair_key = f"{low_col}:{high_col}"
             window_scores_by_model.setdefault(pair_key, []).append(
                 self._generate_residuals(q_low, q_high, y_true)
-            )
-
-    @staticmethod
-    def _require_forecast_columns(fcst: pd.DataFrame, columns: tuple[str, ...]) -> None:
-        """Raise a descriptive error when configured forecast columns are absent."""
-        missing = [column for column in columns if column not in fcst.columns]
-        if missing:
-            raise KeyError(
-                f"Columns {tuple(missing)} were not found in forecast output. "
-                f"Available columns: {list(fcst.columns)}"
             )
 
     def _compute_bounds(
@@ -362,7 +383,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
 
         The returned bounds are ``q_low - q_hat`` and ``q_high + q_hat``.
         """
-        q_level = self._sample_correction(self._validate_alpha(alpha))
+        q_level = self._sample_correction(alpha)
 
         scores_by_id = self.ncscores_[pair_key]
         series_ids = prediction_ids[::h]
@@ -375,10 +396,11 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
 
         lower_bound = np.empty_like(q_low, dtype=float)
         upper_bound = np.empty_like(q_high, dtype=float)
+        weights = temporal_decay_weights(self.n, self.decay) if self.nexcp else None
         for row, series_id in enumerate(series_ids):
             row_slice = slice(row * h, (row + 1) * h)
             ncscore = scores_by_id[series_id][:, :h]
-            q_hat_h = self._compute_qhat(ncscore, q_level, axis=0)
+            q_hat_h = self._compute_qhat(ncscore, q_level, axis=0, weights=weights)
             lower, upper = core_conformal.cqr_bounds(
                 q_low[row_slice], q_high[row_slice], q_hat_h
             )
@@ -414,10 +436,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             (`<col>-cqr`).
         """
         pred_df, h, _, _ = self._generate_forecast(h, X_df)
-        forecast_cols = tuple(
-            dict.fromkeys(column for pair in self.intervals_ for column in pair)
-        )
-        self._require_forecast_columns(pred_df, forecast_cols)
+        prediction_ids = pred_df[self.id_col].to_numpy()
 
         for low_col, high_col in self.intervals_:
             q_low = pred_df[low_col].to_numpy()
@@ -434,7 +453,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
                 q_high=q_high,
                 pair_key=pair_key,
                 h=h,
-                prediction_ids=pred_df[self.id_col].to_numpy(),
+                prediction_ids=prediction_ids,
                 alpha=interval_alpha,
             )
 
@@ -460,7 +479,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         y_true = eval_df[self.target_col].to_numpy()
         records = []
         for low_col, high_col in self.intervals_:
-            metadata = self._parse_quantile_pair(low_col, high_col)
+            metadata = self.interval_metadata_[(low_col, high_col)]
             alpha = self.interval_alphas_[(low_col, high_col)]
             for suffix, model_suffix in (("", ""), ("-cqr", "-cqr")):
                 lower = eval_df[f"{low_col}{suffix}"].to_numpy()

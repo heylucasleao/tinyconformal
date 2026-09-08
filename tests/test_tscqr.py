@@ -227,7 +227,7 @@ def test_sequential_backtesting_missing_quantile_column(
             }
         )
     )
-    with pytest.raises(KeyError, match="were not found in forecast output"):
+    with pytest.raises(KeyError, match="LGBM-lo-90"):
         cqr.fit(sample_time_series_data, horizon=3, n_windows=2)
 
 

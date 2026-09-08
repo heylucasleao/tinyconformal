@@ -12,7 +12,6 @@ from tinyconformal.core import conformal as core_conformal
 from tinyconformal.core.quantiles import (
     central_conformal_quantile_levels,
     temporal_decay_weights,
-    weighted_quantile,
 )
 from tinyconformal.utils.imports import requires_extra
 
@@ -166,12 +165,8 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         for row, series_id in enumerate(series_ids):
             row_slice = slice(row * h, (row + 1) * h)
             ncscore = scores_by_id[series_id][:, :h]
-            if weights is None:
-                q_low_h = np.quantile(ncscore, low_q, method="higher", axis=0)
-                q_high_h = np.quantile(ncscore, high_q, method="higher", axis=0)
-            else:
-                q_low_h = weighted_quantile(ncscore, low_q, weights, axis=0)
-                q_high_h = weighted_quantile(ncscore, high_q, weights, axis=0)
+            q_low_h = self._compute_qhat(ncscore, low_q, axis=0, weights=weights)
+            q_high_h = self._compute_qhat(ncscore, high_q, axis=0, weights=weights)
             lower, upper = core_conformal.signed_residual_bounds(
                 y_hat[row_slice], q_low_h, q_high_h
             )
