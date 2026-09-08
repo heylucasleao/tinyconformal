@@ -70,7 +70,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         self, df: pd.DataFrame, step_size: int
     ) -> tuple[np.ndarray, int, int]:
         """Validate calibration length and return the shared temporal grid."""
-        time_steps = np.sort(df[self.time_col].unique())
+        time_steps = pd.unique(df[self.time_col])
         total_steps = len(time_steps)
         n_series = df[self.id_col].nunique()
         required_steps = self.horizon + (self.n_windows - 1) * step_size
@@ -90,17 +90,13 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         w: int,
         step_size: int,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        """Split one rolling-origin window into sorted training and validation panels."""
+        """Split one rolling-origin window while preserving panel order."""
         val_end_idx = total_steps - w * step_size
         val_start_idx = val_end_idx - self.horizon
         train_cutoff = time_steps[val_start_idx - 1]
         val_times = time_steps[val_start_idx:val_end_idx]
         train_df = df[df[self.time_col] <= train_cutoff].reset_index(drop=True)
-        val_df = (
-            df[df[self.time_col].isin(val_times)]
-            .sort_values([self.id_col, self.time_col])
-            .reset_index(drop=True)
-        )
+        val_df = df[df[self.time_col].isin(val_times)].reset_index(drop=True)
         return train_df, val_df
 
     def _fit_predict_window(
@@ -114,11 +110,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         self._fit_forecaster(learner, train_df, static_features=static_features)
         predict_cols = [self.id_col, self.time_col, *self.exog_cols_]
         X_val = val_df[predict_cols] if self.exog_cols_ else None
-        return (
-            call_with_supported_kwargs(learner.predict, h=self.horizon, X_df=X_val)
-            .sort_values([self.id_col, self.time_col])
-            .reset_index(drop=True)
-        )
+        return call_with_supported_kwargs(learner.predict, h=self.horizon, X_df=X_val)
 
     @abstractmethod
     def _compute_window_residuals(
@@ -161,7 +153,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             weight_col = "_tinyconformal_weight"
             if weight_col in df.columns:
                 raise ValueError(f"Training data already contains '{weight_col}'.")
-            times = np.sort(df[self.time_col].unique())
+            times = pd.unique(df[self.time_col])
             weights = temporal_decay_weights(len(times), self.decay)
             time_weights = dict(zip(times, weights))
             fit_df = df.copy()
@@ -229,34 +221,16 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
                 "This conformal regressor must be fitted before prediction."
             )
 
-    def _validate_prediction_features(
-        self, X_df: pd.DataFrame | None, h: int
-    ) -> pd.DataFrame | None:
-        """Validate and normalize explicitly supplied future dynamic features."""
-        if X_df is None:
-            return None
-
-        required = [self.id_col, self.time_col, *self.exog_cols_]
-        missing = [column for column in required if column not in X_df.columns]
-        if missing:
-            raise ValueError(
-                f"The following future feature columns are missing: {missing}"
-            )
-        self._validate_prediction_panel(X_df, h)
-        return X_df[required].copy()
-
-    def _predict_forecast_panel(
+    def _generate_forecast(
         self, h: int | None, X_df: pd.DataFrame | None
     ) -> tuple[pd.DataFrame, int, pd.DataFrame | None, int]:
-        """Predict and validate a sorted, balanced forecast panel."""
+        """Predict a forecast panel in the order returned by the learner."""
         h = self._get_horizon(h)
         self._check_is_fitted()
-        X_df = self._validate_prediction_features(X_df, h)
+        if X_df is not None:
+            X_df = X_df[[self.id_col, self.time_col, *self.exog_cols_]]
         pred_df = call_with_supported_kwargs(self.learner.predict, h=h, X_df=X_df)
-        pred_df = pred_df.sort_values([self.id_col, self.time_col]).reset_index(
-            drop=True
-        )
-        n_series = self._validate_prediction_panel(pred_df, h)
+        n_series = len(pred_df) // h
         return pred_df, h, X_df, n_series
 
     def _merge_predictions_with_targets(
@@ -286,72 +260,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             )
         return merged
 
-    def _validate_prediction_panel(self, pred_df: pd.DataFrame, h: int) -> int:
-        """Validate that forecasts form a balanced series-by-horizon panel."""
-        required = [self.id_col, self.time_col]
-        missing = [column for column in required if column not in pred_df.columns]
-        if missing:
-            raise ValueError(
-                f"The forecast output is missing structural columns: {missing}"
-            )
-        if pred_df.duplicated(required).any():
-            raise ValueError(
-                "Forecast output must contain exactly one row per identifier and time."
-            )
-
-        counts = pred_df.groupby(self.id_col, sort=False)[self.time_col].size()
-        if counts.empty or not counts.eq(h).all():
-            raise ValueError(
-                f"Forecast output must contain exactly {h} rows for every series."
-            )
-
-        time_grids = pred_df.groupby(self.id_col, sort=False)[self.time_col].apply(
-            lambda values: tuple(sorted(values))
-        )
-        if time_grids.nunique() != 1:
-            raise ValueError(
-                "Forecast output must use the same horizon timestamps for every series."
-            )
-        return len(counts)
-
-    def _pivot_panel(self, df: pd.DataFrame, values: str | list[str]) -> pd.DataFrame:
-        """Pivot a long-format panel and deterministically order both axes."""
-        return (
-            df.pivot(index=self.id_col, columns=self.time_col, values=values)
-            .sort_index(axis=0)
-            .sort_index(axis=1)
-        )
-
-    def _extract_target_panel(
-        self, val_df: pd.DataFrame, n_series: int
-    ) -> tuple[pd.DataFrame, np.ndarray]:
-        """Build and validate the target panel for one calibration window."""
-        target_pivot = self._pivot_panel(val_df, self.target_col)
-        y_true = target_pivot.to_numpy()
-        if y_true.shape != (n_series, self.horizon) or not np.all(np.isfinite(y_true)):
-            raise ValueError(
-                "Each series must contain exactly one finite target value for every "
-                "calibration horizon step."
-            )
-        return target_pivot, y_true
-
-    @staticmethod
-    def _validate_calibration_forecasts(
-        forecast_index: pd.Index,
-        target_pivot: pd.DataFrame,
-        *forecast_arrays: np.ndarray,
-    ) -> None:
-        """Validate forecast arrays against the target calibration panel."""
-        if (
-            not forecast_index.equals(target_pivot.index)
-            or any(array.shape != target_pivot.shape for array in forecast_arrays)
-            or any(not np.all(np.isfinite(array)) for array in forecast_arrays)
-        ):
-            raise ValueError(
-                "Forecast and target rows are not aligned for every series and "
-                "calibration horizon step."
-            )
-
     def _require_calibrated_model(self, model: str):
         """Return calibration scores for a forecast model or raise clearly."""
         if model not in self.ncscores_:
@@ -360,36 +268,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
                 f"Calibrated model columns: {list(self.ncscores_)}"
             )
         return self.ncscores_[model]
-
-    def _validate_columns(self, df: pd.DataFrame):
-        """
-        Validates presence of required structural columns in input DataFrames.
-        """
-        required_cols = [self.id_col, self.time_col, self.target_col]
-        missing = [col for col in required_cols if col not in df.columns]
-        if missing:
-            raise ValueError(
-                f"The following required columns are missing from the DataFrame: {missing}"
-            )
-
-    def _validate_static_features(
-        self, df: pd.DataFrame, static_features: list | None
-    ) -> list:
-        """Normalize and validate static feature column names."""
-        static_features = [] if static_features is None else list(static_features)
-        missing = [column for column in static_features if column not in df.columns]
-        if missing:
-            raise ValueError(
-                f"The following static feature columns are missing: {missing}"
-            )
-
-        structural = {self.id_col, self.time_col, self.target_col}
-        invalid = [column for column in static_features if column in structural]
-        if invalid:
-            raise ValueError(
-                f"Structural and target columns cannot be static features: {invalid}"
-            )
-        return static_features
 
     def _sequential_backtesting(
         self,
@@ -531,9 +409,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         self.time_col = time_col
         self.target_col = target_col
 
-        df = df.sort_values(by=[self.id_col, self.time_col]).reset_index(drop=True)
-
-        self._validate_columns(df)
         self._get_horizon()
         self._validate_fit_configuration()
         if (
@@ -543,7 +418,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         ):
             raise ValueError("n_windows must be a positive integer.")
 
-        self.static_features_ = self._validate_static_features(df, static_features)
+        self.static_features_ = [] if static_features is None else list(static_features)
 
         self.exog_cols_ = [
             col
@@ -564,7 +439,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             n_jobs=n_jobs,
         )
 
-        series_ids = self._pivot_panel(df, self.target_col).index.tolist()
+        series_ids = pd.unique(df[self.id_col]).tolist()
         self.ncscores_ = self._stack_window_scores_by_series(
             window_scores_by_model, series_ids
         )

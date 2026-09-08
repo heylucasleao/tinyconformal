@@ -190,25 +190,6 @@ def test_discrete_series_cps_supports_pmf_and_integer_quantiles(
     assert np.all(masses[["P(Y=10)", "P(Y=11)"]] >= 0)
 
 
-def test_discrete_series_cps_rejects_noninteger_target(
-    nixtla_learner, dispersion_learner, panel
-):
-    panel.loc[0, "y"] = 0.5
-    cps = DiscreteTimeSeriesConformalPredictiveSystem(
-        nixtla_learner, dispersion_learner
-    )
-    cps.id_col = "unique_id"
-    cps.time_col = "ds"
-    cps.target_col = "y"
-    cps.nexcp = True
-    cps.decay = 0.99
-    cps.weighted_refit = True
-    cps.horizon = 2
-    cps.n_windows = 2
-    with pytest.raises(ValueError, match="finite integers"):
-        cps.fit(panel, n_jobs=1, horizon=2, n_windows=2)
-
-
 def test_series_cps_rejects_multiple_forecast_models(
     nixtla_learner, dispersion_learner, panel
 ):

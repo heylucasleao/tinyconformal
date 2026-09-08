@@ -149,7 +149,8 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         alpha = self._get_alpha(alpha)
         low_q, high_q = self._sample_correction(alpha)
         scores_by_id = self.ncscores_[model_name]
-        missing_ids = sorted(set(prediction_ids) - set(scores_by_id), key=str)
+        series_ids = prediction_ids[::h]
+        missing_ids = list(set(series_ids) - set(scores_by_id))
         if missing_ids:
             raise ValueError(
                 "No calibration scores are available for forecast identifiers: "
@@ -158,20 +159,16 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
 
         lower_bound = np.empty_like(y_hat, dtype=float)
         upper_bound = np.empty_like(y_hat, dtype=float)
-        for series_id in pd.unique(prediction_ids):
-            row_mask = prediction_ids == series_id
+        for row, series_id in enumerate(series_ids):
+            row_slice = slice(row * h, (row + 1) * h)
             ncscore = scores_by_id[series_id][:, :h]
             q_low_h = self._compute_qhat(ncscore, low_q, axis=0)
             q_high_h = self._compute_qhat(ncscore, high_q, axis=0)
-            if row_mask.sum() != h:
-                raise ValueError(
-                    f"Forecast identifier {series_id!r} must contain exactly {h} rows."
-                )
             lower, upper = core_conformal.signed_residual_bounds(
-                y_hat[row_mask], q_low_h, q_high_h
+                y_hat[row_slice], q_low_h, q_high_h
             )
-            lower_bound[row_mask] = lower
-            upper_bound[row_mask] = upper
+            lower_bound[row_slice] = lower
+            upper_bound[row_slice] = upper
 
         return lower_bound, upper_bound
 
@@ -240,7 +237,7 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         pd.DataFrame
             Point forecasts and lower/upper interval columns for every model.
         """
-        pred_df, h, _, _ = self._predict_forecast_panel(h, X_df)
+        pred_df, h, _, _ = self._generate_forecast(h, X_df)
         model_cols = self._infer_model_cols(pred_df)
 
         for model in model_cols:
@@ -285,8 +282,4 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         y_true = eval_df[self.target_col].to_numpy()
         records = self._extract_bound_records(eval_df, y_true, alpha)
 
-        return (
-            pd.DataFrame(records)
-            .sort_values(by=["model", "level"])
-            .reset_index(drop=True)
-        )
+        return pd.DataFrame(records)

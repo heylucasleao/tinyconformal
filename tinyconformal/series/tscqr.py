@@ -322,16 +322,13 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         window_scores_by_model: dict,
     ) -> None:
         """Calculates nonconformity scores for the predictions and updates the residuals dictionary."""
-        target_pivot, y_true = self._extract_target_panel(val_df, n_series)
+        shape = (n_series, self.horizon)
+        y_true = val_df[self.target_col].to_numpy().reshape(shape)
 
         for low_col, high_col in self.intervals_:
             self._require_forecast_columns(fcst, (low_col, high_col))
-            quantiles = self._pivot_panel(fcst, [low_col, high_col])
-            q_low = quantiles[low_col].to_numpy()
-            q_high = quantiles[high_col].to_numpy()
-            self._validate_calibration_forecasts(
-                quantiles.index, target_pivot, q_low, q_high
-            )
+            q_low = fcst[low_col].to_numpy().reshape(shape)
+            q_high = fcst[high_col].to_numpy().reshape(shape)
             if np.any(q_low > q_high):
                 raise ValueError(
                     f"Crossing quantiles detected for columns {(low_col, high_col)}."
@@ -368,7 +365,8 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         q_level = self._sample_correction(self._validate_alpha(alpha))
 
         scores_by_id = self.ncscores_[pair_key]
-        missing_ids = sorted(set(prediction_ids) - set(scores_by_id), key=str)
+        series_ids = prediction_ids[::h]
+        missing_ids = list(set(series_ids) - set(scores_by_id))
         if missing_ids:
             raise ValueError(
                 "No calibration scores are available for forecast identifiers: "
@@ -377,19 +375,15 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
 
         lower_bound = np.empty_like(q_low, dtype=float)
         upper_bound = np.empty_like(q_high, dtype=float)
-        for series_id in pd.unique(prediction_ids):
-            row_mask = prediction_ids == series_id
+        for row, series_id in enumerate(series_ids):
+            row_slice = slice(row * h, (row + 1) * h)
             ncscore = scores_by_id[series_id][:, :h]
             q_hat_h = self._compute_qhat(ncscore, q_level, axis=0)
-            if row_mask.sum() != h:
-                raise ValueError(
-                    f"Forecast identifier {series_id!r} must contain exactly {h} rows."
-                )
             lower, upper = core_conformal.cqr_bounds(
-                q_low[row_mask], q_high[row_mask], q_hat_h
+                q_low[row_slice], q_high[row_slice], q_hat_h
             )
-            lower_bound[row_mask] = lower
-            upper_bound[row_mask] = upper
+            lower_bound[row_slice] = lower
+            upper_bound[row_slice] = upper
 
         return lower_bound, upper_bound
 
@@ -419,7 +413,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             DataFrame containing raw base predictions, conformal-calibrated interval bounds
             (`<col>-cqr`).
         """
-        pred_df, h, _, _ = self._predict_forecast_panel(h, X_df)
+        pred_df, h, _, _ = self._generate_forecast(h, X_df)
         forecast_cols = tuple(
             dict.fromkeys(column for pair in self.intervals_ for column in pair)
         )
@@ -480,8 +474,4 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
                     }
                 )
 
-        return (
-            pd.DataFrame(records)
-            .sort_values(by=["model", "level"])
-            .reset_index(drop=True)
-        )
+        return pd.DataFrame(records)

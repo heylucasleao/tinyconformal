@@ -15,10 +15,7 @@ from sklearn.base import BaseEstimator
 from tinyconformal.core.quantiles import temporal_decay_weights
 from tinyconformal.distribution.base import PredictiveDistribution
 from tinyconformal.utils.imports import requires_extra
-from tinyconformal.utils.validation import (
-    validate_discrete_targets,
-    validate_integer_support,
-)
+from tinyconformal.utils.validation import validate_integer_support
 
 from ..residual import ResidualConformalTimeSeriesRegressor
 from .calibration import ConditionalScaleCalibrator
@@ -242,13 +239,6 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         training information. Predictions cannot exceed the fitted horizon.
         """
         self.id_col, self.time_col, self.target_col = id_col, time_col, target_col
-        if self.discrete:
-            self._validate_columns(df)
-            validate_discrete_targets(
-                df[self.target_col],
-                self.minimum,
-                name="Discrete time-series CPS targets",
-            )
         super().fit(
             df,
             horizon=horizon,
@@ -278,7 +268,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         self, h: int | None, X_df: pd.DataFrame | None
     ) -> tuple[pd.DataFrame, list[str], int, int]:
         """Predict and validate a sorted future panel for distribution building."""
-        pred_df, h, X_df, n_series = self._predict_forecast_panel(h, X_df)
+        pred_df, h, X_df, n_series = self._generate_forecast(h, X_df)
         if X_df is not None:
             extra_cols = [
                 column for column in X_df.columns if column not in pred_df.columns

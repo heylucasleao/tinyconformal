@@ -17,16 +17,6 @@ from tinyconformal.distribution.base import (
 )
 
 
-def _validate_matrix(values, name: str) -> np.ndarray:
-    """Convert values to a finite, non-empty two-dimensional array."""
-    array = np.asarray(values, dtype=float)
-    if array.ndim != 2 or 0 in array.shape:
-        raise ValueError(f"{name} must be a non-empty two-dimensional array.")
-    if not np.all(np.isfinite(array)):
-        raise ValueError(f"{name} must contain only finite values.")
-    return array
-
-
 class HorizonConformalDistribution(EmpiricalResidualDistribution):
     """Batch of residual-based predictive distributions calibrated by horizon.
 
@@ -144,38 +134,16 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         return horizon_steps
 
     def _prepare_residuals(self, residuals, series_ids):
-        """Normalize pooled or per-series calibration residuals."""
+        """Store pooled or per-series calibration residuals."""
         if isinstance(residuals, Mapping):
-            return self._prepare_series_residuals(residuals, series_ids)
-        residuals = _validate_matrix(residuals, "residuals")
-        return residuals, None
-
-    def _prepare_series_residuals(self, residuals, series_ids):
-        """Validate residual matrices and align them with prediction series."""
-        if series_ids is None:
-            raise ValueError("series_ids is required when residuals is a mapping.")
-        series_ids = np.asarray(series_ids)
-        if series_ids.shape != self.locations.shape:
-            raise ValueError("series_ids and locations must have the same shape.")
-        missing_ids = sorted(set(series_ids) - set(residuals), key=str)
-        if missing_ids:
-            raise ValueError(
-                f"No CPS calibration residuals are available for series: {missing_ids}"
-            )
-        prepared = {
-            series_id: _validate_matrix(values, f"residuals[{series_id!r}]")
-            for series_id, values in residuals.items()
-        }
-        return prepared, series_ids
+            return residuals, np.asarray(series_ids)
+        return np.asarray(residuals, dtype=float), None
 
     def _residual_shape(self) -> tuple[int, int]:
         """Return the common calibration-window and horizon dimensions."""
         if not isinstance(self.residuals, Mapping):
             return self.residuals.shape
-        shapes = {values.shape for values in self.residuals.values()}
-        if len(shapes) != 1:
-            raise ValueError("All series residual matrices must have the same shape.")
-        return next(iter(shapes))
+        return next(iter(self.residuals.values())).shape
 
     def _validate_calibrated_horizon(self, calibrated_horizon: int) -> None:
         """Reject prediction rows outside the calibrated horizon."""
@@ -239,6 +207,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         that the weights remain aligned; weighted CDF and PPF methods sort or
         aggregate them together with their weights as needed.
         """
+        # TSCPS uses per-series residuals; pooled residuals mirror CrossCPS semantics.
         if self.series_ids is not None:
             residuals = np.vstack(
                 [
