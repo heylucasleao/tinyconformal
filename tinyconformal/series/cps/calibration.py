@@ -203,9 +203,7 @@ class ConditionalScaleCalibrator:
             )
             # Predict one (series, horizon) grid for the held-out OOF window;
             # predictions for all windows are assembled after this function returns.
-            scales = np.asarray(pipeline.predict(features), dtype=float).reshape(
-                n_series, self.horizon
-            )
+            scales = pipeline.predict(features).reshape(n_series, self.horizon)
             return window, scales
 
         results = Parallel(n_jobs=n_jobs)(
@@ -320,8 +318,5 @@ class ConditionalScaleCalibrator:
         receive an all-zero series encoding; their predictions therefore depend
         on the learner's behavior for that representation and on horizon.
         """
-        features = pd.DataFrame(
-            {"series_id": series_ids, "horizon": np.asarray(horizon_steps) + 1}
-        )
-        scales = np.asarray(pipeline.predict(features), dtype=float)
-        return scales
+        features = pd.DataFrame({"series_id": series_ids, "horizon": horizon_steps + 1})
+        return pipeline.predict(features)
