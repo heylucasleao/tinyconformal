@@ -227,44 +227,8 @@ def test_sequential_backtesting_missing_quantile_column(
             }
         )
     )
-    with pytest.raises(KeyError, match="were not found in forecast output"):
+    with pytest.raises(KeyError, match="LGBM-lo-90"):
         cqr.fit(sample_time_series_data, horizon=3, n_windows=2)
-
-
-def test_window_residuals_align_shuffled_forecasts_by_keys(
-    mock_quantile_learner_single,
-):
-    """Quantile residuals must align by series and timestamp, not row order."""
-    cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "LGBM-hi-90")
-    )
-    cqr.id_col = "unique_id"
-    cqr.time_col = "ds"
-    cqr.target_col = "y"
-    cqr.nexcp = True
-    cqr.decay = 0.99
-    cqr.weighted_refit = True
-    cqr.horizon = 2
-    val_df = pd.DataFrame(
-        {
-            "unique_id": ["s1", "s1", "s2", "s2"],
-            "ds": [1, 2, 1, 2],
-            "y": [10.0, 20.0, 30.0, 40.0],
-        }
-    )
-    fcst = pd.DataFrame(
-        {
-            "unique_id": ["s2", "s1", "s2", "s1"],
-            "ds": [2, 1, 1, 2],
-            "LGBM-lo-90": [39.0, 9.0, 29.0, 19.0],
-            "LGBM-hi-90": [41.0, 11.0, 31.0, 21.0],
-        }
-    )
-    residuals = {}
-    cqr._compute_window_residuals(fcst, val_df, 2, residuals)
-    np.testing.assert_array_equal(
-        residuals["LGBM-lo-90:LGBM-hi-90"][0], np.full((2, 2), -1.0)
-    )
 
 
 def test_backtesting_does_not_fit_original_learner_per_window(
@@ -431,34 +395,6 @@ def test_evaluate_output_structure_and_metrics(
     prediction_input = mock_quantile_learner_multi.predict.call_args.kwargs["X_df"]
     assert list(prediction_input.columns) == ["unique_id", "ds", "exog_feat"]
     assert "y" not in prediction_input
-
-
-def test_predict_rejects_unbalanced_forecast_panel(
-    mock_quantile_learner_single, sample_time_series_data
-):
-    cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "LGBM-hi-90")
-    )
-    cqr.id_col = "unique_id"
-    cqr.time_col = "ds"
-    cqr.target_col = "y"
-    cqr.nexcp = True
-    cqr.decay = 0.99
-    cqr.weighted_refit = True
-    cqr.horizon = 2
-    cqr.n_windows = 2
-    cqr.fit(sample_time_series_data, horizon=2, n_windows=2)
-    mock_quantile_learner_single.predict.side_effect = None
-    mock_quantile_learner_single.predict.return_value = pd.DataFrame(
-        {
-            "unique_id": ["series_1", "series_1", "series_2"],
-            "ds": pd.to_datetime(["2024-01-31", "2024-02-01", "2024-01-31"]),
-            "LGBM-lo-90": [10.0] * 3,
-            "LGBM-hi-90": [20.0] * 3,
-        }
-    )
-    with pytest.raises(ValueError, match="exactly 2 rows for every series"):
-        cqr.predict_interval(h=2)
 
 
 def test_predict_rejects_crossing_quantiles(

@@ -76,7 +76,7 @@ class BaseConformalClassifier(ABC):
         self._quantile_warning_registry = set()
 
     @abstractmethod
-    def fit(self, y):
+    def fit(self, X=None, y=None, oob=False):
         """
         Fits the classifier to the training data.
         """

@@ -49,6 +49,13 @@ class ConditionalScaleCalibrator:
         self.nexcp = nexcp
         self.decay = decay
         self.weighted_refit = weighted_refit
+        self._window_weights = (
+            temporal_decay_weights(n_windows, decay)
+            if nexcp
+            and weighted_refit
+            and accepts_parameter(learner.fit, "sample_weight")
+            else None
+        )
 
     def features(self, series_ids) -> pd.DataFrame:
         """Build one dispersion-feature row per series and horizon."""
@@ -107,12 +114,8 @@ class ConditionalScaleCalibrator:
         """Fit a fresh dispersion pipeline, optionally with temporal weights."""
         pipeline = self.new_pipeline()
         fit_kwargs = {}
-        if (
-            self.nexcp
-            and self.weighted_refit
-            and accepts_parameter(self.learner.fit, "sample_weight")
-        ):
-            window_weights = temporal_decay_weights(self.n_windows, self.decay)[windows]
+        if self._window_weights is not None:
+            window_weights = self._window_weights[windows]
             repeats = len(features) // len(windows)
             fit_kwargs["learner__sample_weight"] = np.repeat(window_weights, repeats)
         return pipeline.fit(features, targets, **fit_kwargs)
@@ -200,9 +203,7 @@ class ConditionalScaleCalibrator:
             )
             # Predict one (series, horizon) grid for the held-out OOF window;
             # predictions for all windows are assembled after this function returns.
-            scales = np.asarray(pipeline.predict(features), dtype=float).reshape(
-                n_series, self.horizon
-            )
+            scales = pipeline.predict(features).reshape(n_series, self.horizon)
             return window, scales
 
         results = Parallel(n_jobs=n_jobs)(
@@ -305,8 +306,8 @@ class ConditionalScaleCalibrator:
         Returns
         -------
         numpy.ndarray
-            One finite, strictly positive scale per input row, in the same order
-            as ``series_ids`` and ``horizon_steps``.
+            One scale per input row, in the same order as ``series_ids`` and
+            ``horizon_steps``.
 
         Notes
         -----
@@ -317,9 +318,5 @@ class ConditionalScaleCalibrator:
         receive an all-zero series encoding; their predictions therefore depend
         on the learner's behavior for that representation and on horizon.
         """
-        features = pd.DataFrame(
-            {"series_id": series_ids, "horizon": np.asarray(horizon_steps) + 1}
-        )
-        scales = np.asarray(pipeline.predict(features), dtype=float)
-        self._validate(scales)
-        return scales
+        features = pd.DataFrame({"series_id": series_ids, "horizon": horizon_steps + 1})
+        return pipeline.predict(features)

@@ -9,7 +9,10 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 
 from tinyconformal.core import conformal as core_conformal
-from tinyconformal.core.quantiles import central_conformal_quantile_levels
+from tinyconformal.core.quantiles import (
+    central_conformal_quantile_levels,
+    validate_alpha,
+)
 from tinyconformal.utils.imports import requires_extra
 
 from .residual import ResidualConformalTimeSeriesRegressor
@@ -37,93 +40,12 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
 
     def _get_alpha(self, alpha: float | None = None) -> float:
         """Resolve an optional override against the MSCP global alpha."""
-        return self._validate_alpha(self.alpha if alpha is None else alpha)
+        return validate_alpha(self.alpha if alpha is None else alpha)
 
     def _validate_fit_configuration(self) -> None:
         """Validate the global MSCP significance level before calibration."""
         self._get_alpha()
         self._validate_nexcp()
-
-    @requires_extra("series")
-    def fit(
-        self,
-        df: pd.DataFrame,
-        horizon: int,
-        n_windows: int = 15,
-        step_size: int | None = None,
-        static_features: list | None = None,
-        nexcp: bool = True,
-        decay: float = 0.99,
-        weighted_refit: bool = True,
-        id_col: str = "unique_id",
-        time_col: str = "ds",
-        target_col: str = "y",
-        n_jobs: int = -1,
-    ):
-        """Fit MSCP with rolling-origin residual calibration.
-
-        Parameters
-        ----------
-        df : pandas.DataFrame
-            Long-format training panel containing identifier, timestamp, target,
-            and optional exogenous feature columns.
-        horizon : int
-            Maximum forecast horizon calibrated in every backtesting window.
-        n_windows : int, default=15
-            Number of rolling-origin windows used to collect residuals.
-        step_size : int or None, default=None
-            Distance between consecutive origins. ``None`` uses ``horizon``.
-        static_features : list of str or None, default=None
-            Time-invariant feature columns passed to the forecasting learner.
-        nexcp : bool, default=True
-            Give recent calibration windows exponentially larger weights.
-        decay : float, default=0.99
-            Exponential decay factor in ``(0, 1)`` used when ``nexcp=True``.
-        weighted_refit : bool, default=True
-            Pass recency weights to compatible learner fits when ``nexcp=True``.
-        id_col : str, default="unique_id"
-            Series identifier column.
-        time_col : str, default="ds"
-            Timestamp column.
-        target_col : str, default="y"
-            Target column.
-        n_jobs : int, default=-1
-            Parallel jobs used to process calibration windows.
-
-        Returns
-        -------
-        self
-            Fitted estimator with per-series, per-horizon residual scores.
-
-        Raises
-        ------
-        TypeError
-            If calibration parameters have invalid types.
-        ValueError
-            If parameters, columns, panel layout, or history length are invalid.
-        RuntimeError
-            If calibration produces no nonconformity scores.
-
-        Notes
-        -----
-        The learner is fitted on temporary historical windows for calibration
-        and finally refitted on the complete panel. Predictions cannot exceed
-        the fitted ``horizon``.
-        """
-        return super().fit(
-            df,
-            horizon=horizon,
-            n_windows=n_windows,
-            step_size=step_size,
-            static_features=static_features,
-            nexcp=nexcp,
-            decay=decay,
-            weighted_refit=weighted_refit,
-            id_col=id_col,
-            time_col=time_col,
-            target_col=target_col,
-            n_jobs=n_jobs,
-        )
 
     def _sample_correction(self, alpha: float):
         """Compute equal-tailed finite-sample conformal quantile levels."""
@@ -140,16 +62,16 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         model_name: str,
         h: int,
         prediction_ids: np.ndarray,
-        alpha: float | None = None,
+        alpha: float,
     ) -> tuple[np.ndarray, np.ndarray]:
         """
         Computes the lower and upper conformal bounds over 1D vectors while
         preserving memory efficiency along the calibration-window axis.
         """
-        alpha = self._get_alpha(alpha)
         low_q, high_q = self._sample_correction(alpha)
-        scores_by_id = self.ncscores_[model_name]
-        missing_ids = sorted(set(prediction_ids) - set(scores_by_id), key=str)
+        scores_by_id = self._require_calibrated_model(model_name)
+        series_ids = prediction_ids[::h]
+        missing_ids = list(set(series_ids) - set(scores_by_id))
         if missing_ids:
             raise ValueError(
                 "No calibration scores are available for forecast identifiers: "
@@ -158,20 +80,17 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
 
         lower_bound = np.empty_like(y_hat, dtype=float)
         upper_bound = np.empty_like(y_hat, dtype=float)
-        for series_id in pd.unique(prediction_ids):
-            row_mask = prediction_ids == series_id
+        weights = self.calibration_weights_
+        for row, series_id in enumerate(series_ids):
+            row_slice = slice(row * h, (row + 1) * h)
             ncscore = scores_by_id[series_id][:, :h]
-            q_low_h = self._compute_qhat(ncscore, low_q, axis=0)
-            q_high_h = self._compute_qhat(ncscore, high_q, axis=0)
-            if row_mask.sum() != h:
-                raise ValueError(
-                    f"Forecast identifier {series_id!r} must contain exactly {h} rows."
-                )
+            q_low_h = self._compute_qhat(ncscore, low_q, axis=0, weights=weights)
+            q_high_h = self._compute_qhat(ncscore, high_q, axis=0, weights=weights)
             lower, upper = core_conformal.signed_residual_bounds(
-                y_hat[row_mask], q_low_h, q_high_h
+                y_hat[row_slice], q_low_h, q_high_h
             )
-            lower_bound[row_mask] = lower
-            upper_bound[row_mask] = upper
+            lower_bound[row_slice] = lower
+            upper_bound[row_slice] = upper
 
         return lower_bound, upper_bound
 
@@ -240,22 +159,22 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         pd.DataFrame
             Point forecasts and lower/upper interval columns for every model.
         """
-        pred_df, h, _, _ = self._predict_forecast_panel(h, X_df)
+        pred_df, h, _, _ = self._generate_forecast(h, X_df)
         model_cols = self._infer_model_cols(pred_df)
+        prediction_ids = pred_df[self.id_col].to_numpy()
+        alpha = self._get_alpha(alpha)
+        level = self._coverage_label(alpha)
 
         for model in model_cols:
-            self._require_calibrated_model(model)
             y_hat = pred_df[model].to_numpy()
 
             lower_bound, upper_bound = self._compute_bounds(
                 y_hat=y_hat,
                 model_name=model,
                 h=h,
-                prediction_ids=pred_df[self.id_col].to_numpy(),
+                prediction_ids=prediction_ids,
                 alpha=alpha,
             )
-            eff_alpha = self._get_alpha(alpha)
-            level = self._coverage_label(eff_alpha)
 
             pred_df[f"{model}-lo-{level}"] = lower_bound
             pred_df[f"{model}-hi-{level}"] = upper_bound
@@ -285,8 +204,4 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         y_true = eval_df[self.target_col].to_numpy()
         records = self._extract_bound_records(eval_df, y_true, alpha)
 
-        return (
-            pd.DataFrame(records)
-            .sort_values(by=["model", "level"])
-            .reset_index(drop=True)
-        )
+        return pd.DataFrame(records)

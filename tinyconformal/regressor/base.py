@@ -64,8 +64,8 @@ class BaseConformalRegressor(ABC):
         check_is_fitted(learner)
 
     @abstractmethod
-    def fit(self, y):
-        """Calibrate the regressor from targets or subclass-specific inputs."""
+    def fit(self, X=None, y=None, oob=False):
+        """Calibrate the regressor from predictions and observed targets."""
 
     @abstractmethod
     def predict_interval(self, X, alpha=None):

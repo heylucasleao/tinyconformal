@@ -17,16 +17,6 @@ from tinyconformal.distribution.base import (
 )
 
 
-def _validate_matrix(values, name: str) -> np.ndarray:
-    """Convert values to a finite, non-empty two-dimensional array."""
-    array = np.asarray(values, dtype=float)
-    if array.ndim != 2 or 0 in array.shape:
-        raise ValueError(f"{name} must be a non-empty two-dimensional array.")
-    if not np.all(np.isfinite(array)):
-        raise ValueError(f"{name} must contain only finite values.")
-    return array
-
-
 class HorizonConformalDistribution(EmpiricalResidualDistribution):
     """Batch of residual-based predictive distributions calibrated by horizon.
 
@@ -39,7 +29,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
     Parameters
     ----------
     locations : ndarray of shape (n_predictions,)
-        Point forecasts in sorted Nixtla panel order.
+        Point forecasts in Nixtla panel order.
     residuals : ndarray or mapping
         Signed residuals ``y - y_hat`` from sequential backtesting. A matrix
         applies the same calibration distribution to every prediction. A
@@ -53,7 +43,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
     scales : ndarray of shape (n_predictions,), optional
         Positive conditional scale for each prediction. Defaults to one.
     weights : ndarray of shape (n_calibration_trajectories,), optional
-        Non-negative calibration-window weights. They are normalized internally;
+        Normalized calibration-window weights generated from temporal decay;
         equal conformal ranks are used when omitted.
 
     Attributes
@@ -97,85 +87,43 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         self.residuals, self.series_ids = self._prepare_residuals(residuals, series_ids)
         self.scales = self._validate_scales(scales)
         self._n_calibration, calibrated_horizon = self._residual_shape()
-        self.weights = self._validate_weights(weights)
+        self.weights = weights
         self._validate_calibrated_horizon(calibrated_horizon)
 
     def _validate_scales(self, scales) -> np.ndarray:
         """Return positive row-aligned scales, defaulting to one."""
         if scales is None:
             return np.ones_like(self.locations)
-        scales = np.asarray(scales, dtype=float)
         if scales.shape != self.locations.shape or not np.all(np.isfinite(scales)):
             raise ValueError("scales must be finite and match locations.")
         if np.any(scales <= 0.0):
             raise ValueError("scales must be strictly positive.")
         return scales
 
-    def _validate_weights(self, weights):
-        """Validate and normalize calibration-window weights."""
-        if weights is None:
-            return None
-        weights = np.asarray(weights, dtype=float)
-        if weights.shape != (self._n_calibration,):
-            raise ValueError("weights must match the number of calibration windows.")
-        if (
-            not np.all(np.isfinite(weights))
-            or np.any(weights < 0)
-            or weights.sum() <= 0
-        ):
-            raise ValueError(
-                "weights must be finite, non-negative, and have positive mass."
-            )
-        return weights / weights.sum()
-
     @staticmethod
     def _validate_locations(locations) -> np.ndarray:
-        """Return locations as a finite one-dimensional array."""
-        locations = np.asarray(locations, dtype=float)
+        """Require finite one-dimensional locations."""
         if locations.ndim != 1 or not np.all(np.isfinite(locations)):
             raise ValueError("locations must be a finite one-dimensional array.")
         return locations
 
     def _validate_horizon_steps(self, horizon_steps) -> np.ndarray:
         """Validate that every location has a corresponding horizon step."""
-        horizon_steps = np.asarray(horizon_steps, dtype=int)
         if horizon_steps.shape != self.locations.shape:
             raise ValueError("horizon_steps and locations must have the same shape.")
         return horizon_steps
 
     def _prepare_residuals(self, residuals, series_ids):
-        """Normalize pooled or per-series calibration residuals."""
+        """Store pooled or per-series calibration residuals."""
         if isinstance(residuals, Mapping):
-            return self._prepare_series_residuals(residuals, series_ids)
-        residuals = _validate_matrix(residuals, "residuals")
+            return residuals, series_ids
         return residuals, None
-
-    def _prepare_series_residuals(self, residuals, series_ids):
-        """Validate residual matrices and align them with prediction series."""
-        if series_ids is None:
-            raise ValueError("series_ids is required when residuals is a mapping.")
-        series_ids = np.asarray(series_ids)
-        if series_ids.shape != self.locations.shape:
-            raise ValueError("series_ids and locations must have the same shape.")
-        missing_ids = sorted(set(series_ids) - set(residuals), key=str)
-        if missing_ids:
-            raise ValueError(
-                f"No CPS calibration residuals are available for series: {missing_ids}"
-            )
-        prepared = {
-            series_id: _validate_matrix(values, f"residuals[{series_id!r}]")
-            for series_id, values in residuals.items()
-        }
-        return prepared, series_ids
 
     def _residual_shape(self) -> tuple[int, int]:
         """Return the common calibration-window and horizon dimensions."""
         if not isinstance(self.residuals, Mapping):
             return self.residuals.shape
-        shapes = {values.shape for values in self.residuals.values()}
-        if len(shapes) != 1:
-            raise ValueError("All series residual matrices must have the same shape.")
-        return next(iter(shapes))
+        return next(iter(self.residuals.values())).shape
 
     def _validate_calibrated_horizon(self, calibrated_horizon: int) -> None:
         """Reject prediction rows outside the calibrated horizon."""
@@ -239,6 +187,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         that the weights remain aligned; weighted CDF and PPF methods sort or
         aggregate them together with their weights as needed.
         """
+        # TSCPS uses per-series residuals; pooled residuals mirror CrossCPS semantics.
         if self.series_ids is not None:
             residuals = np.vstack(
                 [
@@ -346,7 +295,7 @@ class DiscreteHorizonConformalDistribution(
     Parameters
     ----------
     locations : ndarray of shape (n_predictions,)
-        Point forecasts in sorted Nixtla panel order.
+        Point forecasts in Nixtla panel order.
     residuals : ndarray of shape (n_calibration_trajectories, horizon)
         Signed residuals ``y - y_hat`` obtained by sequential backtesting.
     horizon_steps : ndarray of shape (n_predictions,)
@@ -360,7 +309,7 @@ class DiscreteHorizonConformalDistribution(
     scales : ndarray of shape (n_predictions,), optional
         Positive conditional scale for each prediction. Defaults to one.
     weights : ndarray of shape (n_calibration_trajectories,), optional
-        Non-negative calibration-window weights, normalized internally.
+        Normalized calibration-window weights generated from temporal decay.
 
     Notes
     -----

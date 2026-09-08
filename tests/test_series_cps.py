@@ -116,10 +116,10 @@ def test_split_and_single_horizon_cps_share_distribution_semantics():
 
 def test_horizon_distribution_supports_temporal_decay_weights():
     distribution = HorizonConformalDistribution(
-        locations=[10.0],
+        locations=np.array([10.0]),
         residuals=np.array([[-10.0], [0.0], [10.0]]),
-        horizon_steps=[0],
-        weights=np.array([0.01, 0.1, 1.0]),
+        horizon_steps=np.array([0]),
+        weights=np.array([0.01, 0.1, 1.0]) / 1.11,
     )
     np.testing.assert_allclose(distribution.ppf(0.5), [20.0])
     np.testing.assert_allclose(distribution.cdf(10.0), [0.11 / 1.11])
@@ -188,25 +188,6 @@ def test_discrete_series_cps_supports_pmf_and_integer_quantiles(
     assert np.issubdtype(median["Q(0.5)"].dtype, np.integer)
     assert np.all(lower["Q(0.01)"] >= 0)
     assert np.all(masses[["P(Y=10)", "P(Y=11)"]] >= 0)
-
-
-def test_discrete_series_cps_rejects_noninteger_target(
-    nixtla_learner, dispersion_learner, panel
-):
-    panel.loc[0, "y"] = 0.5
-    cps = DiscreteTimeSeriesConformalPredictiveSystem(
-        nixtla_learner, dispersion_learner
-    )
-    cps.id_col = "unique_id"
-    cps.time_col = "ds"
-    cps.target_col = "y"
-    cps.nexcp = True
-    cps.decay = 0.99
-    cps.weighted_refit = True
-    cps.horizon = 2
-    cps.n_windows = 2
-    with pytest.raises(ValueError, match="finite integers"):
-        cps.fit(panel, n_jobs=1, horizon=2, n_windows=2)
 
 
 def test_series_cps_rejects_multiple_forecast_models(

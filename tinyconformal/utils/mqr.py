@@ -41,7 +41,9 @@ class MultiQuantileRegressor(BaseEstimator, RegressorMixin):
         if not all(0.0 < float(q) < 1.0 for q in quantiles):
             raise ValueError("Quantiles must be strictly between 0 and 1.")
         if any(left >= right for left, right in pairwise(quantiles)):
-            raise ValueError("Quantiles must be unique and in strictly increasing order.")
+            raise ValueError(
+                "Quantiles must be unique and in strictly increasing order."
+            )
 
     def _set_quantile_param(self, model: BaseEstimator, q: float) -> BaseEstimator:
         """

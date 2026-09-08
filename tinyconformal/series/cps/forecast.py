@@ -69,7 +69,7 @@ class PanelConformalForecast:
     def _apply(self, method: str, inputs, labeler, row_label: str) -> pd.DataFrame:
         """Evaluate a distribution method and append its output to the panel."""
         inputs_array = np.asarray(inputs)
-        values = np.asarray(getattr(self._distribution, method)(inputs))
+        values = getattr(self._distribution, method)(inputs)
         result = self.to_frame()
         if values.ndim == 1:
             column = labeler(inputs_array) if inputs_array.ndim == 0 else row_label
@@ -205,7 +205,7 @@ class PanelConformalForecast:
         TypeError
             If ``coverage`` is not numeric.
         """
-        bounds = np.asarray(self._distribution.interval(coverage))
+        bounds = self._distribution.interval(coverage)
         alpha = 1.0 - float(coverage)
         result = self.to_frame()
         result[f"Q({self._label(alpha / 2.0)})"] = bounds[:, 0]

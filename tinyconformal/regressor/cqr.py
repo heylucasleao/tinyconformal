@@ -53,19 +53,14 @@ class ConformalizedQuantileRegressor(BaseEstimator, BaseConformalRegressor):
         """
         Routes prediction calls directly to the learner interface.
         """
-        if hasattr(self.learner, "predict"):
-            if oob_score:
-                return self.learner.predict(X, quantiles=quantiles, oob_score=True)
-            return self.learner.predict(X, quantiles=quantiles)
-
-        preds = self.learner.predict(X)
-        if isinstance(preds, np.ndarray) and preds.ndim == 2:
-            return preds
-
-        raise TypeError(
-            f"Learner of type '{type(self.learner).__name__}' cannot be parsed. "
-            "Ensure it supports `.predict(X, quantiles=[...])` or wrap it with `MultiQuantileRegressor`."
-        )
+        if not hasattr(self.learner, "predict"):
+            raise TypeError(
+                f"Learner of type '{type(self.learner).__name__}' cannot be parsed. "
+                "Ensure it supports `.predict(X, quantiles=[...])` or wrap it with `MultiQuantileRegressor`."
+            )
+        if oob_score:
+            return self.learner.predict(X, quantiles=quantiles, oob_score=True)
+        return self.learner.predict(X, quantiles=quantiles)
 
     def fit(self, X, y, oob=False):
         """
