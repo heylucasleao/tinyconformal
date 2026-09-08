@@ -43,7 +43,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
     scales : ndarray of shape (n_predictions,), optional
         Positive conditional scale for each prediction. Defaults to one.
     weights : ndarray of shape (n_calibration_trajectories,), optional
-        Non-negative calibration-window weights. They are normalized internally;
+        Normalized calibration-window weights generated from temporal decay;
         equal conformal ranks are used when omitted.
 
     Attributes
@@ -87,7 +87,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         self.residuals, self.series_ids = self._prepare_residuals(residuals, series_ids)
         self.scales = self._validate_scales(scales)
         self._n_calibration, calibrated_horizon = self._residual_shape()
-        self.weights = self._validate_weights(weights)
+        self.weights = None if weights is None else np.asarray(weights, dtype=float)
         self._validate_calibrated_horizon(calibrated_horizon)
 
     def _validate_scales(self, scales) -> np.ndarray:
@@ -100,23 +100,6 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         if np.any(scales <= 0.0):
             raise ValueError("scales must be strictly positive.")
         return scales
-
-    def _validate_weights(self, weights):
-        """Validate and normalize calibration-window weights."""
-        if weights is None:
-            return None
-        weights = np.asarray(weights, dtype=float)
-        if weights.shape != (self._n_calibration,):
-            raise ValueError("weights must match the number of calibration windows.")
-        if (
-            not np.all(np.isfinite(weights))
-            or np.any(weights < 0)
-            or weights.sum() <= 0
-        ):
-            raise ValueError(
-                "weights must be finite, non-negative, and have positive mass."
-            )
-        return weights / weights.sum()
 
     @staticmethod
     def _validate_locations(locations) -> np.ndarray:
@@ -329,7 +312,7 @@ class DiscreteHorizonConformalDistribution(
     scales : ndarray of shape (n_predictions,), optional
         Positive conditional scale for each prediction. Defaults to one.
     weights : ndarray of shape (n_calibration_trajectories,), optional
-        Non-negative calibration-window weights, normalized internally.
+        Normalized calibration-window weights generated from temporal decay.
 
     Notes
     -----

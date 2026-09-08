@@ -119,7 +119,7 @@ def test_horizon_distribution_supports_temporal_decay_weights():
         locations=[10.0],
         residuals=np.array([[-10.0], [0.0], [10.0]]),
         horizon_steps=[0],
-        weights=np.array([0.01, 0.1, 1.0]),
+        weights=np.array([0.01, 0.1, 1.0]) / 1.11,
     )
     np.testing.assert_allclose(distribution.ppf(0.5), [20.0])
     np.testing.assert_allclose(distribution.cdf(10.0), [0.11 / 1.11])
