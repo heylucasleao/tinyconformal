@@ -307,7 +307,7 @@ def test_extract_predictions_and_target_sorting(mock_point_learner):
         }
     )
     preds_arr = cdr._extract_predictions(fcst_df)
-    target_arr = cdr._extract_target(target_df)
+    target_arr = cdr._pivot_panel(target_df, cdr.target_col).to_numpy()
     expected_preds = np.array([[30.0, 40.0], [10.0, 20.0]])
     expected_targets = np.array([[3.0, 4.0], [1.0, 2.0]])
     np.testing.assert_array_equal(preds_arr, expected_preds)
@@ -458,7 +458,7 @@ def test_sequential_backtesting_short_series_raises_value_error(mock_point_learn
             "y": np.arange(5),
         }
     )
-    with pytest.raises(ValueError, match="Time series length is too short"):
+    with pytest.raises(ValueError, match="Time series has 5 unique time steps"):
         cdr._sequential_backtesting(short_df)
 
 
