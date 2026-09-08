@@ -72,7 +72,9 @@ def weighted_quantile(values, quantile: float, weights, axis=None):
     if weights.shape != (values.shape[0],):
         raise ValueError("weights must match the selected calibration axis.")
     if not np.all(np.isfinite(weights)) or np.any(weights < 0) or weights.sum() <= 0:
-        raise ValueError("weights must be finite, non-negative, and have positive mass.")
+        raise ValueError(
+            "weights must be finite, non-negative, and have positive mass."
+        )
     weights = weights / weights.sum()
     order = np.argsort(values, axis=0)
     sorted_values = np.take_along_axis(values, order, axis=0)

@@ -48,9 +48,9 @@ class ContinuousTimeSeriesConformalPredictiveSystem(TSCPS):
 class DiscreteTimeSeriesConformalPredictiveSystem(TSCPS):
     """Integer-target CPS for multi-step Nixtla panel forecasts.
 
-    This convenience class constructs
-    :class:`DiscreteHorizonConformalDistribution` objects.  Their quantiles are
-    integer-valued and their PMFs are obtained from adjacent CDF differences.
+    This convenience class constructs panel-aligned integer predictive
+    distributions. Their quantiles are integer-valued and their PMFs are
+    obtained from adjacent CDF differences.
 
     Parameters
     ----------

@@ -144,12 +144,10 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         window and retained in ``dispersion_learners_`` for future distributions.
         """
         self.raw_residuals_ = self.ncscores_
-        self.scale_calibration_ = self._scale_calibrator.fit(
-            self.raw_residuals_, n_jobs=n_jobs
-        )
-        self.ncscores_ = self.scale_calibration_.standardized_residuals
-        self.oof_scales_ = self.scale_calibration_.oof_scales
-        self.dispersion_learners_ = self.scale_calibration_.pipelines
+        calibration = self._scale_calibrator.fit(self.raw_residuals_, n_jobs=n_jobs)
+        self.ncscores_ = calibration.standardized_residuals
+        self.oof_scales_ = calibration.oof_scales
+        self.dispersion_learners_ = calibration.pipelines
 
     def _validate_fit_configuration(self) -> None:
         """Validate CPS-specific learner and discrete-target configuration."""

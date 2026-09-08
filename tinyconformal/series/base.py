@@ -50,7 +50,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         """Initialize the conformal wrapper with an unfitted Nixtla learner."""
         self.learner = learner
 
-        self.model_col_ = None
         self.exog_cols_ = []
         self.static_features_ = []
         self.ncscores_ = None
@@ -176,19 +175,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         """
         Dynamically infers model prediction columns from the output DataFrame.
         """
-        if self.model_col_ is not None:
-            model_cols = (
-                [self.model_col_]
-                if isinstance(self.model_col_, str)
-                else self.model_col_
-            )
-            missing = [column for column in model_cols if column not in df.columns]
-            if missing:
-                raise ValueError(
-                    f"Configured model columns are missing from forecast output: {missing}"
-                )
-            return model_cols
-
         excluded = {self.id_col, self.time_col, *self.exog_cols_}
         model_cols = [c for c in df.columns if c not in excluded]
 
