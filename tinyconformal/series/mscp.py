@@ -242,6 +242,7 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         """
         pred_df, h, _, _ = self._predict_forecast_panel(h, X_df)
         model_cols = self._infer_model_cols(pred_df)
+        self._validate_forecast_values(pred_df, model_cols)
 
         for model in model_cols:
             self._require_calibrated_model(model)
@@ -274,14 +275,9 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         ``df_test`` must provide exactly one non-missing target for every predicted
         identifier and timestamp. Duplicate or missing matches raise ``ValueError``.
         """
-        h = self._get_horizon(h)
         alpha = self._get_alpha(alpha)
         eval_df = self.predict_interval(
-            X_df=(
-                self._validate_prediction_features(df_test, h)
-                if self.exog_cols_
-                else None
-            ),
+            X_df=df_test if self.exog_cols_ else None,
             h=h,
             alpha=alpha,
         )

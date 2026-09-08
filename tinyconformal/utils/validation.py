@@ -9,7 +9,10 @@ import numpy as np
 
 def validate_integer_support(minimum: int | None) -> int | None:
     """Validate and normalize an optional lower integer-support boundary."""
-    if minimum is not None and not isinstance(minimum, (int, np.integer)):
+    if minimum is not None and (
+        isinstance(minimum, (bool, np.bool_))
+        or not isinstance(minimum, (int, np.integer))
+    ):
         raise TypeError("minimum must be an integer or None.")
     return None if minimum is None else int(minimum)
 

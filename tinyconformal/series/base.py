@@ -361,6 +361,23 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             )
         return self.ncscores_[model]
 
+    @staticmethod
+    def _validate_forecast_values(
+        pred_df: pd.DataFrame, model_cols: list[str] | tuple[str, ...]
+    ) -> None:
+        """Require finite numeric values in every forecast-model column."""
+        try:
+            values = pred_df[list(model_cols)].to_numpy(dtype=float)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                f"Forecast model columns must be numeric: {list(model_cols)}"
+            ) from error
+        if not np.all(np.isfinite(values)):
+            raise ValueError(
+                f"Forecast model columns must contain only finite values: "
+                f"{list(model_cols)}"
+            )
+
     def _validate_columns(self, df: pd.DataFrame):
         """
         Validates presence of required structural columns in input DataFrames.

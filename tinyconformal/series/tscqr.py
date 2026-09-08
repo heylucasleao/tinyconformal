@@ -420,9 +420,13 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             (`<col>-cqr`).
         """
         pred_df, h, _, _ = self._predict_forecast_panel(h, X_df)
+        forecast_cols = tuple(
+            dict.fromkeys(column for pair in self.intervals_ for column in pair)
+        )
+        self._require_forecast_columns(pred_df, forecast_cols)
+        self._validate_forecast_values(pred_df, forecast_cols)
 
         for low_col, high_col in self.intervals_:
-            self._require_forecast_columns(pred_df, (low_col, high_col))
             q_low = pred_df[low_col].to_numpy()
             q_high = pred_df[high_col].to_numpy()
             if np.any(q_low > q_high):
@@ -457,11 +461,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         ``df_test`` must provide exactly one non-missing target for every predicted
         identifier and timestamp. Duplicate or missing matches raise ``ValueError``.
         """
-        h = self._get_horizon(h)
-        X_df = (
-            self._validate_prediction_features(df_test, h) if self.exog_cols_ else None
-        )
-        eval_df = self.predict_interval(X_df=X_df, h=h)
+        eval_df = self.predict_interval(X_df=df_test if self.exog_cols_ else None, h=h)
         eval_df = self._merge_predictions_with_targets(eval_df, df_test)
 
         y_true = eval_df[self.target_col].to_numpy()
