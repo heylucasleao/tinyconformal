@@ -9,7 +9,11 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 
 from tinyconformal.core import conformal as core_conformal
-from tinyconformal.core.quantiles import central_conformal_quantile_levels
+from tinyconformal.core.quantiles import (
+    central_conformal_quantile_levels,
+    temporal_decay_weights,
+    weighted_quantile,
+)
 from tinyconformal.utils.imports import requires_extra
 
 from .residual import ResidualConformalTimeSeriesRegressor
@@ -140,15 +144,14 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         model_name: str,
         h: int,
         prediction_ids: np.ndarray,
-        alpha: float | None = None,
+        alpha: float,
     ) -> tuple[np.ndarray, np.ndarray]:
         """
         Computes the lower and upper conformal bounds over 1D vectors while
         preserving memory efficiency along the calibration-window axis.
         """
-        alpha = self._get_alpha(alpha)
         low_q, high_q = self._sample_correction(alpha)
-        scores_by_id = self.ncscores_[model_name]
+        scores_by_id = self._require_calibrated_model(model_name)
         series_ids = prediction_ids[::h]
         missing_ids = list(set(series_ids) - set(scores_by_id))
         if missing_ids:
@@ -159,11 +162,16 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
 
         lower_bound = np.empty_like(y_hat, dtype=float)
         upper_bound = np.empty_like(y_hat, dtype=float)
+        weights = temporal_decay_weights(self.n, self.decay) if self.nexcp else None
         for row, series_id in enumerate(series_ids):
             row_slice = slice(row * h, (row + 1) * h)
             ncscore = scores_by_id[series_id][:, :h]
-            q_low_h = self._compute_qhat(ncscore, low_q, axis=0)
-            q_high_h = self._compute_qhat(ncscore, high_q, axis=0)
+            if weights is None:
+                q_low_h = np.quantile(ncscore, low_q, method="higher", axis=0)
+                q_high_h = np.quantile(ncscore, high_q, method="higher", axis=0)
+            else:
+                q_low_h = weighted_quantile(ncscore, low_q, weights, axis=0)
+                q_high_h = weighted_quantile(ncscore, high_q, weights, axis=0)
             lower, upper = core_conformal.signed_residual_bounds(
                 y_hat[row_slice], q_low_h, q_high_h
             )
@@ -239,20 +247,20 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         """
         pred_df, h, _, _ = self._generate_forecast(h, X_df)
         model_cols = self._infer_model_cols(pred_df)
+        prediction_ids = pred_df[self.id_col].to_numpy()
+        alpha = self._get_alpha(alpha)
+        level = self._coverage_label(alpha)
 
         for model in model_cols:
-            self._require_calibrated_model(model)
             y_hat = pred_df[model].to_numpy()
 
             lower_bound, upper_bound = self._compute_bounds(
                 y_hat=y_hat,
                 model_name=model,
                 h=h,
-                prediction_ids=pred_df[self.id_col].to_numpy(),
+                prediction_ids=prediction_ids,
                 alpha=alpha,
             )
-            eff_alpha = self._get_alpha(alpha)
-            level = self._coverage_label(eff_alpha)
 
             pred_df[f"{model}-lo-{level}"] = lower_bound
             pred_df[f"{model}-hi-{level}"] = upper_bound
