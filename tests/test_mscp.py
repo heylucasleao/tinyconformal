@@ -486,6 +486,8 @@ def test_fit_and_predict_with_exogenous_features(
     )
     pred_df = cdr.predict_interval(h=3, X_df=X_future)
     assert "LGBMRegressor-lo-95" in pred_df.columns
+    evaluation = cdr.evaluate(X_future.assign(y=20.0))
+    assert not evaluation.empty
 
 
 def test_fit_empty_ncscores_raises_runtime_error(

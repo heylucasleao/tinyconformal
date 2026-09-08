@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from tinyconformal.core import conformal as core_conformal
+from tinyconformal.utils.validation import validate_integer_support
 
 
 class PredictiveDistribution(ABC):
@@ -105,9 +106,7 @@ class _IntegerSupportMixin:
 
     def __init__(self, *args, minimum: int | None = 0, **kwargs):
         super().__init__(*args, **kwargs)
-        if minimum is not None and not isinstance(minimum, (int, np.integer)):
-            raise TypeError("minimum must be an integer or None.")
-        self.minimum = None if minimum is None else int(minimum)
+        self.minimum = validate_integer_support(minimum)
 
     def ppf(self, quantiles):
         """Return ceiling-rounded predictive quantiles on the configured support."""

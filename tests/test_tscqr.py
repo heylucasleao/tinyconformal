@@ -426,7 +426,7 @@ def test_evaluate_output_structure_and_metrics(
             "exog_feat": [0.0] * 6,
         }
     )
-    eval_df = cqr.evaluate(df_test=df_test, h=3)
+    eval_df = cqr.evaluate(df_test=df_test)
     expected_cols = [
         "model",
         "level",

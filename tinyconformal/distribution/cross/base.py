@@ -11,6 +11,10 @@ from sklearn.base import BaseEstimator, clone
 from sklearn.utils.validation import check_is_fitted
 
 from tinyconformal.core.calibration import CrossValidationCalibration
+from tinyconformal.utils.validation import (
+    validate_discrete_targets,
+    validate_integer_support,
+)
 
 from ..base import PredictiveDistribution
 from .distribution import (
@@ -101,18 +105,12 @@ class CrossConformalPredictiveSystem(BaseEstimator):
         """
         if not isinstance(self.discrete, (bool, np.bool_)):
             raise TypeError("discrete must be a boolean.")
-        if (
-            self.discrete
-            and self.minimum is not None
-            and not isinstance(self.minimum, (int, np.integer))
-        ):
-            raise TypeError("minimum must be an integer or None.")
+        if self.discrete:
+            self.minimum = validate_integer_support(self.minimum)
 
         y = _as_1d_finite(y, "y")
-        if self.discrete and np.any(y != np.floor(y)):
-            raise ValueError("Discrete CPS targets must be integer-valued.")
-        if self.discrete and self.minimum is not None and np.any(y < self.minimum):
-            raise ValueError(f"Discrete CPS targets must be >= {self.minimum}.")
+        if self.discrete:
+            y = validate_discrete_targets(y, self.minimum, name="Discrete CPS targets")
 
         calibration = CrossValidationCalibration.cps_scores(
             self.learner,

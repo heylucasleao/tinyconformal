@@ -11,7 +11,6 @@ from sklearn.base import BaseEstimator
 from tinyconformal.core import conformal as core_conformal
 from tinyconformal.core.quantiles import conformal_quantile_level
 from tinyconformal.utils.imports import requires_extra
-from tinyconformal.utils.inspection import call_with_supported_kwargs
 
 from .base import BaseConformalTimeSeriesRegressor
 
@@ -343,6 +342,16 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
                 self._generate_residuals(q_low, q_high, y_true)
             )
 
+    @staticmethod
+    def _require_forecast_columns(fcst: pd.DataFrame, columns: tuple[str, ...]) -> None:
+        """Raise a descriptive error when configured forecast columns are absent."""
+        missing = [column for column in columns if column not in fcst.columns]
+        if missing:
+            raise KeyError(
+                f"Columns {tuple(missing)} were not found in forecast output. "
+                f"Available columns: {list(fcst.columns)}"
+            )
+
     def _compute_bounds(
         self,
         q_low: np.ndarray,
@@ -410,21 +419,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             DataFrame containing raw base predictions, conformal-calibrated interval bounds
             (`<col>-cqr`).
         """
-        h = self._get_horizon(h)
-        self._check_is_fitted()
-        X_df = self._validate_prediction_features(X_df, h)
-
-        pred_df = (
-            call_with_supported_kwargs(
-                self.learner.predict,
-                h=h,
-                X_df=X_df,
-            )
-            .sort_values(by=[self.id_col, self.time_col])
-            .reset_index(drop=True)
-        )
-
-        self._validate_prediction_panel(pred_df, h)
+        pred_df, h, _, _ = self._predict_forecast_panel(h, X_df)
 
         for low_col, high_col in self.intervals_:
             self._require_forecast_columns(pred_df, (low_col, high_col))
@@ -462,6 +457,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         ``df_test`` must provide exactly one non-missing target for every predicted
         identifier and timestamp. Duplicate or missing matches raise ``ValueError``.
         """
+        h = self._get_horizon(h)
         X_df = (
             self._validate_prediction_features(df_test, h) if self.exog_cols_ else None
         )

@@ -15,7 +15,10 @@ from sklearn.base import BaseEstimator
 from tinyconformal.core.quantiles import temporal_decay_weights
 from tinyconformal.distribution.base import PredictiveDistribution
 from tinyconformal.utils.imports import requires_extra
-from tinyconformal.utils.inspection import call_with_supported_kwargs
+from tinyconformal.utils.validation import (
+    validate_discrete_targets,
+    validate_integer_support,
+)
 
 from ..residual import ResidualConformalTimeSeriesRegressor
 from .calibration import ConditionalScaleCalibrator
@@ -165,12 +168,8 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
             )
         if not isinstance(self.discrete, (bool, np.bool_)):
             raise TypeError("discrete must be a boolean.")
-        if (
-            self.discrete
-            and self.minimum is not None
-            and not isinstance(self.minimum, (int, np.integer))
-        ):
-            raise TypeError("minimum must be an integer or None.")
+        if self.discrete:
+            self.minimum = validate_integer_support(self.minimum)
 
     @requires_extra("series")
     def fit(
@@ -245,15 +244,11 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         self.id_col, self.time_col, self.target_col = id_col, time_col, target_col
         if self.discrete:
             self._validate_columns(df)
-            target = np.asarray(df[self.target_col], dtype=float)
-            if not np.all(np.isfinite(target)) or np.any(target != np.floor(target)):
-                raise ValueError(
-                    "Discrete time-series CPS targets must be finite integers."
-                )
-            if self.minimum is not None and np.any(target < self.minimum):
-                raise ValueError(
-                    f"Discrete time-series CPS targets must be >= {self.minimum}."
-                )
+            validate_discrete_targets(
+                df[self.target_col],
+                self.minimum,
+                name="Discrete time-series CPS targets",
+            )
         super().fit(
             df,
             horizon=horizon,
@@ -281,12 +276,9 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
 
     def _prediction_frame(
         self, h: int | None, X_df: pd.DataFrame | None
-    ) -> tuple[pd.DataFrame, list[str], int]:
+    ) -> tuple[pd.DataFrame, list[str], int, int]:
         """Predict and validate a sorted future panel for distribution building."""
-        h = self._get_horizon(h)
-        self._check_is_fitted()
-        X_df = self._validate_prediction_features(X_df, h)
-        pred_df = call_with_supported_kwargs(self.learner.predict, h=h, X_df=X_df)
+        pred_df, h, X_df, n_series = self._predict_forecast_panel(h, X_df)
         if X_df is not None:
             extra_cols = [
                 column for column in X_df.columns if column not in pred_df.columns
@@ -298,12 +290,8 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
                     how="left",
                     validate="one_to_one",
                 )
-        pred_df = pred_df.sort_values([self.id_col, self.time_col]).reset_index(
-            drop=True
-        )
         model_cols = self._infer_model_cols(pred_df)
-        n_series = self._validate_prediction_panel(pred_df, h)
-        return pred_df, model_cols, n_series
+        return pred_df, model_cols, h, n_series
 
     def _build_distribution(
         self, pred_df: pd.DataFrame, model: str, h: int, n_series: int
@@ -311,16 +299,11 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         """Combine point forecasts, scales, and residuals into a distribution."""
         horizon_steps = np.tile(np.arange(h), n_series)
         weights = temporal_decay_weights(self.n, self.decay) if self.nexcp else None
-        if model not in self.ncscores_:
-            raise ValueError(
-                f"Model column '{model}' was not present during calibration. "
-                f"Calibrated model columns: {list(self.ncscores_)}"
-            )
+        scores_by_id = self._require_calibrated_model(model)
         # Convert OOF-standardized scores from (y_hat - y) / scale to
         # the (y - y_hat) / scale orientation used by predictive distributions.
         residuals = {
-            series_id: -scores[:, :h]
-            for series_id, scores in self.ncscores_[model].items()
+            series_id: -scores[:, :h] for series_id, scores in scores_by_id.items()
         }
         locations = pred_df[model].to_numpy(dtype=float)
         series_ids = pred_df[self.id_col].to_numpy()
@@ -390,8 +373,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         ``X_df``. Rows must not be reordered independently of distributional
         results because calibration is positionally aligned.
         """
-        h = self._get_horizon(h)
-        pred_df, model_cols, n_series = self._prediction_frame(h, X_df)
+        pred_df, model_cols, h, n_series = self._prediction_frame(h, X_df)
         if len(model_cols) != 1:
             raise ValueError(
                 f"TSCPS requires exactly one forecast model column; found {model_cols}."

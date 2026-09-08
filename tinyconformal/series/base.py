@@ -3,7 +3,6 @@
 # Licensed under the MIT License
 
 import copy
-import re
 from abc import abstractmethod
 
 import numpy as np
@@ -11,7 +10,6 @@ import pandas as pd
 from joblib import Parallel, delayed
 from sklearn.base import BaseEstimator, RegressorMixin
 
-from tinyconformal.core import conformal as core_conformal
 from tinyconformal.core.quantiles import (
     temporal_decay_weights,
     validate_alpha,
@@ -247,6 +245,20 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         self._validate_prediction_panel(X_df, h)
         return X_df[required].copy()
 
+    def _predict_forecast_panel(
+        self, h: int | None, X_df: pd.DataFrame | None
+    ) -> tuple[pd.DataFrame, int, pd.DataFrame | None, int]:
+        """Predict and validate a sorted, balanced forecast panel."""
+        h = self._get_horizon(h)
+        self._check_is_fitted()
+        X_df = self._validate_prediction_features(X_df, h)
+        pred_df = call_with_supported_kwargs(self.learner.predict, h=h, X_df=X_df)
+        pred_df = pred_df.sort_values([self.id_col, self.time_col]).reset_index(
+            drop=True
+        )
+        n_series = self._validate_prediction_panel(pred_df, h)
+        return pred_df, h, X_df, n_series
+
     def _merge_predictions_with_targets(
         self, pred_df: pd.DataFrame, target_df: pd.DataFrame
     ) -> pd.DataFrame:
@@ -340,42 +352,14 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
                 "calibration horizon step."
             )
 
-    @staticmethod
-    def _require_forecast_columns(fcst: pd.DataFrame, columns: tuple[str, ...]) -> None:
-        """Raise a descriptive error when configured forecast columns are absent."""
-        missing = [column for column in columns if column not in fcst.columns]
-        if missing:
-            raise KeyError(
-                f"Columns {tuple(missing)} were not found in forecast output. "
-                f"Available columns: {list(fcst.columns)}"
+    def _require_calibrated_model(self, model: str):
+        """Return calibration scores for a forecast model or raise clearly."""
+        if model not in self.ncscores_:
+            raise ValueError(
+                f"Model column '{model}' was not present during calibration. "
+                f"Calibrated model columns: {list(self.ncscores_)}"
             )
-
-    def _extract_bound_records(
-        self, eval_df: pd.DataFrame, y_true: np.ndarray, alpha: float
-    ) -> list[dict]:
-        """Build one metrics record per ``<model>-lo-<level>``/``-hi-`` column pair."""
-        bound_pattern = re.compile(r"^(?P<model>.+)-lo-(?P<level>\d+(?:\.\d+)?)$")
-        records = []
-        for column in eval_df.columns:
-            match = bound_pattern.match(column)
-            if not match:
-                continue
-            model = match.group("model")
-            level = match.group("level")
-            high_column = f"{model}-hi-{level}"
-            if high_column not in eval_df.columns:
-                continue
-            lower = eval_df[column].to_numpy()
-            upper = eval_df[high_column].to_numpy()
-            records.append(
-                {
-                    "model": model,
-                    "level": f"{level}%",
-                    "alpha": alpha,
-                    **core_conformal.interval_metrics(y_true, lower, upper, alpha),
-                }
-            )
-        return records
+        return self.ncscores_[model]
 
     def _validate_columns(self, df: pd.DataFrame):
         """
