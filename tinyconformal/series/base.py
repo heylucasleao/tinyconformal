@@ -57,15 +57,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         self.calibration_weights_ = None
         self._quantile_warning_registry = set()
 
-    @abstractmethod
-    def _generate_residuals(
-        self, preds_val: np.ndarray, y_val_arr: np.ndarray
-    ) -> np.ndarray:
-        """
-        Computes nonconformity scores or residuals from predictions and true targets.
-        To be implemented by subclasses.
-        """
-
     def _prepare_and_validate_steps(
         self, df: pd.DataFrame, step_size: int
     ) -> tuple[np.ndarray, int]:
