@@ -47,7 +47,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
     learner : BaseEstimator
         Unfitted Nixtla-compatible forecasting estimator.  Its ``fit`` method
         must accept a long-format panel and its ``predict`` method must return
-        ``id_col``, ``time_col``, and one or more model forecast columns.
+        ``id_col``, ``time_col``, and exactly one model forecast column.
     dispersion_learner : BaseEstimator
         Regression estimator for the positive conditional scale. It is
         cross-fitted on absolute rolling-origin errors using series and horizon.
@@ -347,7 +347,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         ValueError
             If ``h`` is outside the calibrated horizon, the future-feature panel
             is incomplete or malformed, the learner returns an invalid panel,
-            or its prediction contains other than exactly one model column.
+            or its prediction does not contain exactly one model column.
 
         Notes
         -----

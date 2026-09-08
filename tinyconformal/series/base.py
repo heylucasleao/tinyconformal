@@ -22,24 +22,16 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
     """
     BaseConformalTimeSeriesRegressor
 
-    Multi-Step Conformal Distribution Regressor for Time Series.
+    Shared base for conformal time-series regressors and predictive systems.
 
     Applies conformal prediction over multi-step horizons for Nixtla-style
     estimators (MLForecast or StatsForecast) using sequential backtesting
-    to build empirical nonconformity scores (signed residuals).
+    to build empirical calibration scores.
 
     Notes:
     -----
-    The conformal distribution approach captures prediction interval bounds by working
-    directly with empirical signed residuals defined as:
-        residual = y_hat - y_true
-
-    By computing low and high empirical quantiles (q_low, q_high) of these residuals across
-    calibration windows, the prediction bounds are derived by inverting the nonconformity score:\n
-        lower_bound = y_hat - q_high\n
-        upper_bound = y_hat - q_low
-
-    This directly adjusts the point forecast for asymmetric bias and variance per horizon step.
+    Subclasses define the calibration score and how its empirical quantiles
+    are converted into prediction intervals or predictive distributions.
     """
 
     def __init__(
@@ -252,7 +244,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         static_features: list | None = None,
         n_jobs: int = -1,
     ) -> dict:
-        """Executes sequential backtesting across n_windows to extract CQR nonconformity scores."""
+        """Execute sequential backtesting to extract calibration scores."""
         step_size = self.horizon if step_size is None else step_size
         if (
             not isinstance(step_size, (int, np.integer))
@@ -356,8 +348,8 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
 
         Returns:
         -------
-        self : MultiStepConformalTimeSeriesRegressor
-            Fitted instance of the conformal regressor.
+        self
+            Fitted conformal time-series estimator.
         """
 
         self.horizon = horizon

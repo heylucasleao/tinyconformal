@@ -93,7 +93,7 @@ class DiscreteTimeSeriesConformalPredictiveSystem(TSCPS):
 
         The returned object exposes :meth:`cdf`, :meth:`ppf`, :meth:`pmf`,
         :meth:`interval`, :meth:`evaluate`, and
-        :meth:`to_frame`. See :meth:`_TSCPS.predict_distribution` for the
+        :meth:`to_frame`. See :meth:`TSCPS.predict_distribution` for the
         complete input, output, and error contract.
         """
         return super().predict_distribution(h=h, X_df=X_df)
