@@ -264,6 +264,36 @@ def test_infer_model_cols_raises_value_error(mock_point_learner):
         cdr._infer_model_cols(df_empty)
 
 
+def test_infer_model_cols_rejects_missing_configured_column(mock_point_learner):
+    cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner)
+    cdr.id_col = "unique_id"
+    cdr.time_col = "ds"
+    cdr.exog_cols_ = []
+    cdr.model_col_ = "missing_model"
+    forecast = pd.DataFrame({"unique_id": ["id_1"], "ds": ["2024-01-01"]})
+
+    with pytest.raises(ValueError, match="Configured model columns are missing"):
+        cdr._infer_model_cols(forecast)
+
+
+def test_extract_target_panel_rejects_infinite_values(mock_point_learner):
+    cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner)
+    cdr.id_col = "unique_id"
+    cdr.time_col = "ds"
+    cdr.target_col = "y"
+    cdr.horizon = 2
+    target = pd.DataFrame(
+        {
+            "unique_id": ["id_1", "id_1"],
+            "ds": ["2024-01-01", "2024-01-02"],
+            "y": [1.0, np.inf],
+        }
+    )
+
+    with pytest.raises(ValueError, match="finite target value"):
+        cdr._extract_target_panel(target, n_series=1)
+
+
 def test_compute_qhat(mock_point_learner):
     """Verify _compute_qhat correctly calls np.quantile with method='higher'."""
     cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner)
