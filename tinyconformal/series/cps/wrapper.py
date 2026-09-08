@@ -48,7 +48,7 @@ class ContinuousTimeSeriesConformalPredictiveSystem(TSCPS):
 class DiscreteTimeSeriesConformalPredictiveSystem(TSCPS):
     """Integer-target CPS for multi-step Nixtla panel forecasts.
 
-    This convenience class validates integer training targets and constructs
+    This convenience class constructs
     :class:`DiscreteHorizonConformalDistribution` objects.  Their quantiles are
     integer-valued and their PMFs are obtained from adjacent CDF differences.
 
@@ -63,12 +63,8 @@ class DiscreteTimeSeriesConformalPredictiveSystem(TSCPS):
         strictly positive outcomes, another integer for a known lower bound,
         or ``None`` when negative integers are valid.
 
-    Notes
-    -----
-    ``fit`` rejects non-finite, non-integer targets and observations below a
-    configured ``minimum``.  The learner's point forecasts may remain real
-    valued; discretization is applied when the predictive distribution is
-    queried.
+    The learner's point forecasts may remain real valued; discretization is
+    applied when the predictive distribution is queried.
     """
 
     def __init__(

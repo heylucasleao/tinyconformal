@@ -243,7 +243,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
                 f"The following future feature columns are missing: {missing}"
             )
         self._validate_prediction_panel(X_df, h)
-        return X_df[required].copy()
+        return X_df[required]
 
     def _predict_forecast_panel(
         self, h: int | None, X_df: pd.DataFrame | None
@@ -328,9 +328,9 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         """Build and validate the target panel for one calibration window."""
         target_pivot = self._pivot_panel(val_df, self.target_col)
         y_true = target_pivot.to_numpy()
-        if y_true.shape != (n_series, self.horizon) or not np.all(np.isfinite(y_true)):
+        if y_true.shape != (n_series, self.horizon):
             raise ValueError(
-                "Each series must contain exactly one finite target value for every "
+                "Each series must contain exactly one target value for every "
                 "calibration horizon step."
             )
         return target_pivot, y_true
