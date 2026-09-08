@@ -12,7 +12,6 @@ from sklearn.base import BaseEstimator, RegressorMixin
 
 from tinyconformal.core.quantiles import (
     temporal_decay_weights,
-    validate_alpha,
     weighted_quantile,
 )
 from tinyconformal.utils.imports import requires_extra
@@ -174,11 +173,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
                 "Could not infer any prediction model column from the returned DataFrame."
             )
         return model_cols
-
-    @staticmethod
-    def _validate_alpha(alpha: float) -> float:
-        """Validate and normalize a concrete significance level."""
-        return validate_alpha(alpha)
 
     def _validate_fit_configuration(self) -> None:
         """Validate subclass-specific calibration configuration before fitting."""

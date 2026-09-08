@@ -11,6 +11,7 @@ from sklearn.base import BaseEstimator
 from tinyconformal.core import conformal as core_conformal
 from tinyconformal.core.quantiles import (
     central_conformal_quantile_levels,
+    validate_alpha,
 )
 from tinyconformal.utils.imports import requires_extra
 
@@ -39,7 +40,7 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
 
     def _get_alpha(self, alpha: float | None = None) -> float:
         """Resolve an optional override against the MSCP global alpha."""
-        return self._validate_alpha(self.alpha if alpha is None else alpha)
+        return validate_alpha(self.alpha if alpha is None else alpha)
 
     def _validate_fit_configuration(self) -> None:
         """Validate the global MSCP significance level before calibration."""
