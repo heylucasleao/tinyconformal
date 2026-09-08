@@ -136,8 +136,8 @@ def test_series_cps_distributions_are_calibrated_by_unique_id(
         "a": np.array([[-1.0, -2.0], [1.0, 2.0]]),
         "b": np.array([[-10.0, -20.0], [10.0, 20.0]]),
     }
-    scale_features = cps._scale_features(["a", "b"])
-    cps.dispersion_learners_["Model"] = cps._new_dispersion_pipeline().fit(
+    scale_features = cps._scale_calibrator.features(["a", "b"])
+    cps.dispersion_learners_["Model"] = cps._scale_calibrator.new_pipeline().fit(
         scale_features, np.ones(len(scale_features))
     )
     forecast = cps.predict_distribution(h=2)

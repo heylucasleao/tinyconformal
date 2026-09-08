@@ -426,7 +426,7 @@ def test_evaluate_output_structure_and_metrics(
             "exog_feat": [0.0] * 6,
         }
     )
-    eval_df = cqr.evaluate(df_test=df_test, h=3)
+    eval_df = cqr.evaluate(df_test=df_test)
     expected_cols = [
         "model",
         "level",
@@ -541,30 +541,6 @@ def test_evaluate_metric_values_correctness(mock_quantile_learner_single):
     assert cqr_eval["coverage_rate"] == 0.5
     assert cqr_eval["interval_width_mean"] == 10.0
     assert cqr_eval["mwis"] == 60.0
-
-
-def test_tscqr_predict_raw(mock_quantile_learner_single, sample_time_series_data):
-    """Verify _predict_raw returns valid 2D numpy array format without NaNs."""
-    cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "LGBM-hi-90")
-    )
-    cqr.id_col = "unique_id"
-    cqr.time_col = "ds"
-    cqr.target_col = "y"
-    cqr.nexcp = True
-    cqr.decay = 0.99
-    cqr.weighted_refit = True
-    cqr.horizon = 3
-    cqr.n_windows = 2
-    cqr.h = 3
-    cqr.fit(sample_time_series_data, horizon=3, n_windows=2)
-    preds_raw = cqr._predict_raw(h=3)
-    assert isinstance(preds_raw, np.ndarray)
-    assert preds_raw.ndim == 2
-    assert preds_raw.shape == (2, 3)
-    assert np.issubdtype(preds_raw.dtype, np.number)
-    assert not np.isnan(preds_raw).any()
-    assert not np.isinf(preds_raw).any()
 
 
 def test_quantile_pair_mismatch_model_raises_error(mock_quantile_learner_single):

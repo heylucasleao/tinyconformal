@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from tinyconformal.core import conformal as core_conformal
+from tinyconformal.utils.validation import validate_integer_support
 
 
 class PredictiveDistribution(ABC):
@@ -100,6 +101,34 @@ class DiscretePredictiveDistribution(PredictiveDistribution):
         return np.asarray(self.cdf(values)) - np.asarray(self.cdf(values - 1))
 
 
+class _IntegerSupportMixin:
+    """Apply integer rounding and an optional lower support boundary."""
+
+    def __init__(self, *args, minimum: int | None = 0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.minimum = validate_integer_support(minimum)
+
+    def ppf(self, quantiles):
+        """Return ceiling-rounded predictive quantiles on the configured support."""
+        result = np.ceil(super().ppf(quantiles))
+        if self.minimum is not None:
+            result = np.maximum(result, self.minimum)
+        return result.astype(int)
+
+    def cdf(self, values):
+        """Evaluate the CDF after flooring values to integer support points."""
+        values = np.floor(np.asarray(values, dtype=float))
+        result = super().cdf(values)
+        if self.minimum is None:
+            return result
+        below = values < self.minimum
+        if values.ndim == 0:
+            return np.zeros_like(result) if bool(below) else result
+        if result.ndim == 1:
+            return np.where(np.ravel(below), 0.0, result)
+        return np.where(np.broadcast_to(below, np.shape(result)), 0.0, result)
+
+
 class EmpiricalResidualDistribution(PredictiveDistribution):
     """Common implementation for predictive distributions shifted by residuals.
 
@@ -107,6 +136,10 @@ class EmpiricalResidualDistribution(PredictiveDistribution):
     through :meth:`_row_residuals`. This accommodates both a single split-
     conformal calibration sample and series/horizon-specific samples.
     """
+
+    def __len__(self) -> int:
+        """Return the number of row-aligned predictive distributions."""
+        return self.locations.size
 
     def _rowwise_or_grid(self, values, name: str) -> tuple[np.ndarray, bool]:
         array = np.asarray(values, dtype=float)

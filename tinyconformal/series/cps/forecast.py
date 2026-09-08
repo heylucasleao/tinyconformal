@@ -61,10 +61,6 @@ class PanelConformalForecast:
         """
         return self._frame.copy()
 
-    def _output_frame(self) -> pd.DataFrame:
-        """Return an isolated frame for distribution outputs."""
-        return self._frame.copy()
-
     @staticmethod
     def _label(value) -> str:
         """Format a stable numeric component for a result column name."""
@@ -74,7 +70,7 @@ class PanelConformalForecast:
         """Evaluate a distribution method and append its output to the panel."""
         inputs_array = np.asarray(inputs)
         values = np.asarray(getattr(self._distribution, method)(inputs))
-        result = self._output_frame()
+        result = self.to_frame()
         if values.ndim == 1:
             column = labeler(inputs_array) if inputs_array.ndim == 0 else row_label
             result[column] = values
@@ -211,7 +207,7 @@ class PanelConformalForecast:
         """
         bounds = np.asarray(self._distribution.interval(coverage))
         alpha = 1.0 - float(coverage)
-        result = self._output_frame()
+        result = self.to_frame()
         result[f"Q({self._label(alpha / 2.0)})"] = bounds[:, 0]
         result[f"Q({self._label(1.0 - alpha / 2.0)})"] = bounds[:, 1]
         return result

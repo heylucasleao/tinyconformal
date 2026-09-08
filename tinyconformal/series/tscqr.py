@@ -2,7 +2,6 @@
 # TinyConformal - A small toolbox for conformal prediction
 # Licensed under the MIT License
 
-import copy
 import re
 
 import numpy as np
@@ -315,98 +314,12 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         """Computes CQR Nonconformity Scores: E_{i,t} = max(q_low - y, y - q_high)"""
         return core_conformal.cqr_scores(y_true, q_low, q_high)
 
-    def _finalize_residuals(
-        self,
-        residuals_by_model: dict[str, list[np.ndarray]],
-        series_ids: list,
-    ) -> dict[str, dict[object, np.ndarray]]:
-        """Preserve one horizon-wise nonconformity matrix per series."""
-        return {
-            pair_key: {
-                series_id: np.vstack([window_scores[row] for window_scores in windows])
-                for row, series_id in enumerate(series_ids)
-            }
-            for pair_key, windows in residuals_by_model.items()
-        }
-
-    def _prepare_and_validate_steps(
-        self, df: pd.DataFrame, step_size: int
-    ) -> tuple[np.ndarray, int, int]:
-        """Validates if the time series has enough steps for the requested backtesting windows."""
-        unique_ids = df[self.id_col].unique()
-        n_series = len(unique_ids)
-
-        time_steps = np.sort(df[self.time_col].unique())
-        total_steps = len(time_steps)
-
-        required_steps = self.horizon + (self.n_windows - 1) * step_size
-        if total_steps <= required_steps:
-            raise ValueError(
-                f"Time series has {total_steps} unique time steps, but "
-                f"n_windows={self.n_windows}, horizon={self.horizon}, step_size={step_size} "
-                f"requires at least {required_steps + 1} steps."
-            )
-
-        return time_steps, total_steps, n_series
-
-    def _split_train_val_window(
-        self,
-        df: pd.DataFrame,
-        time_steps: np.ndarray,
-        total_steps: int,
-        w: int,
-        step_size: int,
-    ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        """Slices the dataframe into training and validation sets for a specific window index."""
-        val_end_idx = total_steps - w * step_size
-        val_start_idx = val_end_idx - self.horizon
-
-        cutoff_time = time_steps[val_start_idx - 1]
-        val_times = time_steps[val_start_idx:val_end_idx]
-
-        train_mask = df[self.time_col] <= cutoff_time
-        val_mask = df[self.time_col].isin(val_times)
-
-        train_df = df[train_mask].reset_index(drop=True)
-        val_df = (
-            df[val_mask]
-            .sort_values(by=[self.id_col, self.time_col])
-            .reset_index(drop=True)
-        )
-
-        return train_df, val_df
-
-    def _fit_predict_window(
-        self,
-        train_df: pd.DataFrame,
-        val_df: pd.DataFrame,
-        static_features: list | None,
-    ) -> pd.DataFrame:
-        """Clones the learner, fits it on the training window, and predicts the validation window."""
-        learner_clone = copy.deepcopy(self.learner)
-        self._fit_forecaster(learner_clone, train_df, static_features=static_features)
-
-        predict_cols = [self.id_col, self.time_col] + self.exog_cols_
-        X_val = val_df[predict_cols] if self.exog_cols_ else None
-
-        fcst = (
-            self._invoke(
-                learner_clone.predict,
-                h=self.horizon,
-                X_df=X_val,
-            )
-            .sort_values(by=[self.id_col, self.time_col])
-            .reset_index(drop=True)
-        )
-
-        return fcst
-
     def _compute_window_residuals(
         self,
         fcst: pd.DataFrame,
         val_df: pd.DataFrame,
         n_series: int,
-        residuals_by_model: dict,
+        window_scores_by_model: dict,
     ) -> None:
         """Calculates nonconformity scores for the predictions and updates the residuals dictionary."""
         target_pivot, y_true = self._extract_target_panel(val_df, n_series)
@@ -425,8 +338,18 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
                 )
 
             pair_key = f"{low_col}:{high_col}"
-            residuals_by_model.setdefault(pair_key, []).append(
+            window_scores_by_model.setdefault(pair_key, []).append(
                 self._generate_residuals(q_low, q_high, y_true)
+            )
+
+    @staticmethod
+    def _require_forecast_columns(fcst: pd.DataFrame, columns: tuple[str, ...]) -> None:
+        """Raise a descriptive error when configured forecast columns are absent."""
+        missing = [column for column in columns if column not in fcst.columns]
+        if missing:
+            raise KeyError(
+                f"Columns {tuple(missing)} were not found in forecast output. "
+                f"Available columns: {list(fcst.columns)}"
             )
 
     def _compute_bounds(
@@ -496,24 +419,13 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             DataFrame containing raw base predictions, conformal-calibrated interval bounds
             (`<col>-cqr`).
         """
-        h = self._get_horizon(h)
-        self._check_is_fitted()
-        X_df = self._validate_prediction_features(X_df, h)
-
-        pred_df = (
-            self._invoke(
-                self.learner.predict,
-                h=h,
-                X_df=X_df,
-            )
-            .sort_values(by=[self.id_col, self.time_col])
-            .reset_index(drop=True)
+        pred_df, h, _, _ = self._predict_forecast_panel(h, X_df)
+        forecast_cols = tuple(
+            dict.fromkeys(column for pair in self.intervals_ for column in pair)
         )
-
-        self._validate_prediction_panel(pred_df, h)
+        self._require_forecast_columns(pred_df, forecast_cols)
 
         for low_col, high_col in self.intervals_:
-            self._require_forecast_columns(pred_df, (low_col, high_col))
             q_low = pred_df[low_col].to_numpy()
             q_high = pred_df[high_col].to_numpy()
             if np.any(q_low > q_high):
@@ -548,7 +460,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         ``df_test`` must provide exactly one non-missing target for every predicted
         identifier and timestamp. Duplicate or missing matches raise ``ValueError``.
         """
-        eval_df = self.predict_interval(X_df=self._prediction_features(df_test), h=h)
+        eval_df = self.predict_interval(X_df=df_test if self.exog_cols_ else None, h=h)
         eval_df = self._merge_predictions_with_targets(eval_df, df_test)
 
         y_true = eval_df[self.target_col].to_numpy()
