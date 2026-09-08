@@ -260,31 +260,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             )
         return merged
 
-    def _pivot_panel(self, df: pd.DataFrame, values: str | list[str]) -> pd.DataFrame:
-        """Reshape a Nixtla-ordered long panel without sorting."""
-        n_series = len(df) // self.horizon
-        ids = df[self.id_col].to_numpy().reshape(n_series, self.horizon)[:, 0]
-        times = df[self.time_col].to_numpy()[: self.horizon]
-        index = pd.Index(ids, name=self.id_col)
-        if isinstance(values, str):
-            data = df[values].to_numpy().reshape(n_series, self.horizon)
-            return pd.DataFrame(data, index=index, columns=times)
-
-        columns = pd.MultiIndex.from_product([values, times])
-        data = np.concatenate(
-            [df[value].to_numpy().reshape(n_series, self.horizon) for value in values],
-            axis=1,
-        )
-        return pd.DataFrame(data, index=index, columns=columns)
-
-    def _extract_target_panel(
-        self, val_df: pd.DataFrame
-    ) -> tuple[pd.DataFrame, np.ndarray]:
-        """Build and validate the target panel for one calibration window."""
-        target_pivot = self._pivot_panel(val_df, self.target_col)
-        y_true = target_pivot.to_numpy()
-        return target_pivot, y_true
-
     def _require_calibrated_model(self, model: str):
         """Return calibration scores for a forecast model or raise clearly."""
         if model not in self.ncscores_:

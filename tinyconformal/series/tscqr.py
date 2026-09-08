@@ -322,13 +322,13 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         window_scores_by_model: dict,
     ) -> None:
         """Calculates nonconformity scores for the predictions and updates the residuals dictionary."""
-        _, y_true = self._extract_target_panel(val_df)
+        shape = (n_series, self.horizon)
+        y_true = val_df[self.target_col].to_numpy().reshape(shape)
 
         for low_col, high_col in self.intervals_:
             self._require_forecast_columns(fcst, (low_col, high_col))
-            quantiles = self._pivot_panel(fcst, [low_col, high_col])
-            q_low = quantiles[low_col].to_numpy()
-            q_high = quantiles[high_col].to_numpy()
+            q_low = fcst[low_col].to_numpy().reshape(shape)
+            q_high = fcst[high_col].to_numpy().reshape(shape)
             if np.any(q_low > q_high):
                 raise ValueError(
                     f"Crossing quantiles detected for columns {(low_col, high_col)}."
