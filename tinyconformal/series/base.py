@@ -221,7 +221,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
                 "This conformal regressor must be fitted before prediction."
             )
 
-    def _predict_forecast_panel(
+    def _generate_forecast(
         self, h: int | None, X_df: pd.DataFrame | None
     ) -> tuple[pd.DataFrame, int, pd.DataFrame | None, int]:
         """Predict a forecast panel in the order returned by the learner."""

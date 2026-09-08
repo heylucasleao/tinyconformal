@@ -413,7 +413,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             DataFrame containing raw base predictions, conformal-calibrated interval bounds
             (`<col>-cqr`).
         """
-        pred_df, h, _, _ = self._predict_forecast_panel(h, X_df)
+        pred_df, h, _, _ = self._generate_forecast(h, X_df)
         forecast_cols = tuple(
             dict.fromkeys(column for pair in self.intervals_ for column in pair)
         )

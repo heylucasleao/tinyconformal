@@ -237,7 +237,7 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         pd.DataFrame
             Point forecasts and lower/upper interval columns for every model.
         """
-        pred_df, h, _, _ = self._predict_forecast_panel(h, X_df)
+        pred_df, h, _, _ = self._generate_forecast(h, X_df)
         model_cols = self._infer_model_cols(pred_df)
 
         for model in model_cols:

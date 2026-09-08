@@ -268,7 +268,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         self, h: int | None, X_df: pd.DataFrame | None
     ) -> tuple[pd.DataFrame, list[str], int, int]:
         """Predict and validate a sorted future panel for distribution building."""
-        pred_df, h, X_df, n_series = self._predict_forecast_panel(h, X_df)
+        pred_df, h, X_df, n_series = self._generate_forecast(h, X_df)
         if X_df is not None:
             extra_cols = [
                 column for column in X_df.columns if column not in pred_df.columns
