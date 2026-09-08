@@ -12,7 +12,6 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
 
-from tinyconformal.core.quantiles import temporal_decay_weights
 from tinyconformal.distribution.base import PredictiveDistribution
 from tinyconformal.utils.imports import requires_extra
 from tinyconformal.utils.validation import validate_integer_support
@@ -114,7 +113,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
     not a simultaneous pathwise guarantee over the full forecast trajectory.
 
     The forecast DataFrame and returned distribution batches are positionally
-    aligned after sorting by ``id_col`` and ``time_col``.  Reordering either one
+    aligned in the order returned by the Nixtla learner. Reordering either one
     independently invalidates that correspondence.  Forecasts beyond the fitted
     ``horizon`` are not supported because no matching residual distribution was
     calibrated.
@@ -145,12 +144,10 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         window and retained in ``dispersion_learners_`` for future distributions.
         """
         self.raw_residuals_ = self.ncscores_
-        self.scale_calibration_ = self._scale_calibrator.fit(
-            self.raw_residuals_, n_jobs=n_jobs
-        )
-        self.ncscores_ = self.scale_calibration_.standardized_residuals
-        self.oof_scales_ = self.scale_calibration_.oof_scales
-        self.dispersion_learners_ = self.scale_calibration_.pipelines
+        calibration = self._scale_calibrator.fit(self.raw_residuals_, n_jobs=n_jobs)
+        self.ncscores_ = calibration.standardized_residuals
+        self.oof_scales_ = calibration.oof_scales
+        self.dispersion_learners_ = calibration.pipelines
 
     def _validate_fit_configuration(self) -> None:
         """Validate CPS-specific learner and discrete-target configuration."""
@@ -238,7 +235,6 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         standardized, and both final learners are fitted using all available
         training information. Predictions cannot exceed the fitted horizon.
         """
-        self.id_col, self.time_col, self.target_col = id_col, time_col, target_col
         super().fit(
             df,
             horizon=horizon,
@@ -267,7 +263,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
     def _prediction_frame(
         self, h: int | None, X_df: pd.DataFrame | None
     ) -> tuple[pd.DataFrame, list[str], int, int]:
-        """Predict and validate a sorted future panel for distribution building."""
+        """Predict a future panel for distribution building."""
         pred_df, h, X_df, n_series = self._generate_forecast(h, X_df)
         if X_df is not None:
             extra_cols = [
@@ -278,7 +274,6 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
                     X_df[[self.id_col, self.time_col, *extra_cols]],
                     on=[self.id_col, self.time_col],
                     how="left",
-                    validate="one_to_one",
                 )
         model_cols = self._infer_model_cols(pred_df)
         return pred_df, model_cols, h, n_series
@@ -288,7 +283,6 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
     ) -> PredictiveDistribution:
         """Combine point forecasts, scales, and residuals into a distribution."""
         horizon_steps = np.tile(np.arange(h), n_series)
-        weights = temporal_decay_weights(self.n, self.decay) if self.nexcp else None
         scores_by_id = self._require_calibrated_model(model)
         # Convert OOF-standardized scores from (y_hat - y) / scale to
         # the (y - y_hat) / scale orientation used by predictive distributions.
@@ -308,7 +302,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
                 minimum=self.minimum,
                 series_ids=series_ids,
                 scales=scales,
-                weights=weights,
+                weights=self.calibration_weights_,
             )
         return HorizonConformalDistribution(
             locations,
@@ -316,7 +310,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
             horizon_steps,
             series_ids=series_ids,
             scales=scales,
-            weights=weights,
+            weights=self.calibration_weights_,
         )
 
     @requires_extra("series")
@@ -342,8 +336,8 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         Returns
         -------
         PanelConformalForecast
-            Row-aligned predictive forecast sorted by ``id_col`` and
-            ``time_col``. :meth:`cdf`, :meth:`sf`, :meth:`ppf`, :meth:`interval`, and
+            Row-aligned predictive forecast in the learner's panel order.
+            :meth:`cdf`, :meth:`sf`, :meth:`ppf`, :meth:`interval`, and
             :meth:`to_frame` return pandas DataFrames on the
             same panel grid. Forecasts from a discrete CPS additionally expose
             :meth:`pmf` and return integer quantiles.

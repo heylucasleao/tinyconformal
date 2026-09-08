@@ -16,7 +16,8 @@ class ContinuousTimeSeriesConformalPredictiveSystem(TSCPS):
 
     This convenience class configures the internal CPS implementation with
     ``discrete=False``. Predictive forecasts retain their real-valued support;
-    CDF, PPF, interval, and sampling operations return panel-aligned DataFrames.
+    ``cdf``, ``sf``, ``ppf``, ``interval``, ``evaluate``, and ``to_frame``
+    return panel-aligned DataFrames.
 
     Parameters
     ----------
@@ -27,8 +28,9 @@ class ContinuousTimeSeriesConformalPredictiveSystem(TSCPS):
 
     Notes
     -----
-    A continuous CPS does not define a probability mass function.  Use ``cdf``
-    and ``ppf`` on the forecast returned by ``predict_distribution``.
+    A continuous CPS does not define a probability mass function. Use ``cdf``,
+    ``sf``, ``ppf``, and ``interval`` on the forecast returned by
+    ``predict_distribution``.
     """
 
     def __init__(
@@ -48,9 +50,9 @@ class ContinuousTimeSeriesConformalPredictiveSystem(TSCPS):
 class DiscreteTimeSeriesConformalPredictiveSystem(TSCPS):
     """Integer-target CPS for multi-step Nixtla panel forecasts.
 
-    This convenience class constructs
-    :class:`DiscreteHorizonConformalDistribution` objects.  Their quantiles are
-    integer-valued and their PMFs are obtained from adjacent CDF differences.
+    This convenience class constructs panel-aligned integer predictive
+    distributions. Their quantiles are integer-valued and their PMFs are
+    obtained from adjacent CDF differences.
 
     Parameters
     ----------

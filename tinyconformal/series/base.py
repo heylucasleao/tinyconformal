@@ -12,7 +12,6 @@ from sklearn.base import BaseEstimator, RegressorMixin
 
 from tinyconformal.core.quantiles import (
     temporal_decay_weights,
-    validate_alpha,
     weighted_quantile,
 )
 from tinyconformal.utils.imports import requires_extra
@@ -50,29 +49,19 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         """Initialize the conformal wrapper with an unfitted Nixtla learner."""
         self.learner = learner
 
-        self.model_col_ = None
         self.exog_cols_ = []
         self.static_features_ = []
         self.ncscores_ = None
         self.n = 0
+        self.calibration_weights_ = None
         self._quantile_warning_registry = set()
-
-    @abstractmethod
-    def _generate_residuals(
-        self, preds_val: np.ndarray, y_val_arr: np.ndarray
-    ) -> np.ndarray:
-        """
-        Computes nonconformity scores or residuals from predictions and true targets.
-        To be implemented by subclasses.
-        """
 
     def _prepare_and_validate_steps(
         self, df: pd.DataFrame, step_size: int
-    ) -> tuple[np.ndarray, int, int]:
+    ) -> tuple[np.ndarray, int]:
         """Validate calibration length and return the shared temporal grid."""
         time_steps = pd.unique(df[self.time_col])
         total_steps = len(time_steps)
-        n_series = df[self.id_col].nunique()
         required_steps = self.horizon + (self.n_windows - 1) * step_size
         if total_steps <= required_steps:
             raise ValueError(
@@ -80,7 +69,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
                 f"n_windows={self.n_windows}, horizon={self.horizon}, step_size={step_size} "
                 f"requires at least {required_steps + 1} steps."
             )
-        return time_steps, total_steps, n_series
+        return time_steps, total_steps
 
     def _split_train_val_window(
         self,
@@ -122,14 +111,17 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         """Calculates nonconformity scores for the predictions and updates the residuals dictionary."""
 
     def _compute_qhat(
-        self, ncscore: np.ndarray, q_level: float, axis: int | None = None
+        self,
+        ncscore: np.ndarray,
+        q_level: float,
+        axis: int | None = None,
+        weights: np.ndarray | None = None,
     ):
-        """
-        Compute the q-hat quantile value based on nonconformity scores and the quantile level.
-        """
+        """Compute an unweighted or temporally weighted calibration quantile."""
         if not self.nexcp:
             return np.quantile(ncscore, q_level, method="higher", axis=axis)
-        weights = temporal_decay_weights(np.asarray(ncscore).shape[0], self.decay)
+        if weights is None:
+            weights = temporal_decay_weights(ncscore.shape[0], self.decay)
         return weighted_quantile(ncscore, q_level, weights, axis=axis)
 
     def _validate_nexcp(self) -> None:
@@ -138,7 +130,8 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             raise TypeError("nexcp must be a boolean.")
         if not isinstance(self.weighted_refit, (bool, np.bool_)):
             raise TypeError("weighted_refit must be a boolean.")
-        temporal_decay_weights(1, self.decay)
+        if self.nexcp:
+            temporal_decay_weights(1, self.decay)
 
     def _fit_forecaster(self, learner, df, static_features=None) -> None:
         """Fit a Nixtla learner, optionally applying NexCP recency weights."""
@@ -172,19 +165,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         """
         Dynamically infers model prediction columns from the output DataFrame.
         """
-        if self.model_col_ is not None:
-            model_cols = (
-                [self.model_col_]
-                if isinstance(self.model_col_, str)
-                else self.model_col_
-            )
-            missing = [column for column in model_cols if column not in df.columns]
-            if missing:
-                raise ValueError(
-                    f"Configured model columns are missing from forecast output: {missing}"
-                )
-            return model_cols
-
         excluded = {self.id_col, self.time_col, *self.exog_cols_}
         model_cols = [c for c in df.columns if c not in excluded]
 
@@ -193,11 +173,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
                 "Could not infer any prediction model column from the returned DataFrame."
             )
         return model_cols
-
-    @staticmethod
-    def _validate_alpha(alpha: float) -> float:
-        """Validate and normalize a concrete significance level."""
-        return validate_alpha(alpha)
 
     def _validate_fit_configuration(self) -> None:
         """Validate subclass-specific calibration configuration before fitting."""
@@ -272,6 +247,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
     def _sequential_backtesting(
         self,
         df: pd.DataFrame,
+        n_series: int,
         step_size: int | None = None,
         static_features: list | None = None,
         n_jobs: int = -1,
@@ -285,9 +261,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         ):
             raise ValueError("step_size must be a positive integer.")
 
-        time_steps, total_steps, n_series = self._prepare_and_validate_steps(
-            df, step_size
-        )
+        time_steps, total_steps = self._prepare_and_validate_steps(df, step_size)
 
         def process_window(w):
             train_df, val_df = self._split_train_val_window(
@@ -322,20 +296,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             }
             for model, windows in window_scores_by_model.items()
         }
-
-    @staticmethod
-    def _calibration_size(scores) -> int:
-        """Return the sample size used by one fitted calibration distribution."""
-        if isinstance(scores, dict):
-            if not scores:
-                return 0
-            sizes = {len(values) for values in scores.values()}
-            if len(sizes) != 1:
-                raise RuntimeError(
-                    "Every series must have the same number of calibration scores."
-                )
-            return sizes.pop()
-        return len(scores)
 
     @requires_extra("series")
     def fit(
@@ -432,14 +392,15 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             )
         ]
 
+        series_ids = pd.unique(df[self.id_col]).tolist()
         window_scores_by_model = self._sequential_backtesting(
             df,
             step_size=step_size,
             static_features=self.static_features_ or None,
             n_jobs=n_jobs,
+            n_series=len(series_ids),
         )
 
-        series_ids = pd.unique(df[self.id_col]).tolist()
         self.ncscores_ = self._stack_window_scores_by_series(
             window_scores_by_model, series_ids
         )
@@ -451,7 +412,11 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             )
 
         first_model = next(iter(self.ncscores_))
-        self.n = self._calibration_size(self.ncscores_[first_model])
+        first_series_scores = next(iter(self.ncscores_[first_model].values()))
+        self.n = len(first_series_scores)
+        self.calibration_weights_ = (
+            temporal_decay_weights(self.n, self.decay) if self.nexcp else None
+        )
 
         self._fit_forecaster(
             self.learner, df, static_features=self.static_features_ or None

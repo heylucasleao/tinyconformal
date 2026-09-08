@@ -222,8 +222,6 @@ def test_infer_model_cols(mock_point_learner):
     )
     cols = cdr._infer_model_cols(df_fcst)
     assert cols == ["ModelA", "ModelB"]
-    cdr.model_col_ = "ModelA"
-    assert cdr._infer_model_cols(df_fcst) == ["ModelA"]
 
 
 def test_infer_model_cols_raises_value_error(mock_point_learner):
@@ -239,18 +237,6 @@ def test_infer_model_cols_raises_value_error(mock_point_learner):
     df_empty = pd.DataFrame({"unique_id": ["id_1"], "ds": ["2024-01-01"]})
     with pytest.raises(ValueError, match="Could not infer any prediction model column"):
         cdr._infer_model_cols(df_empty)
-
-
-def test_infer_model_cols_rejects_missing_configured_column(mock_point_learner):
-    cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner)
-    cdr.id_col = "unique_id"
-    cdr.time_col = "ds"
-    cdr.exog_cols_ = []
-    cdr.model_col_ = "missing_model"
-    forecast = pd.DataFrame({"unique_id": ["id_1"], "ds": ["2024-01-01"]})
-
-    with pytest.raises(ValueError, match="Configured model columns are missing"):
-        cdr._infer_model_cols(forecast)
 
 
 def test_compute_qhat(mock_point_learner):
@@ -361,7 +347,7 @@ def test_sequential_backtesting_short_series_raises_value_error(mock_point_learn
         }
     )
     with pytest.raises(ValueError, match="Time series has 5 unique time steps"):
-        cdr._sequential_backtesting(short_df)
+        cdr._sequential_backtesting(short_df, n_series=1)
 
 
 def test_get_alpha_and_get_horizon_defaults(mock_point_learner):

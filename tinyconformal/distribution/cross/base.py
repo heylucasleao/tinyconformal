@@ -21,7 +21,6 @@ from .distribution import (
     ContinuousConformalDistribution,
     DiscreteConformalDistribution,
     _as_1d_finite,
-    _as_positive_scales,
 )
 
 
@@ -163,12 +162,8 @@ class CrossConformalPredictiveSystem(BaseEstimator):
         without the other invalidates that correspondence.
         """
         check_is_fitted(self, attributes=["calibration_", "n_calibration_"])
-        locations = _as_1d_finite(self.learner_.predict(X), "learner predictions")
-        scales = _as_positive_scales(
-            self.dispersion_learner_.predict(X), "dispersion learner predictions"
-        )
-        if scales.shape != locations.shape:
-            raise ValueError("Scale and location predictions must have the same shape.")
+        locations = self.learner_.predict(X)
+        scales = self.dispersion_learner_.predict(X)
         if self.discrete:
             return DiscreteConformalDistribution(
                 locations,

@@ -29,7 +29,7 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
     Parameters
     ----------
     locations : ndarray of shape (n_predictions,)
-        Point forecasts in sorted Nixtla panel order.
+        Point forecasts in Nixtla panel order.
     residuals : ndarray or mapping
         Signed residuals ``y - y_hat`` from sequential backtesting. A matrix
         applies the same calibration distribution to every prediction. A
@@ -94,7 +94,6 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
         """Return positive row-aligned scales, defaulting to one."""
         if scales is None:
             return np.ones_like(self.locations)
-        scales = np.asarray(scales, dtype=float)
         if scales.shape != self.locations.shape or not np.all(np.isfinite(scales)):
             raise ValueError("scales must be finite and match locations.")
         if np.any(scales <= 0.0):
@@ -103,15 +102,13 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
 
     @staticmethod
     def _validate_locations(locations) -> np.ndarray:
-        """Return locations as a finite one-dimensional array."""
-        locations = np.asarray(locations, dtype=float)
+        """Require finite one-dimensional locations."""
         if locations.ndim != 1 or not np.all(np.isfinite(locations)):
             raise ValueError("locations must be a finite one-dimensional array.")
         return locations
 
     def _validate_horizon_steps(self, horizon_steps) -> np.ndarray:
         """Validate that every location has a corresponding horizon step."""
-        horizon_steps = np.asarray(horizon_steps, dtype=int)
         if horizon_steps.shape != self.locations.shape:
             raise ValueError("horizon_steps and locations must have the same shape.")
         return horizon_steps
@@ -119,8 +116,8 @@ class HorizonConformalDistribution(EmpiricalResidualDistribution):
     def _prepare_residuals(self, residuals, series_ids):
         """Store pooled or per-series calibration residuals."""
         if isinstance(residuals, Mapping):
-            return residuals, np.asarray(series_ids)
-        return np.asarray(residuals, dtype=float), None
+            return residuals, series_ids
+        return residuals, None
 
     def _residual_shape(self) -> tuple[int, int]:
         """Return the common calibration-window and horizon dimensions."""
@@ -298,7 +295,7 @@ class DiscreteHorizonConformalDistribution(
     Parameters
     ----------
     locations : ndarray of shape (n_predictions,)
-        Point forecasts in sorted Nixtla panel order.
+        Point forecasts in Nixtla panel order.
     residuals : ndarray of shape (n_calibration_trajectories, horizon)
         Signed residuals ``y - y_hat`` obtained by sequential backtesting.
     horizon_steps : ndarray of shape (n_predictions,)
