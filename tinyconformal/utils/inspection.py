@@ -14,3 +14,19 @@ def accepts_parameter(method, parameter: str) -> bool:
         item.kind == inspect.Parameter.VAR_KEYWORD
         for item in signature.parameters.values()
     )
+
+
+def call_with_supported_kwargs(method, **kwargs):
+    """Call a method with its supported, non-None keyword arguments."""
+    signature = inspect.signature(method)
+    accepts_arbitrary_kwargs = any(
+        item.kind == inspect.Parameter.VAR_KEYWORD
+        for item in signature.parameters.values()
+    )
+    supported_kwargs = {
+        name: value
+        for name, value in kwargs.items()
+        if value is not None
+        and (accepts_arbitrary_kwargs or name in signature.parameters)
+    }
+    return method(**supported_kwargs)

@@ -15,20 +15,6 @@ class ResidualConformalTimeSeriesRegressor(BaseConformalTimeSeriesRegressor):
         """Return signed forecast residuals in predictive-distribution orientation."""
         return core_conformal.signed_forecast_residuals(y_true, y_hat)
 
-    def _finalize_residuals(
-        self,
-        residuals_by_model: dict[str, list[np.ndarray]],
-        series_ids: list,
-    ) -> dict[str, dict[object, np.ndarray]]:
-        """Stack window residuals into matrices keyed by model and series."""
-        return {
-            model: {
-                series_id: np.vstack([window_scores[row] for window_scores in windows])
-                for row, series_id in enumerate(series_ids)
-            }
-            for model, windows in residuals_by_model.items()
-        }
-
     def _compute_window_residuals(
         self,
         fcst: pd.DataFrame,

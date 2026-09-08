@@ -11,6 +11,7 @@ from sklearn.base import BaseEstimator
 from tinyconformal.core import conformal as core_conformal
 from tinyconformal.core.quantiles import conformal_quantile_level
 from tinyconformal.utils.imports import requires_extra
+from tinyconformal.utils.inspection import call_with_supported_kwargs
 
 from .base import BaseConformalTimeSeriesRegressor
 
@@ -314,20 +315,6 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         """Computes CQR Nonconformity Scores: E_{i,t} = max(q_low - y, y - q_high)"""
         return core_conformal.cqr_scores(y_true, q_low, q_high)
 
-    def _finalize_residuals(
-        self,
-        residuals_by_model: dict[str, list[np.ndarray]],
-        series_ids: list,
-    ) -> dict[str, dict[object, np.ndarray]]:
-        """Preserve one horizon-wise nonconformity matrix per series."""
-        return {
-            pair_key: {
-                series_id: np.vstack([window_scores[row] for window_scores in windows])
-                for row, series_id in enumerate(series_ids)
-            }
-            for pair_key, windows in residuals_by_model.items()
-        }
-
     def _compute_window_residuals(
         self,
         fcst: pd.DataFrame,
@@ -428,7 +415,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         X_df = self._validate_prediction_features(X_df, h)
 
         pred_df = (
-            self._invoke(
+            call_with_supported_kwargs(
                 self.learner.predict,
                 h=h,
                 X_df=X_df,
@@ -475,7 +462,10 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         ``df_test`` must provide exactly one non-missing target for every predicted
         identifier and timestamp. Duplicate or missing matches raise ``ValueError``.
         """
-        eval_df = self.predict_interval(X_df=self._prediction_features(df_test), h=h)
+        X_df = (
+            self._validate_prediction_features(df_test, h) if self.exog_cols_ else None
+        )
+        eval_df = self.predict_interval(X_df=X_df, h=h)
         eval_df = self._merge_predictions_with_targets(eval_df, df_test)
 
         y_true = eval_df[self.target_col].to_numpy()

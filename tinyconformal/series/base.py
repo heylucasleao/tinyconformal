@@ -3,7 +3,6 @@
 # Licensed under the MIT License
 
 import copy
-import inspect
 import re
 from abc import abstractmethod
 
@@ -19,7 +18,7 @@ from tinyconformal.core.quantiles import (
     weighted_quantile,
 )
 from tinyconformal.utils.imports import requires_extra
-from tinyconformal.utils.inspection import accepts_parameter
+from tinyconformal.utils.inspection import accepts_parameter, call_with_supported_kwargs
 
 
 class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
@@ -118,7 +117,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         predict_cols = [self.id_col, self.time_col, *self.exog_cols_]
         X_val = val_df[predict_cols] if self.exog_cols_ else None
         return (
-            self._invoke(learner.predict, h=self.horizon, X_df=X_val)
+            call_with_supported_kwargs(learner.predict, h=self.horizon, X_df=X_val)
             .sort_values([self.id_col, self.time_col])
             .reset_index(drop=True)
         )
@@ -169,7 +168,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             time_weights = dict(zip(times, weights))
             fit_df = df.copy()
             fit_df[weight_col] = fit_df[self.time_col].map(time_weights)
-        self._invoke(
+        call_with_supported_kwargs(
             learner.fit,
             df=fit_df,
             id_col=self.id_col,
@@ -225,18 +224,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             raise RuntimeError(
                 "This conformal regressor must be fitted before prediction."
             )
-
-    def _prediction_features(self, df: pd.DataFrame) -> pd.DataFrame | None:
-        """Return only the columns accepted as future exogenous input."""
-        if not self.exog_cols_:
-            return None
-        required = [self.id_col, self.time_col, *self.exog_cols_]
-        missing = [column for column in required if column not in df.columns]
-        if missing:
-            raise ValueError(
-                f"The following future feature columns are missing: {missing}"
-            )
-        return df[required].copy()
 
     def _validate_prediction_features(
         self, X_df: pd.DataFrame | None, h: int
@@ -357,25 +344,6 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
                 f"Available columns: {list(fcst.columns)}"
             )
 
-    def _invoke(self, method, **kwargs):
-        """
-        Executes a callable (fit, predict, cross_validation) injecting only
-        the parameters accepted by its signature.
-        """
-        sig = inspect.signature(method)
-        has_var_kw = any(
-            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-        )
-
-        if has_var_kw:
-            filtered = {k: v for k, v in kwargs.items() if v is not None}
-        else:
-            filtered = {
-                k: v for k, v in kwargs.items() if k in sig.parameters and v is not None
-            }
-
-        return method(**filtered)
-
     def _extract_bound_records(
         self, eval_df: pd.DataFrame, y_true: np.ndarray, alpha: float
     ) -> list[dict]:
@@ -476,14 +444,13 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         residuals_by_model: dict[str, list[np.ndarray]],
         series_ids: list,
     ) -> dict:
-        """Convert window-level scores to the fitted score representation.
-
-        Subclasses with conditional calibration can override this hook.  The
-        default keeps the historical pooled representation.
-        """
-        del series_ids
+        """Stack window scores into horizon matrices keyed by model and series."""
         return {
-            model: np.vstack(res_list) for model, res_list in residuals_by_model.items()
+            model: {
+                series_id: np.vstack([window_scores[row] for window_scores in windows])
+                for row, series_id in enumerate(series_ids)
+            }
+            for model, windows in residuals_by_model.items()
         }
 
     @staticmethod

@@ -15,6 +15,7 @@ from sklearn.base import BaseEstimator
 from tinyconformal.core.quantiles import temporal_decay_weights
 from tinyconformal.distribution.base import PredictiveDistribution
 from tinyconformal.utils.imports import requires_extra
+from tinyconformal.utils.inspection import call_with_supported_kwargs
 
 from ..residual import ResidualConformalTimeSeriesRegressor
 from .calibration import ConditionalScaleCalibrator
@@ -285,7 +286,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         h = self._get_horizon(h)
         self._check_is_fitted()
         X_df = self._validate_prediction_features(X_df, h)
-        pred_df = self._invoke(self.learner.predict, h=h, X_df=X_df)
+        pred_df = call_with_supported_kwargs(self.learner.predict, h=h, X_df=X_df)
         if X_df is not None:
             extra_cols = [
                 column for column in X_df.columns if column not in pred_df.columns

@@ -9,6 +9,7 @@ from sklearn.base import BaseEstimator
 from tinyconformal.core import conformal as core_conformal
 from tinyconformal.core.quantiles import central_conformal_quantile_levels
 from tinyconformal.utils.imports import requires_extra
+from tinyconformal.utils.inspection import call_with_supported_kwargs
 
 from .residual import ResidualConformalTimeSeriesRegressor
 
@@ -213,7 +214,7 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         X_df = self._validate_prediction_features(X_df, h)
 
         pred_df = (
-            self._invoke(
+            call_with_supported_kwargs(
                 self.learner.predict,
                 h=h,
                 X_df=X_df,
@@ -261,7 +262,13 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         """
         alpha = self._get_alpha(alpha)
         eval_df = self.predict_interval(
-            X_df=self._prediction_features(df_test), h=h, alpha=alpha
+            X_df=(
+                self._validate_prediction_features(df_test, h)
+                if self.exog_cols_
+                else None
+            ),
+            h=h,
+            alpha=alpha,
         )
         eval_df = self._merge_predictions_with_targets(eval_df, df_test)
 
