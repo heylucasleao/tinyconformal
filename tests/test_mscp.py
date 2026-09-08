@@ -6,6 +6,7 @@ import pytest
 
 from tinyconformal.core import conformal as core_conformal
 from tinyconformal.series import MultiStepConformalTimeSeriesRegressor
+from tinyconformal.utils.inspection import call_with_supported_kwargs
 
 
 @pytest.fixture
@@ -200,41 +201,23 @@ def test_mscp_evaluate_dataframe(mock_point_learner, sample_distribution_data):
     assert eval_df["level"].iloc[0] == "95%"
 
 
-def test_invoke_parameter_filtering(mock_point_learner):
-    """Verify _invoke correctly filters keyword arguments based on method signature."""
-    cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner)
-    cdr.id_col = "unique_id"
-    cdr.time_col = "ds"
-    cdr.target_col = "y"
-    cdr.nexcp = True
-    cdr.decay = 0.99
-    cdr.weighted_refit = True
-    cdr.horizon = 3
-    cdr.h = 3
+def test_call_with_supported_kwargs_filters_parameters():
+    """Only forward non-None keyword arguments supported by the callable."""
 
     def dummy_method(a, b=2):
         return a + b
 
-    res = cdr._invoke(dummy_method, a=5, b=10, c=100, d=None)
+    res = call_with_supported_kwargs(dummy_method, a=5, b=10, c=100, d=None)
     assert res == 15
 
 
-def test_invoke_with_var_keywords(mock_point_learner):
-    """Verify _invoke passes all non-None kwargs when method accepts **kwargs."""
-    cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner)
-    cdr.id_col = "unique_id"
-    cdr.time_col = "ds"
-    cdr.target_col = "y"
-    cdr.nexcp = True
-    cdr.decay = 0.99
-    cdr.weighted_refit = True
-    cdr.horizon = 3
-    cdr.h = 3
+def test_call_with_supported_kwargs_forwards_arbitrary_keywords():
+    """Forward every non-None argument when the callable accepts **kwargs."""
 
     def dummy_kw_method(a, **kwargs):
         return a + kwargs.get("c", 0)
 
-    res = cdr._invoke(dummy_kw_method, a=5, c=20, d=None)
+    res = call_with_supported_kwargs(dummy_kw_method, a=5, c=20, d=None)
     assert res == 25
 
 
