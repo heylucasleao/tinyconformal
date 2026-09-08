@@ -108,7 +108,10 @@ def test_split_and_single_horizon_cps_share_distribution_semantics():
     residuals = np.array([-2.0, 0.0, 3.0])
     split = ContinuousConformalDistribution(locations, residuals)
     horizon = HorizonConformalDistribution(
-        locations, residuals[:, None], horizon_steps=np.zeros(2, dtype=int)
+        locations,
+        {"series": residuals[:, None]},
+        horizon_steps=np.zeros(2, dtype=int),
+        series_ids=np.repeat("series", 2),
     )
     np.testing.assert_allclose(split.cdf([9.0, 22.0]), horizon.cdf([9.0, 22.0]))
     np.testing.assert_allclose(split.ppf([0.2, 0.5, 0.8]), horizon.ppf([0.2, 0.5, 0.8]))
@@ -117,8 +120,9 @@ def test_split_and_single_horizon_cps_share_distribution_semantics():
 def test_horizon_distribution_supports_temporal_decay_weights():
     distribution = HorizonConformalDistribution(
         locations=np.array([10.0]),
-        residuals=np.array([[-10.0], [0.0], [10.0]]),
+        residuals={"series": np.array([[-10.0], [0.0], [10.0]])},
         horizon_steps=np.array([0]),
+        series_ids=np.array(["series"]),
         weights=np.array([0.01, 0.1, 1.0]) / 1.11,
     )
     np.testing.assert_allclose(distribution.ppf(0.5), [20.0])
