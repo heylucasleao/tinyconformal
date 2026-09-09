@@ -38,7 +38,7 @@ class ConditionalScaleCalibrator:
         learner: BaseEstimator,
         horizon: int,
         n_windows: int,
-        nexcp: bool = True,
+        nexcp: bool = False,
         decay: float = 0.99,
         weighted_refit: bool = True,
     ):
