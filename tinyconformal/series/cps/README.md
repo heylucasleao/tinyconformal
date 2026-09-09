@@ -87,10 +87,11 @@ point forecast + future scale + stored residuals
 panel-aligned predictive forecast
 ```
 
-By default, `nexcp=True` gives recent calibration windows exponentially larger
-weights. Set `nexcp=False` to use equal window weights.
-When `weighted_refit=True`, compatible forecasting and dispersion learners also
-receive recency weights during fitting.
+By default, `nexcp=False` gives every calibration window equal weight. Set
+`nexcp=True` to give recent windows exponentially larger weights. The
+`weighted_refit` option remains enabled by default, but only has an effect when
+`nexcp=True`; compatible forecasting and dispersion learners then also receive
+recency weights during fitting.
 
 ## Distribution semantics
 
