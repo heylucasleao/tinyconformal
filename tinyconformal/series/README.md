@@ -64,10 +64,11 @@ the original panel grid. The discrete system has the same workflow and adds
 `pmf`; its `minimum` parameter defines the integer support boundary. Results use
 mathematical column names such as `Q(0.9)`, `P(Y<=5)`, `P(Y>5)`, and `P(Y=5)`.
 
-By default, `nexcp=True` applies exponential recency weights controlled by
-`decay`. Set `nexcp=False` to give every calibration window equal weight.
-When `weighted_refit=True`, compatible forecasting and dispersion learners also
-receive those weights during refitting.
+By default, `nexcp=False` gives every calibration window equal weight. Set
+`nexcp=True` to apply exponential recency weights controlled by `decay`. The
+`weighted_refit` option remains enabled by default, but only has an effect when
+`nexcp=True`; compatible forecasting and dispersion learners then also receive
+those weights during refitting.
 
 ## Calibration rank and number of windows
 

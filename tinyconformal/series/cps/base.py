@@ -64,7 +64,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
     n_windows : int, default=15
         Number of backtesting windows.  Each series contributes one residual
         trajectory per window.
-    nexcp : bool, default=True
+    nexcp : bool, default=False
         Whether to weight calibration windows by exponential recency decay.
     decay : float, default=0.99
         Decay factor in ``(0, 1)`` used when ``nexcp=True``.
@@ -173,7 +173,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
         n_windows: int = 15,
         step_size=None,
         static_features=None,
-        nexcp: bool = True,
+        nexcp: bool = False,
         decay: float = 0.99,
         weighted_refit: bool = True,
         id_col: str = "unique_id",
@@ -196,7 +196,7 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
             Distance between consecutive origins. ``None`` uses ``horizon``.
         static_features : list of str or None, default=None
             Time-invariant feature columns passed to the forecasting learner.
-        nexcp : bool, default=True
+        nexcp : bool, default=False
             Give recent calibration windows exponentially larger weights.
         decay : float, default=0.99
             Exponential decay factor in ``(0, 1)`` used when ``nexcp=True``.

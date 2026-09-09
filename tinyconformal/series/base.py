@@ -297,7 +297,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
         n_windows: int = 15,
         step_size: int | None = None,
         static_features: list | None = None,
-        nexcp: bool = True,
+        nexcp: bool = False,
         decay: float = 0.99,
         weighted_refit: bool = True,
         id_col: str = "unique_id",
@@ -324,7 +324,7 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
             passed to the base learner during fitting and excluded from future
             dynamic exogenous inputs. Every other non-structural column is treated
             as a dynamic exogenous feature.
-        nexcp : bool, default=True
+        nexcp : bool, default=False
             Apply exponential recency weights to calibration windows.
         decay : float, default=0.99
             Recency decay factor in ``(0, 1)`` when ``nexcp=True``.
