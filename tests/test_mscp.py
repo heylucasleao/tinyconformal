@@ -662,6 +662,22 @@ def test_nexcp_weighted_refit_passes_internal_weight_column(
     assert weights.iloc[-1] > weights.iloc[0]
 
 
+def test_nexcp_is_disabled_by_default_while_weighted_refit_remains_enabled(
+    mock_point_learner, sample_distribution_data
+):
+    cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner).fit(
+        sample_distribution_data,
+        n_jobs=1,
+        horizon=2,
+        n_windows=2,
+    )
+
+    assert cdr.nexcp is False
+    assert cdr.weighted_refit is True
+    assert cdr.calibration_weights_ is None
+    assert "weight_col" not in mock_point_learner.fit.call_args.kwargs
+
+
 def test_nexcp_weighted_refit_requires_weight_col_support(sample_distribution_data):
 
     class LearnerWithoutWeights:

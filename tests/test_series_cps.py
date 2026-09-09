@@ -149,6 +149,20 @@ def test_series_cps_distributions_are_calibrated_by_unique_id(
     np.testing.assert_array_equal(medians["Q(0.5)"], [11.0, 13.0, 20.0, 31.0])
 
 
+def test_series_cps_disables_nexcp_by_default_but_keeps_weighted_refit_enabled(
+    nixtla_learner, dispersion_learner, panel
+):
+    cps = ContinuousTimeSeriesConformalPredictiveSystem(
+        nixtla_learner, dispersion_learner
+    ).fit(panel, n_jobs=1, horizon=2, n_windows=2)
+
+    assert cps.nexcp is False
+    assert cps.weighted_refit is True
+    assert cps.calibration_weights_ is None
+    assert cps._scale_calibrator.nexcp is False
+    assert cps._scale_calibrator.weighted_refit is True
+
+
 def test_series_cps_quantiles_intervals_and_evaluation(
     nixtla_learner, dispersion_learner, panel
 ):
