@@ -106,6 +106,10 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
 
     Notes
     -----
+    Training and future rows must already be ordered chronologically within
+    each series. TSCPS preserves the supplied order and does not sort frames
+    internally.
+
     Calibration is horizon-specific: predictions at step ``h`` use only the
     residuals collected at that same step.  The conformal guarantee therefore
     applies marginally to each calibrated horizon under the exchangeability
@@ -230,6 +234,10 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
 
         Notes
         -----
+        Rows in ``df`` must already be ordered chronologically within each
+        series. This method preserves the supplied row order and does not sort
+        the input internally.
+
         Point residuals are collected by rolling-origin backtesting. The scale
         learner is cross-fitted by calibration window, residuals are
         standardized, and both final learners are fitted using all available
@@ -351,6 +359,9 @@ class TSCPS(ResidualConformalTimeSeriesRegressor):
 
         Notes
         -----
+        Rows in ``X_df`` must already be ordered chronologically within each
+        series. This method does not sort the input internally.
+
         The result contains one predictive distribution for each series-step
         pair. Its base frame contains ``id_col``, ``time_col``, the learner's
         point-forecast column, and any future-feature columns merged from

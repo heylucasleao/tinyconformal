@@ -92,6 +92,9 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
 
     Notes
     -----
+    - Training and future rows must already be ordered chronologically within
+      each series. The regressor preserves the supplied order and does not sort
+      frames internally.
     - Nonconformity scores are computed via $E_{i,t} = \max(q_{\text{low}} - y, y - q_{\text{high}})$.
     - Quantiles are calibrated independently for every series identifier and
       forecast horizon; scores are never pooled across series.
@@ -350,6 +353,11 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
         pd.DataFrame
             DataFrame containing raw base predictions, conformal-calibrated interval bounds
             (`<col>-cqr`).
+
+        Notes
+        -----
+        Rows in ``X_df`` must already be ordered chronologically within each
+        series. This method does not sort the input internally.
         """
         pred_df, h, _, _ = self._generate_forecast(h, X_df)
         prediction_ids = pred_df[self.id_col].to_numpy()

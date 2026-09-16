@@ -223,7 +223,7 @@ class NewsvendorSolver:
 
     Global Attention Points:
         - **Nixtla Ecosystem Compatibility:** Designed for high-throughput panel
-          DataFrames. Preserves sorting and index layout with zero-copy views where possible.
+          DataFrames. Preserves the supplied row order and index layout.
         - **Performance Optimization:** Uses vectorized interpolation and `np.fromiter`
           tuple mapping to eliminate Python loops and avoid redundant RAM allocation.
         - **CDF Monotonicity:** Crossed quantile errors from forecasting models
@@ -256,7 +256,6 @@ class NewsvendorSolver:
         time_col: str = "ds",
         ratio_col: str = "critical_ratio",
         output_col: str = "y_optimal",
-        assume_sorted: bool = True,
     ) -> pd.DataFrame:
         """Executes inventory optimization based on underage and overage costs.
 
@@ -282,10 +281,6 @@ class NewsvendorSolver:
                 in the returned DataFrame. Defaults to `"y_optimal"`.
             ratio_col : str, default="critical_ratio"
                 Column name to store the computed critical ratio/fractile values.
-            assume_sorted (bool, optional): If `True`, assumes the input DataFrame is already
-                sorted by `[id_col, time_col]` (standard in Nixtla workflows), skipping
-                redundant sorting operations to maximize performance. Defaults to `True`.
-
         Returns:
             pd.DataFrame: A copy of the DataFrame with calculated optimal inventory values in `output_col`.
 
@@ -307,6 +302,8 @@ class NewsvendorSolver:
                bounded within the prediction interval bounds.
 
         Attention Points:
+            - **Input Order:** The supplied row order is preserved. This method
+              does not sort the DataFrame internally.
             - **Zero-Division Safety:** If `underage_cost + overage_cost == 0` for any row, the critical
               quantile defaults to `0.5` (median) to prevent zero-division runtime errors.
             - **Approximation, not distributional calibration:** Conformal interval coverage
@@ -326,10 +323,7 @@ class NewsvendorSolver:
                 f"Interval columns are missing from the DataFrame: {missing}"
             )
 
-        if not assume_sorted and id_col in df.columns and time_col in df.columns:
-            df_res = df.sort_values([id_col, time_col]).copy()
-        else:
-            df_res = df.copy()
+        df_res = df.copy()
 
         n_rows = len(df_res)
         p_lo = (100.0 - level) / 200.0

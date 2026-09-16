@@ -28,6 +28,10 @@ class ContinuousTimeSeriesConformalPredictiveSystem(TSCPS):
 
     Notes
     -----
+    Training and future rows must already be ordered chronologically within
+    each series. The estimator preserves the supplied order and does not sort
+    frames internally.
+
     A continuous CPS does not define a probability mass function. Use ``cdf``,
     ``sf``, ``ppf``, and ``interval`` on the forecast returned by
     ``predict_distribution``.
@@ -64,6 +68,12 @@ class DiscreteTimeSeriesConformalPredictiveSystem(TSCPS):
         Lower boundary of the target support. Use ``0`` for counts, ``1`` for
         strictly positive outcomes, another integer for a known lower bound,
         or ``None`` when negative integers are valid.
+
+    Notes
+    -----
+    Training and future rows must already be ordered chronologically within
+    each series. The estimator preserves the supplied order and does not sort
+    frames internally.
 
     The learner's point forecasts may remain real valued; discretization is
     applied when the predictive distribution is queried.
