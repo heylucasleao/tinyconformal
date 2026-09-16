@@ -93,7 +93,6 @@ def _validate_sample_size(n: int) -> int:
 
 
 def _warn_unattainable(
-    *,
     n: int,
     alpha: float,
     tails: int,
@@ -119,7 +118,6 @@ def _warn_unattainable(
 def conformal_quantile_level(
     n: int,
     alpha: float,
-    *,
     warning_registry: set | None = None,
     context: str = "the estimator",
 ) -> float:
@@ -142,7 +140,6 @@ def conformal_quantile_level(
 def central_conformal_quantile_levels(
     n: int,
     alpha: float,
-    *,
     warning_registry: set | None = None,
     context: str = "the estimator",
 ) -> tuple[float, float]:

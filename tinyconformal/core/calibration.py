@@ -46,7 +46,6 @@ class CrossValidationCalibration:
         learner: BaseEstimator,
         X,
         y,
-        *,
         cv=5,
         n_jobs: int | None = None,
         method: str = "predict",
@@ -63,7 +62,7 @@ class CrossValidationCalibration:
 
     @classmethod
     def icp_scores(
-        cls, learner: BaseEstimator, X, y, *, cv=5, n_jobs: int | None = None
+        cls, learner: BaseEstimator, X, y, cv=5, n_jobs: int | None = None
     ) -> np.ndarray:
         """Return OOF absolute-residual scores for ICP.
 
@@ -94,7 +93,7 @@ class CrossValidationCalibration:
 
     @classmethod
     def cqr_scores(
-        cls, learner: BaseEstimator, X, y, *, cv=5, n_jobs: int | None = None
+        cls, learner: BaseEstimator, X, y, cv=5, n_jobs: int | None = None
     ) -> np.ndarray:
         """Return OOF CQR scores from lower and upper quantile predictions.
 
@@ -122,7 +121,6 @@ class CrossValidationCalibration:
         dispersion_learner: BaseEstimator,
         X,
         y,
-        *,
         cv=5,
         n_jobs: int | None = None,
         min_scale: float = 1e-6,
@@ -180,7 +178,7 @@ class CrossValidationCalibration:
 
     @classmethod
     def classification_probabilities(
-        cls, learner: BaseEstimator, X, y, *, cv=5, n_jobs: int | None = None
+        cls, learner: BaseEstimator, X, y, cv=5, n_jobs: int | None = None
     ) -> np.ndarray:
         """Return OOF probabilities from a binary classifier.
 
