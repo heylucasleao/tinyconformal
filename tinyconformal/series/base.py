@@ -30,6 +30,10 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
 
     Notes:
     -----
+    Training and future rows must already be ordered chronologically within
+    each series. The wrapper preserves the supplied order and does not sort
+    frames internally.
+
     Subclasses define the calibration score and how its empirical quantiles
     are converted into prediction intervals or predictive distributions.
     """
@@ -341,6 +345,10 @@ class BaseConformalTimeSeriesRegressor(RegressorMixin, BaseEstimator):
 
         Notes
         -----
+        Rows in ``df`` must already be ordered chronologically within each
+        series. This method preserves the supplied row order and does not sort
+        the input internally.
+
         Prediction horizons must not exceed the horizon calibrated here. If the
         requested coverage is unattainable for the finite calibration sample, the
         conformal rank is clipped to the observed scores and a ``RuntimeWarning``

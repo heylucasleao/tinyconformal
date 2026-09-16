@@ -129,17 +129,18 @@ def test_solver_computes_ratio_and_enforces_monotonicity_without_mutating_input(
     assert np.all(result["y_optimal"] <= result["model-hi-90-cqr"])
 
 
-def test_solver_supports_cost_columns_and_sorting(forecast_df):
+def test_solver_supports_cost_columns_and_preserves_input_order(forecast_df):
     df = forecast_df.assign(underage=[1.0, 3.0], overage=[3.0, 1.0])
+    df = df.iloc[::-1]
 
     result = NewsvendorSolver.optimize(
         df,
         interval_pair=("model-lo-90-cqr", "model-hi-90-cqr"),
         underage_cost="underage",
         overage_cost="overage",
-        assume_sorted=False,
     )
 
+    assert result.index.tolist() == df.index.tolist()
     assert result["unique_id"].tolist() == ["A", "B"]
     assert np.allclose(result["critical_ratio"], [0.75, 0.25])
 

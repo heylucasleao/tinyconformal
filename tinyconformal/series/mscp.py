@@ -27,6 +27,12 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
     to build empirical nonconformity scores (signed residuals). Calibration
     quantiles are computed independently for every series identifier and
     horizon; signed residuals are not pooled across series.
+
+    Notes
+    -----
+    Training and future rows must already be ordered chronologically within
+    each series. The regressor preserves the supplied order and does not sort
+    frames internally.
     """
 
     def __init__(
@@ -158,6 +164,11 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
         -------
         pd.DataFrame
             Point forecasts and lower/upper interval columns for every model.
+
+        Notes
+        -----
+        Rows in ``X_df`` must already be ordered chronologically within each
+        series. This method does not sort the input internally.
         """
         pred_df, h, _, _ = self._generate_forecast(h, X_df)
         model_cols = self._infer_model_cols(pred_df)
