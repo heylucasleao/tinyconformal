@@ -17,7 +17,7 @@ def validate_integer_support(minimum: int | None) -> int | None:
     return None if minimum is None else int(minimum)
 
 
-def validate_discrete_targets(values, minimum: int | None, *, name: str) -> np.ndarray:
+def validate_discrete_targets(values, minimum: int | None, name: str) -> np.ndarray:
     """Return finite integer-valued targets within an optional lower boundary."""
     targets = np.asarray(values, dtype=float)
     if not np.all(np.isfinite(targets)) or np.any(targets != np.floor(targets)):
