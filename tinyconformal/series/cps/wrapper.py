@@ -16,7 +16,7 @@ class ContinuousTimeSeriesConformalPredictiveSystem(TSCPS):
 
     This convenience class configures the internal CPS implementation with
     ``discrete=False``. Predictive forecasts retain their real-valued support;
-    ``cdf``, ``sf``, ``ppf``, ``interval``, ``evaluate``, and ``to_frame``
+    ``cdf``, ``sf``, ``ppf``, ``interval``, and ``to_frame``
     return panel-aligned DataFrames.
 
     Parameters
@@ -102,7 +102,7 @@ class DiscreteTimeSeriesConformalPredictiveSystem(TSCPS):
         """Return a discrete predictive forecast on the Nixtla panel grid.
 
         The returned object exposes :meth:`cdf`, :meth:`ppf`, :meth:`pmf`,
-        :meth:`interval`, :meth:`evaluate`, and
+        :meth:`interval`, and
         :meth:`to_frame`. See :meth:`TSCPS.predict_distribution` for the
         complete input, output, and error contract.
         """

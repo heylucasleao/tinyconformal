@@ -29,7 +29,11 @@ median = forecast.ppf(0.5)
 interval = forecast.interval(coverage=0.9)
 probabilities = forecast.cdf(values)
 exceedance = forecast.sf(values)
-metrics = forecast.evaluate(observed_values)
+from tinyconformal.evaluation import DistributionEvaluator
+
+metrics = DistributionEvaluator.evaluate_interval(
+    observed_values, forecast=forecast
+)
 ```
 
 The returned forecast owns both the point-forecast panel and its calibrated

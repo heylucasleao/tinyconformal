@@ -212,39 +212,6 @@ class PanelConformalForecast:
         result[f"Q({self._label(1.0 - alpha / 2.0)})"] = bounds[:, 1]
         return result
 
-    def evaluate(self, y, coverages=(0.5, 0.8, 0.9, 0.95)) -> pd.DataFrame:
-        """Evaluate central-interval calibration against observed outcomes.
-
-        Parameters
-        ----------
-        y : array-like of float
-            One finite observed target per forecast row, in the same positional
-            order as :meth:`to_frame`.
-        coverages : iterable of float, default=(0.5, 0.8, 0.9, 0.95)
-            Central interval coverages to evaluate. Every value must lie
-            strictly between 0 and 1.
-
-        Returns
-        -------
-        pandas.DataFrame
-            One row per requested coverage containing empirical coverage,
-            average interval width, and mean Winkler interval score.
-
-        Raises
-        ------
-        ValueError
-            If ``y`` does not contain exactly one finite value per forecast row,
-            or if a requested coverage is invalid.
-
-        Notes
-        -----
-        Observations are positionally aligned rather than joined by identifier
-        and timestamp. Sort or merge targets to match :meth:`to_frame` before
-        calling this method.
-        """
-        return self.distribution.evaluate(y, coverages=coverages)
-
-
 class DiscretePanelConformalForecast(PanelConformalForecast):
     """Panel forecast for integer targets, additionally exposing a PMF."""
 
