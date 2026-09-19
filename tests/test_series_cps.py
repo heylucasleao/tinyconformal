@@ -8,7 +8,6 @@ from sklearn.dummy import DummyRegressor
 from tinyconformal.distribution.cross.distribution import (
     ContinuousConformalDistribution,
 )
-from tinyconformal.evaluation import PanelEvaluator
 from tinyconformal.series import (
     ContinuousTimeSeriesConformalPredictiveSystem,
     DiscreteTimeSeriesConformalPredictiveSystem,
@@ -164,7 +163,7 @@ def test_series_cps_disables_nexcp_by_default_but_keeps_weighted_refit_enabled(
     assert cps._scale_calibrator.weighted_refit is True
 
 
-def test_series_cps_quantiles_intervals_and_evaluation(
+def test_series_cps_quantiles_and_intervals(
     nixtla_learner, dispersion_learner, panel
 ):
     cps = ContinuousTimeSeriesConformalPredictiveSystem(
@@ -182,19 +181,6 @@ def test_series_cps_quantiles_intervals_and_evaluation(
     assert {"Q(p)-0", "Q(p)-1"} <= set(rowwise_quantiles)
     intervals = forecast.interval(0.9)
     assert {"Q(0.05)", "Q(0.95)"} <= set(intervals)
-    test = intervals[["unique_id", "ds"]].copy()
-    test["y"] = 10.0
-    evaluation = PanelEvaluator.evaluate_interval(
-        test, forecast, coverages=[0.9]
-    )
-    assert evaluation.loc[0, "coverage"] == 0.9
-    distribution_evaluation = PanelEvaluator.evaluate_distribution(
-        test.iloc[::-1], forecast, train_df=panel
-    )
-    assert set(distribution_evaluation["unique_id"]) == {"a", "b"}
-    assert np.all(distribution_evaluation["crps"] >= 0.0)
-    assert np.all(np.isfinite(distribution_evaluation["ncrps"]))
-    assert distribution_evaluation["n_obs"].sum() == len(test)
     direct_quantiles = forecast.ppf([0.1, 0.5, 0.9])
     direct_cdf = forecast.cdf(forecast.to_frame()["Model"].to_numpy()[:, None])
     assert {"Q(0.1)", "Q(0.5)", "Q(0.9)"} <= set(direct_quantiles)

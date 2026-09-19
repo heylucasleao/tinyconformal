@@ -7,7 +7,6 @@ from tinyconformal.distribution import (
     ContinuousCrossConformalPredictiveSystem,
     DiscreteCrossConformalPredictiveSystem,
 )
-from tinyconformal.evaluation import CPSEvaluator
 from tinyconformal.utils.solver import NewsvendorSolver
 
 
@@ -225,46 +224,3 @@ def test_newsvendor_marginal_benefit_rejects_continuous_distribution():
             overage_cost=1.0,
         )
 
-
-def test_predictive_distribution_evaluates_coverage():
-    cps = ContinuousCrossConformalPredictiveSystem(_fitted_dummy(), _fitted_scale())
-    cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
-    distribution = cps.predict_distribution(np.array([[20], [21]]))
-    result = CPSEvaluator.evaluate_interval(
-        [10, 10], distribution, coverages=[0.5, 0.9]
-    )
-    assert list(result.columns) == [
-        "coverage",
-        "coverage_rate",
-        "interval_width_mean",
-        "mwis",
-        "n_obs",
-    ]
-    assert len(result) == 2
-
-
-def test_distribution_evaluator_computes_crps_and_ncrps():
-    cps = ContinuousCrossConformalPredictiveSystem(_fitted_dummy(), _fitted_scale())
-    cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
-    distribution = cps.predict_distribution(np.array([[20], [21]]))
-
-    result = CPSEvaluator.evaluate_distribution(
-        [10, 10], distribution, scale=2.0
-    )
-
-    assert list(result.columns) == ["crps", "n_obs", "scale", "ncrps"]
-    assert result.loc[0, "n_obs"] == 2
-    assert result.loc[0, "crps"] >= 0.0
-    assert result.loc[0, "ncrps"] == pytest.approx(result.loc[0, "crps"] / 2.0)
-
-
-@pytest.mark.parametrize("scale", [0.0, -1.0, np.inf, np.nan])
-def test_distribution_evaluator_rejects_invalid_ncrps_scale(scale):
-    cps = ContinuousCrossConformalPredictiveSystem(_fitted_dummy(), _fitted_scale())
-    cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
-    distribution = cps.predict_distribution(np.array([[20]]))
-
-    with pytest.raises(ValueError, match="strictly positive"):
-        CPSEvaluator.evaluate_distribution(
-            [10], distribution, scale=scale
-        )

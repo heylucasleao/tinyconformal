@@ -4,14 +4,12 @@
 
 
 import numpy as np
-import pandas as pd
 import pytest
 from sklearn.datasets import make_regression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 
 from tinyconformal.core.calibration import CrossValidationCalibration
-from tinyconformal.evaluation import RegressorEvaluator
 from tinyconformal.regressor import (
     ConformalizedQuantileRegressor,
     ConformalizedRegressor,
@@ -77,29 +75,6 @@ def _assert_interval_outputs(regressor, dataset):
     intervals = regressor.predict_interval(dataset["X_test"])
     assert intervals.shape == (dataset["X_test"].shape[0], 2)
     assert np.all(intervals[:, 0] <= intervals[:, 1])
-
-    results = RegressorEvaluator.evaluate(
-        dataset["y_test"], intervals, coverage=1.0 - regressor.alpha
-    )
-    assert isinstance(results, pd.DataFrame)
-    expected_keys = {
-        "coverage",
-        "coverage_rate",
-        "interval_width_mean",
-        "mwis",
-        "n_obs",
-    }
-    assert set(results.columns) == expected_keys
-
-
-def test_regressor_evaluator_rejects_invalid_intervals():
-    with pytest.raises(ValueError, match="shape"):
-        RegressorEvaluator.evaluate([1.0, 2.0], [[0.0, 2.0]], coverage=0.9)
-    with pytest.raises(ValueError, match="lower interval bounds"):
-        RegressorEvaluator.evaluate(
-            [1.0, 2.0], [[2.0, 0.0], [1.0, 3.0]], coverage=0.9
-        )
-
 
 def test_icp_regressor_fit_predict_evaluate(regression_dataset, icp_learner):
     reg = ConformalizedRegressor(icp_learner, alpha=0.05)

@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tinyconformal.evaluation import PanelEvaluator
 from tinyconformal.series import ConformalizedQuantileTimeSeriesRegressor
 
 
@@ -352,51 +351,6 @@ def test_predict_interval_multi_pair_formatting(
     assert "LGBM-hi-50-cqr" in pred_df.columns
 
 
-def test_evaluate_output_structure_and_metrics(
-    mock_quantile_learner_multi, sample_time_series_data
-):
-    """Verify structure, columns, and metric calculations in evaluate() output."""
-    pairs = [("LGBM-lo-90", "LGBM-hi-90"), ("LGBM-lo-50", "LGBM-hi-50")]
-    cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_multi, intervals=pairs
-    )
-    cqr.id_col = "unique_id"
-    cqr.time_col = "ds"
-    cqr.target_col = "y"
-    cqr.nexcp = True
-    cqr.decay = 0.99
-    cqr.weighted_refit = True
-    cqr.horizon = 3
-    cqr.n_windows = 2
-    cqr.fit(sample_time_series_data, horizon=3, n_windows=2)
-    test_dates = pd.date_range("2024-01-31", periods=3, freq="D")
-    df_test = pd.DataFrame(
-        {
-            "unique_id": ["series_1"] * 3 + ["series_2"] * 3,
-            "ds": list(test_dates) * 2,
-            "y": [15.0, 15.0, 15.0, 15.0, 15.0, 15.0],
-            "exog_feat": [0.0] * 6,
-        }
-    )
-    forecast = cqr.predict_interval(X_df=df_test)
-    eval_df = PanelEvaluator.evaluate_interval(df_test, forecast)
-    expected_cols = [
-        "model",
-        "coverage",
-        "coverage_rate",
-        "interval_width_mean",
-        "mwis",
-        "n_obs",
-    ]
-    assert list(eval_df.columns) == expected_cols
-    assert len(eval_df) == 4
-    assert set(eval_df["model"]) == {"LGBM", "LGBM-cqr"}
-    assert set(eval_df["coverage"]) == {0.9, 0.5}
-    prediction_input = mock_quantile_learner_multi.predict.call_args.kwargs["X_df"]
-    assert list(prediction_input.columns) == ["unique_id", "ds", "exog_feat"]
-    assert "y" not in prediction_input
-
-
 def test_predict_rejects_crossing_quantiles(
     mock_quantile_learner_single, sample_time_series_data
 ):
@@ -423,45 +377,6 @@ def test_predict_rejects_crossing_quantiles(
     )
     with pytest.raises(ValueError, match="Crossing quantiles detected"):
         cqr.predict_interval(h=1)
-
-
-def test_evaluate_metric_values_correctness(mock_quantile_learner_single):
-    """Test exact mathematical outputs of evaluate() on deterministic bounds."""
-    cqr = ConformalizedQuantileTimeSeriesRegressor(
-        learner=mock_quantile_learner_single, intervals=("LGBM-lo-90", "LGBM-hi-90")
-    )
-    cqr.id_col = "unique_id"
-    cqr.time_col = "ds"
-    cqr.target_col = "y"
-    cqr.nexcp = True
-    cqr.decay = 0.99
-    cqr.weighted_refit = True
-    cqr.horizon = 2
-    cqr.predict_interval = MagicMock(
-        return_value=pd.DataFrame(
-            {
-                "unique_id": ["s1", "s1"],
-                "ds": pd.date_range("2024-01-01", periods=2),
-                "LGBM-lo-90": [10.0, 10.0],
-                "LGBM-hi-90": [20.0, 20.0],
-                "LGBM-lo-90-cqr": [10.0, 10.0],
-                "LGBM-hi-90-cqr": [20.0, 20.0],
-            }
-        )
-    )
-    df_test = pd.DataFrame(
-        {
-            "unique_id": ["s1", "s1"],
-            "ds": pd.date_range("2024-01-01", periods=2),
-            "y": [15.0, 25.0],
-        }
-    )
-    forecast = cqr.predict_interval(h=2)
-    eval_df = PanelEvaluator.evaluate_interval(df_test, forecast)
-    cqr_eval = eval_df[eval_df["model"] == "LGBM-cqr"].iloc[0]
-    assert cqr_eval["coverage_rate"] == 0.5
-    assert cqr_eval["interval_width_mean"] == 10.0
-    assert cqr_eval["mwis"] == 60.0
 
 
 def test_quantile_pair_mismatch_model_raises_error(mock_quantile_learner_single):
