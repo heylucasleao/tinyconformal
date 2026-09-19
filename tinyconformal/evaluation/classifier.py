@@ -36,6 +36,21 @@ class ClassifierEvaluator:
         pandas.DataFrame
             Single-row evaluation summary. The ``n_obs`` column has integer
             dtype.
+
+        Columns
+        -------
+        **coverage** : ``float``
+            Requested nominal coverage.
+        **coverage_rate** : ``float``
+            Fraction of observed labels included in their prediction sets.
+        **set_size_mean** : ``float``
+            Mean number of included classes per prediction set.
+        **singleton_rate** : ``float``
+            Fraction of prediction sets containing exactly one class.
+        **empty_rate** : ``float``
+            Fraction of prediction sets containing no classes.
+        **n_obs** : ``int``
+            Number of evaluated observations.
         """
         observed = ClassifierEvaluator._validate_labels(y_true, "y_true")
         coverage = ClassifierEvaluator._validate_coverage(coverage)
@@ -85,6 +100,28 @@ class ClassifierEvaluator:
             Single-row evaluation summary. ``log_loss`` and ``ece`` are
             included only when ``y_prob`` is supplied. The ``n_obs`` column
             has integer dtype.
+
+        Columns
+        -------
+        **accuracy** : ``float``
+            Fraction of correctly predicted labels.
+        **balanced_accuracy** : ``float``
+            Mean recall across the two classes.
+        **bookmaker_informedness** : ``float``
+            Balanced accuracy adjusted so random performance is zero.
+        **mcc** : ``float``
+            Matthews correlation coefficient.
+        **f1** : ``float``
+            F1 score for the positive class.
+        **fpr** : ``float``
+            False-positive rate among observations from class 0.
+        **log_loss** : ``float``
+            Cross-entropy loss. Present only when ``y_prob`` is supplied.
+        **ece** : ``float``
+            Expected calibration error over confidence bins. Present only
+            when ``y_prob`` is supplied.
+        **n_obs** : ``int``
+            Number of evaluated observations.
         """
         observed = ClassifierEvaluator._validate_labels(y_true, "y_true")
         predicted = ClassifierEvaluator._validate_labels(y_pred, "y_pred")

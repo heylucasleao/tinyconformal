@@ -119,6 +119,22 @@ class PanelEvaluator:
         pandas.DataFrame
             One evaluation row per model and coverage. The ``n_obs`` column
             has integer dtype.
+
+        Columns
+        -------
+        **model** : ``object``
+            Identifier of the forecast or inferred interval pair.
+        **coverage** : ``float``
+            Requested nominal interval coverage.
+        **coverage_rate** : ``float``
+            Fraction of aligned panel targets inside their interval bounds.
+        **interval_width_mean** : ``float``
+            Mean upper-minus-lower interval width.
+        **mwis** : ``float``
+            Mean Winkler interval score, penalizing both interval width and
+            misses according to the nominal miscoverage.
+        **n_obs** : ``int``
+            Number of aligned panel observations.
         """
         forecast_frame = (
             forecast if isinstance(forecast, pd.DataFrame) else forecast.to_frame()
@@ -207,6 +223,23 @@ class PanelEvaluator:
         pandas.DataFrame
             Per-series CRPS, target scale, normalized CRPS, and observation
             count. The ``n_obs`` column has integer dtype.
+
+        Columns
+        -------
+        **id_col** : ``object``
+            Series identifier. The actual column name is the resolved value of
+            ``id_col``.
+        **crps** : ``float``
+            Mean continuous ranked probability score for the series. Lower
+            values are better.
+        **target_std** : ``float``
+            Sample target standard deviation estimated for the series from
+            ``train_df``.
+        **ncrps** : ``float``
+            CRPS divided by ``target_std``. Missing when the scale is not
+            finite and strictly positive.
+        **n_obs** : ``int``
+            Number of aligned evaluation observations for the series.
         """
         if not hasattr(forecast, "distribution") or not hasattr(forecast, "to_frame"):
             raise TypeError("forecast must be a panel predictive forecast.")

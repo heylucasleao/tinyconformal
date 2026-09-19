@@ -87,6 +87,20 @@ class CPSEvaluator:
         pandas.DataFrame
             One evaluation row per coverage. The ``n_obs`` column has integer
             dtype.
+
+        Columns
+        -------
+        **coverage** : ``float``
+            Requested central interval coverage.
+        **coverage_rate** : ``float``
+            Fraction of targets inside the equal-tailed intervals.
+        **interval_width_mean** : ``float``
+            Mean width of the equal-tailed intervals.
+        **mwis** : ``float``
+            Mean Winkler interval score. Lower values indicate sharper
+            forecasts, conditional on adequate coverage.
+        **n_obs** : ``int``
+            Number of evaluated predictive distributions.
         """
         observed = cls._observed(y_true)
         cls._validate_alignment(observed, distribution)
@@ -123,6 +137,19 @@ class CPSEvaluator:
         pandas.DataFrame
             Single-row distributional evaluation summary. The ``n_obs``
             column has integer dtype.
+
+        Columns
+        -------
+        **crps** : ``float``
+            Mean continuous ranked probability score. Lower values are better.
+        **scale** : ``float``
+            Caller-supplied normalization scale. Present only when ``scale``
+            is supplied.
+        **ncrps** : ``float``
+            Normalized CRPS, computed as ``crps / scale``. Present only when
+            ``scale`` is supplied.
+        **n_obs** : ``int``
+            Number of evaluated predictive distributions.
         """
         observed = cls._observed(y_true)
         cls._validate_alignment(observed, distribution)

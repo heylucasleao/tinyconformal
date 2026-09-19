@@ -35,6 +35,20 @@ class RegressorEvaluator:
         pandas.DataFrame
             Single-row evaluation summary. The ``n_obs`` column has integer
             dtype.
+
+        Columns
+        -------
+        **coverage** : ``float``
+            Requested nominal interval coverage.
+        **coverage_rate** : ``float``
+            Fraction of targets between their lower and upper bounds.
+        **interval_width_mean** : ``float``
+            Mean upper-minus-lower interval width.
+        **mwis** : ``float``
+            Mean Winkler interval score, penalizing both interval width and
+            misses according to the nominal miscoverage.
+        **n_obs** : ``int``
+            Number of evaluated observations.
         """
         if not isinstance(coverage, Real):
             raise TypeError("coverage must be numeric.")
