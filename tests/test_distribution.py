@@ -256,3 +256,15 @@ def test_distribution_evaluator_computes_crps_and_ncrps():
     assert result.loc[0, "n_obs"] == 2
     assert result.loc[0, "crps"] >= 0.0
     assert result.loc[0, "ncrps"] == pytest.approx(result.loc[0, "crps"] / 2.0)
+
+
+@pytest.mark.parametrize("scale", [0.0, -1.0, np.inf, np.nan])
+def test_distribution_evaluator_rejects_invalid_ncrps_scale(scale):
+    cps = ContinuousCrossConformalPredictiveSystem(_fitted_dummy(), _fitted_scale())
+    cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
+    distribution = cps.predict_distribution(np.array([[20]]))
+
+    with pytest.raises(ValueError, match="strictly positive"):
+        DistributionEvaluator.evaluate_distribution(
+            [10], distribution, scale=scale
+        )

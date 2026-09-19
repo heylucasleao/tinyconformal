@@ -13,6 +13,35 @@ class DistributionEvaluator:
     """Evaluate already-produced predictive distributions."""
 
     @staticmethod
+    def _crps(distribution, y_true: np.ndarray) -> np.ndarray:
+        """Approximate row-wise CRPS from the predictive quantile function."""
+        nodes, weights = leggauss(100)
+        probabilities = 0.5 * (nodes + 1.0)
+        weights = 0.5 * weights
+        quantiles = np.asarray(distribution.ppf(probabilities), dtype=float)
+        expected_shape = (len(y_true), len(probabilities))
+        if quantiles.shape != expected_shape or not np.all(np.isfinite(quantiles)):
+            raise ValueError(
+                "distribution.ppf must return finite values with shape "
+                f"{expected_shape}."
+            )
+        errors = y_true[:, None] - quantiles
+        quantile_loss = np.where(
+            errors >= 0.0,
+            probabilities * errors,
+            (probabilities - 1.0) * errors,
+        )
+        return 2.0 * np.sum(quantile_loss * weights, axis=1)
+
+    @staticmethod
+    def _ncrps(crps: float, scale: float) -> float:
+        """Normalize mean CRPS by a finite strictly positive target scale."""
+        scale = float(scale)
+        if not np.isfinite(scale) or scale <= 0.0:
+            raise ValueError("scale must be finite and strictly positive.")
+        return float(crps) / scale
+
+    @staticmethod
     def _unwrap(prediction):
         """Return the distribution contained in a panel forecast, if present."""
         return getattr(prediction, "distribution", prediction)
@@ -114,27 +143,9 @@ class DistributionEvaluator:
                 "y_true and the predictive distribution must have equal length."
             )
 
-        nodes, weights = leggauss(100)
-        probabilities = 0.5 * (nodes + 1.0)
-        weights = 0.5 * weights
-        quantiles = np.asarray(predictive_distribution.ppf(probabilities), dtype=float)
-        expected_shape = (len(observed), len(probabilities))
-        if quantiles.shape != expected_shape or not np.all(np.isfinite(quantiles)):
-            raise ValueError(
-                "distribution.ppf must return finite values with shape "
-                f"{expected_shape}."
-            )
-        errors = observed[:, None] - quantiles
-        quantile_loss = np.where(
-            errors >= 0.0,
-            probabilities * errors,
-            (probabilities - 1.0) * errors,
-        )
-        row_crps = 2.0 * np.sum(quantile_loss * weights, axis=1)
-        record = {"crps": float(np.mean(row_crps)), "n_obs": len(observed)}
+        mean_crps = float(np.mean(cls._crps(predictive_distribution, observed)))
+        record = {"crps": mean_crps, "n_obs": len(observed)}
         if scale is not None:
-            scale = float(scale)
-            if not np.isfinite(scale) or scale <= 0.0:
-                raise ValueError("scale must be finite and strictly positive.")
-            record.update(scale=scale, ncrps=record["crps"] / scale)
+            normalized_crps = cls._ncrps(mean_crps, scale)
+            record.update(scale=float(scale), ncrps=normalized_crps)
         return pd.DataFrame([record])
