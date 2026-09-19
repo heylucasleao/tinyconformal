@@ -1,3 +1,7 @@
+# Copyright (c) 2024-2026 Lucas Leão
+# TinyConformal - A small toolbox for conformal prediction
+# Licensed under the MIT License
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -223,4 +227,3 @@ def test_newsvendor_marginal_benefit_rejects_continuous_distribution():
             underage_cost=1.0,
             overage_cost=1.0,
         )
-
