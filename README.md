@@ -296,12 +296,29 @@ intervals = regressor.predict_interval(X_test)
 
 ### Evaluating the Classifier
 
-Evaluate the performance of the conformal classifier using the `evaluate` method:
+Evaluate conformal sets separately from point predictions and probabilities:
 
 ```python
-results = conformal_classifier.evaluate(X_test, y_test)
-print(results)
+from tinyconformal.evaluation import ClassifierEvaluator
+
+prediction_sets = conformal_classifier.predict_set(X_test)
+y_pred = conformal_classifier.predict(X_test)
+y_prob = conformal_classifier.predict_proba(X_test)
+
+set_metrics = ClassifierEvaluator.evaluate_set(
+    y_test,
+    prediction_sets,
+    coverage=1 - conformal_classifier.alpha,
+)
+classification_metrics = ClassifierEvaluator.evaluate_classification(
+    y_test,
+    y_pred,
+    y_prob,
+)
 ```
+
+The evaluator assumes binary labels `0` and `1`. Prediction-set and probability
+columns must follow that order.
 
 ### Time Series Example
 

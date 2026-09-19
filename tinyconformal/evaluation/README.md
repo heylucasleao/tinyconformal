@@ -3,6 +3,27 @@
 The `evaluation` submodule evaluates predictions independently of the models
 that produced them.
 
+## Binary classification
+
+Use `ClassifierEvaluator` separately for conformal prediction sets and point
+classification. Labels must be `0` and `1`, and both set and probability
+columns must follow that order:
+
+```python
+from tinyconformal.evaluation import ClassifierEvaluator
+
+set_metrics = ClassifierEvaluator.evaluate_set(
+    y_test,
+    prediction_sets,
+    coverage=0.95,
+)
+classification_metrics = ClassifierEvaluator.evaluate_classification(
+    y_test,
+    y_pred,
+    y_prob,
+)
+```
+
 ## Predictive systems
 
 Use `CPSEvaluator` for a tabular CPS distribution:

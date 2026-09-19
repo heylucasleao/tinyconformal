@@ -10,11 +10,12 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 
-from tinyconformal.core.calibration import CrossValidationCalibration
 from tinyconformal.classifier.class_conditional import (
     BinaryClassConditionalConformalClassifier,
 )
 from tinyconformal.classifier.marginal import BinaryMarginalConformalClassifier
+from tinyconformal.core.calibration import CrossValidationCalibration
+from tinyconformal.evaluation import ClassifierEvaluator
 
 
 @pytest.fixture
@@ -71,24 +72,32 @@ def _assert_classifier_outputs(classifier, dataset):
     y_pred = classifier.predict(dataset["X_test"])
     assert y_pred.shape == (dataset["X_test"].shape[0],)
 
-    eval_dict = classifier.evaluate(dataset["X_test"], dataset["y_test"])
-    assert isinstance(eval_dict, dict)
-    expected_keys = {
-        "total",
-        "alpha",
+    set_metrics = ClassifierEvaluator.evaluate_set(
+        dataset["y_test"], prediction_set, coverage=1 - classifier.alpha
+    )
+    assert list(set_metrics.columns) == [
+        "coverage",
         "coverage_rate",
-        "one_c",
-        "avg_c",
-        "empty",
-        "error",
-        "log_loss",
-        "ece",
-        "bm",
+        "set_size_mean",
+        "singleton_rate",
+        "empty_rate",
+        "n_obs",
+    ]
+
+    classification_metrics = ClassifierEvaluator.evaluate_classification(
+        dataset["y_test"], y_pred, y_proba
+    )
+    assert list(classification_metrics.columns) == [
+        "accuracy",
+        "balanced_accuracy",
+        "bookmaker_informedness",
         "mcc",
         "f1",
         "fpr",
-    }
-    assert set(eval_dict.keys()) == expected_keys
+        "log_loss",
+        "ece",
+        "n_obs",
+    ]
 
 
 def test_marginal_classifier(dataset, learner):
@@ -184,10 +193,53 @@ def test_classifier_supports_non_positional_labels(classifier_cls, dataset):
 
     predictions = classifier.predict(dataset["X_test"])
     assert set(predictions) <= {"no", "yes"}
-    evaluation = classifier.evaluate(
-        dataset["X_test"], np.where(dataset["y_test"] == 0, "no", "yes")
+
+
+def test_classifier_evaluator_computes_expected_set_metrics():
+    evaluation = ClassifierEvaluator.evaluate_set(
+        y_true=[0, 1, 1, 0],
+        prediction_sets=[[1, 0], [0, 1], [1, 1], [0, 0]],
+        coverage=0.9,
+    ).iloc[0]
+
+    assert evaluation["coverage"] == pytest.approx(0.9)
+    assert evaluation["coverage_rate"] == pytest.approx(0.75)
+    assert evaluation["set_size_mean"] == pytest.approx(1.0)
+    assert evaluation["singleton_rate"] == pytest.approx(0.5)
+    assert evaluation["empty_rate"] == pytest.approx(0.25)
+    assert evaluation["n_obs"] == 4
+
+
+def test_classifier_evaluator_computes_point_metrics_without_probabilities():
+    evaluation = ClassifierEvaluator.evaluate_classification(
+        y_true=[0, 0, 1, 1], y_pred=[0, 1, 1, 1]
     )
-    assert 0.0 <= evaluation["coverage_rate"] <= 1.0
+
+    assert "log_loss" not in evaluation
+    assert "ece" not in evaluation
+    assert evaluation.loc[0, "accuracy"] == pytest.approx(0.75)
+    assert evaluation.loc[0, "fpr"] == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("name", ["y_true", "y_pred"])
+def test_classifier_evaluator_requires_zero_one_labels(name):
+    values = {"y_true": [0, 1], "y_pred": [0, 1]}
+    values[name] = ["no", "yes"]
+
+    with pytest.raises(ValueError, match="labels 0 and 1"):
+        ClassifierEvaluator.evaluate_classification(**values)
+
+
+def test_classifier_evaluator_validates_probability_order_shape_and_sum():
+    with pytest.raises(ValueError, match="sum to 1"):
+        ClassifierEvaluator.evaluate_classification(
+            [0, 1], [0, 1], [[0.8, 0.3], [0.2, 0.8]]
+        )
+
+
+def test_classifier_evaluator_validates_prediction_sets():
+    with pytest.raises(ValueError, match="boolean or 0/1"):
+        ClassifierEvaluator.evaluate_set([0, 1], [[1, 2], [0, 1]], 0.9)
 
 
 def test_class_conditional_fit_requires_both_classes(learner, dataset):

@@ -19,6 +19,7 @@ precomputed out-of-fold probabilities.
 ```python
 from sklearn.ensemble import RandomForestClassifier
 from tinyconformal.classifier import BinaryMarginalConformalClassifier
+from tinyconformal.evaluation import ClassifierEvaluator
 
 learner = RandomForestClassifier(n_estimators=300, random_state=42)
 learner.fit(X_train, y_train)
@@ -26,9 +27,20 @@ learner.fit(X_train, y_train)
 conformal = BinaryMarginalConformalClassifier(learner, alpha=0.05)
 conformal.fit(X_calibration, y_calibration)
 
-prediction_sets = conformal.predict(X_test)
-metrics = conformal.evaluate(X_test, y_test)
+prediction_sets = conformal.predict_set(X_test)
+y_pred = conformal.predict(X_test)
+y_prob = conformal.predict_proba(X_test)
+
+set_metrics = ClassifierEvaluator.evaluate_set(
+    y_test, prediction_sets, coverage=1 - conformal.alpha
+)
+classification_metrics = ClassifierEvaluator.evaluate_classification(
+    y_test, y_pred, y_prob
+)
 ```
+
+`ClassifierEvaluator` assumes labels `0` and `1`. Column 0 of prediction sets
+and probabilities represents class 0; column 1 represents class 1.
 
 For cross-validated calibration, generate out-of-fold probabilities with
 `tinyconformal.core.CrossValidationCalibration` and pass them to
