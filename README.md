@@ -296,12 +296,29 @@ intervals = regressor.predict_interval(X_test)
 
 ### Evaluating the Classifier
 
-Evaluate the performance of the conformal classifier using the `evaluate` method:
+Evaluate conformal sets separately from point predictions and probabilities:
 
 ```python
-results = conformal_classifier.evaluate(X_test, y_test)
-print(results)
+from tinyconformal.evaluation import ClassifierEvaluator
+
+prediction_sets = conformal_classifier.predict_set(X_test)
+y_pred = conformal_classifier.predict(X_test)
+y_prob = conformal_classifier.predict_proba(X_test)
+
+set_metrics = ClassifierEvaluator.evaluate_set(
+    y_test,
+    prediction_sets,
+    coverage=1 - conformal_classifier.alpha,
+)
+classification_metrics = ClassifierEvaluator.evaluate_classification(
+    y_test,
+    y_pred,
+    y_prob,
+)
 ```
+
+The evaluator assumes binary labels `0` and `1`. Prediction-set and probability
+columns must follow that order.
 
 ### Time Series Example
 
@@ -380,9 +397,19 @@ column used during fitting. It must also contain exactly `h` unique timestamps p
 series, using the same timestamp grid for every series. The prediction horizon must
 be positive and cannot exceed the `horizon` used for calibration.
 
-`evaluate(df_test, h=...)` uses dynamic features from `df_test` and requires exactly
-one non-missing target for every predicted identifier/timestamp pair. Duplicate or
-missing targets raise an error instead of being silently omitted from the metrics.
+Evaluate an already-produced interval panel independently of its forecaster:
+
+```python
+from tinyconformal.evaluation import PanelEvaluator
+
+metrics = PanelEvaluator.evaluate_interval(
+    y_true=df_test,
+    forecast=intervals_df,
+)
+```
+
+Targets are aligned by identifier and timestamp. Duplicate keys or missing targets
+raise an error instead of being silently omitted from the metrics.
 
 MSCP supports fractional coverage levels. For example, `alpha=0.055` produces
 columns such as `Model-lo-94.5` and `Model-hi-94.5`.

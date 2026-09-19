@@ -10,11 +10,11 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 
-from tinyconformal.core.calibration import CrossValidationCalibration
 from tinyconformal.classifier.class_conditional import (
     BinaryClassConditionalConformalClassifier,
 )
 from tinyconformal.classifier.marginal import BinaryMarginalConformalClassifier
+from tinyconformal.core.calibration import CrossValidationCalibration
 
 
 @pytest.fixture
@@ -71,24 +71,6 @@ def _assert_classifier_outputs(classifier, dataset):
     y_pred = classifier.predict(dataset["X_test"])
     assert y_pred.shape == (dataset["X_test"].shape[0],)
 
-    eval_dict = classifier.evaluate(dataset["X_test"], dataset["y_test"])
-    assert isinstance(eval_dict, dict)
-    expected_keys = {
-        "total",
-        "alpha",
-        "coverage_rate",
-        "one_c",
-        "avg_c",
-        "empty",
-        "error",
-        "log_loss",
-        "ece",
-        "bm",
-        "mcc",
-        "f1",
-        "fpr",
-    }
-    assert set(eval_dict.keys()) == expected_keys
 
 
 def test_marginal_classifier(dataset, learner):
@@ -184,10 +166,6 @@ def test_classifier_supports_non_positional_labels(classifier_cls, dataset):
 
     predictions = classifier.predict(dataset["X_test"])
     assert set(predictions) <= {"no", "yes"}
-    evaluation = classifier.evaluate(
-        dataset["X_test"], np.where(dataset["y_test"] == 0, "no", "yes")
-    )
-    assert 0.0 <= evaluation["coverage_rate"] <= 1.0
 
 
 def test_class_conditional_fit_requires_both_classes(learner, dataset):

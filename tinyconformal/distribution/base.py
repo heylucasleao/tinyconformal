@@ -5,9 +5,7 @@
 from abc import ABC, abstractmethod
 
 import numpy as np
-import pandas as pd
 
-from tinyconformal.core import conformal as core_conformal
 from tinyconformal.utils.validation import validate_integer_support
 
 
@@ -48,25 +46,6 @@ class PredictiveDistribution(ABC):
             np.array([alpha / 2.0, 1.0 - alpha / 2.0]), (len(self), 2)
         )
         return np.asarray(self.ppf(quantiles))
-
-    def evaluate(self, y, coverages=(0.5, 0.8, 0.9, 0.95)) -> pd.DataFrame:
-        """Evaluate central interval coverage, width, and Winkler score."""
-        y = np.asarray(y, dtype=float)
-        if y.shape != (len(self),) or not np.all(np.isfinite(y)):
-            raise ValueError("y must contain one finite value per distribution row.")
-        records = []
-        for coverage in coverages:
-            bounds = self.interval(coverage)
-            alpha = 1.0 - float(coverage)
-            lower, upper = bounds[:, 0], bounds[:, 1]
-            records.append(
-                {
-                    "coverage": float(coverage),
-                    **core_conformal.interval_metrics(y, lower, upper, alpha),
-                }
-            )
-        return pd.DataFrame(records)
-
 
 class DiscretePredictiveDistribution(PredictiveDistribution):
     """Predictive distribution with an ordered integer support."""

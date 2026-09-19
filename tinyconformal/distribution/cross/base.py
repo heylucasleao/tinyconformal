@@ -143,8 +143,8 @@ class CrossConformalPredictiveSystem(BaseEstimator):
             Batch containing one distribution per row of ``X``. Its ``cdf`` and
             ``ppf`` methods accept scalar, common-grid, or row-wise inputs and
             return NumPy arrays whose first dimension follows the order of
-            ``X``. The result also exposes ``interval`` and
-            ``evaluate``. Discrete systems additionally expose ``pmf`` and
+            ``X``. The result also exposes ``interval``. Discrete systems
+            additionally expose ``pmf`` and
             return integer quantiles.
 
         Raises

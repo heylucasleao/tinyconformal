@@ -1,3 +1,7 @@
+# Copyright (c) 2024-2026 Lucas Leão
+# TinyConformal - A small toolbox for conformal prediction
+# Licensed under the MIT License
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -223,17 +227,3 @@ def test_newsvendor_marginal_benefit_rejects_continuous_distribution():
             underage_cost=1.0,
             overage_cost=1.0,
         )
-
-
-def test_predictive_distribution_evaluates_coverage():
-    cps = ContinuousCrossConformalPredictiveSystem(_fitted_dummy(), _fitted_scale())
-    cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
-    distribution = cps.predict_distribution(np.array([[20], [21]]))
-    result = distribution.evaluate([10, 10], coverages=[0.5, 0.9])
-    assert list(result.columns) == [
-        "coverage",
-        "coverage_rate",
-        "interval_width_mean",
-        "mwis",
-    ]
-    assert len(result) == 2

@@ -66,7 +66,7 @@ class DiscreteCrossConformalPredictiveSystem(CrossConformalPredictiveSystem):
         """Return one discrete predictive distribution per row of ``X``.
 
         The returned object exposes :meth:`cdf`, :meth:`ppf`, :meth:`pmf`,
-        :meth:`interval` and :meth:`evaluate`. See
+        :meth:`interval`. See
         :meth:`CrossConformalPredictiveSystem.predict_distribution` for the
         complete input, output, and error contract.
         """

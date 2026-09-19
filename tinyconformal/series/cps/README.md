@@ -29,8 +29,21 @@ median = forecast.ppf(0.5)
 interval = forecast.interval(coverage=0.9)
 probabilities = forecast.cdf(values)
 exceedance = forecast.sf(values)
-metrics = forecast.evaluate(observed_values)
+from tinyconformal.evaluation import PanelEvaluator
+
+metrics = PanelEvaluator.evaluate_interval(
+    observed_frame, forecast
+)
+
+distribution_metrics = PanelEvaluator.evaluate_distribution(
+    y_true=observed_frame,
+    forecast=forecast,
+    train_df=train_df,
+)
 ```
+
+Distribution metrics contain one row per series with CRPS, the training-target
+standard deviation, nCRPS, and the number of evaluated observations.
 
 The returned forecast owns both the point-forecast panel and its calibrated
 distribution. Its methods return pandas DataFrames aligned with the panel rows.

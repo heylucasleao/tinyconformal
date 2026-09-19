@@ -76,18 +76,6 @@ def _assert_interval_outputs(regressor, dataset):
     assert intervals.shape == (dataset["X_test"].shape[0], 2)
     assert np.all(intervals[:, 0] <= intervals[:, 1])
 
-    results = regressor.evaluate(dataset["X_test"], dataset["y_test"])
-    assert isinstance(results, dict)
-    expected_keys = {
-        "total",
-        "alpha",
-        "coverage_rate",
-        "interval_width_mean",
-        "mwis",
-    }
-    assert set(results.keys()) == expected_keys
-
-
 def test_icp_regressor_fit_predict_evaluate(regression_dataset, icp_learner):
     reg = ConformalizedRegressor(icp_learner, alpha=0.05)
     reg.fit(regression_dataset["X_calib"], regression_dataset["y_calib"], oob=False)

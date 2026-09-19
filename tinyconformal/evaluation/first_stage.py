@@ -70,8 +70,26 @@ class FirstStageEvaluator:
             Single-row table of operational metrics, matching tinyshift's
             ``FirstStageForecasterEvaluator`` column naming.
 
+        Columns
+        -------
+        **wape** : ``float``
+            Total absolute error divided by total observed demand.
+        **pbias** : ``float``
+            Aggregate predicted volume minus observed volume, divided by
+            observed volume.
+        **score** : ``float``
+            Composite operational loss computed as ``wape + abs(pbias)``.
+        **forecast_instability** : ``float``
+            Relative revisions between adjacent forecasts within each series.
+        **false_demand_on_zero_days_avg_pred** : ``float``
+            Mean prediction on observations whose target is zero.
+        **peak_demand_deviation** : ``float``
+            Relative difference between mean predicted and observed demand on
+            positive-target observations.
+
         Notes
         -----
+
         Input predictions should come from a held-out test period that was not
         used for fitting or calibration. Evaluating in-sample fitted values, or
         reporting tuning cross-validation results as final performance, gives
