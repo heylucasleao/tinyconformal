@@ -1,3 +1,7 @@
+# Copyright (c) 2024-2026 Lucas Leão
+# TinyConformal - A small toolbox for conformal prediction
+# Licensed under the MIT License
+
 """Evaluation of already-produced panel prediction intervals."""
 
 from __future__ import annotations
@@ -90,12 +94,35 @@ class PanelEvaluator:
     ) -> pd.DataFrame:
         """Evaluate precomputed or distribution-derived panel intervals.
 
-        DataFrame columns following ``<model>-lo-<coverage>`` and
-        ``<model>-hi-<coverage>`` are inferred automatically, including pairs
-        with suffixes such as ``-cqr``. A panel CPS forecast instead derives
-        equal-tailed intervals for every requested coverage.
+        Parameters
+        ----------
+        y_true : pandas.DataFrame
+            Observed panel containing identifier, time, and target columns.
+        forecast : pandas.DataFrame or panel predictive forecast
+            Precomputed interval columns or a row-aligned predictive forecast.
+            DataFrame columns named ``<model>-lo-<coverage>`` and
+            ``<model>-hi-<coverage>`` are inferred automatically.
+        intervals : mapping, optional
+            Mapping from model names to ``(lower_column, upper_column,
+            coverage)`` tuples. Used only with DataFrame forecasts.
+        coverages : iterable of float, default=(0.5, 0.8, 0.9, 0.95)
+            Coverage levels derived from a predictive forecast.
+        id_col : str, default="unique_id"
+            Series identifier column.
+        time_col : str, default="ds"
+            Time column.
+        target_col : str, default="y"
+            Observed target column.
+
+        Returns
+        -------
+        pandas.DataFrame
+            One evaluation row per model and coverage. The ``n_obs`` column
+            has integer dtype.
         """
-        forecast_frame = forecast if isinstance(forecast, pd.DataFrame) else forecast.to_frame()
+        forecast_frame = (
+            forecast if isinstance(forecast, pd.DataFrame) else forecast.to_frame()
+        )
         aligned = cls._align_targets(
             y_true, forecast_frame, id_col, time_col, target_col
         )
@@ -109,11 +136,13 @@ class PanelEvaluator:
             records = []
             for coverage in coverages:
                 bounds = forecast.distribution.interval(coverage)
-                metrics = RegressorEvaluator.evaluate(
-                    observed, bounds, coverage
-                ).iloc[0]
+                metrics = RegressorEvaluator.evaluate(observed, bounds, coverage).iloc[
+                    0
+                ]
                 records.append({"model": forecast.model, **metrics.to_dict()})
-            return pd.DataFrame.from_records(records)
+            result = pd.DataFrame.from_records(records)
+            result["n_obs"] = result["n_obs"].astype("int64")
+            return result
 
         specifications = (
             cls._infer_intervals(forecast)
@@ -141,7 +170,9 @@ class PanelEvaluator:
                 coverage,
             ).iloc[0]
             records.append({"model": name, **metrics.to_dict()})
-        return pd.DataFrame.from_records(records)
+        result = pd.DataFrame.from_records(records)
+        result["n_obs"] = result["n_obs"].astype("int64")
+        return result
 
     @classmethod
     def evaluate_distribution(
@@ -153,7 +184,30 @@ class PanelEvaluator:
         time_col: str = "ds",
         target_col: str = "y",
     ) -> pd.DataFrame:
-        """Return per-series CRPS normalized by each training-target scale."""
+        """Evaluate per-series CRPS normalized by training-target scale.
+
+        Parameters
+        ----------
+        y_true : pandas.DataFrame
+            Observed panel containing identifier, time, and target columns.
+        forecast : panel predictive forecast
+            Row-aligned forecast exposing ``distribution`` and ``to_frame``.
+        train_df : pandas.DataFrame
+            Training panel used to estimate each series' target standard
+            deviation.
+        id_col : str, default="unique_id"
+            Series identifier column.
+        time_col : str, default="ds"
+            Time column.
+        target_col : str, default="y"
+            Target column in ``y_true`` and ``train_df``.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Per-series CRPS, target scale, normalized CRPS, and observation
+            count. The ``n_obs`` column has integer dtype.
+        """
         if not hasattr(forecast, "distribution") or not hasattr(forecast, "to_frame"):
             raise TypeError("forecast must be a panel predictive forecast.")
         if not isinstance(train_df, pd.DataFrame):
@@ -191,11 +245,14 @@ class PanelEvaluator:
             .agg(crps="mean", n_obs="size")
             .reset_index()
         )
+        result["n_obs"] = result["n_obs"].astype("int64")
         result["target_std"] = result[id_col].map(train_scales)
         result["ncrps"] = [
-            CPSEvaluator._ncrps(crps, scale)
-            if np.isfinite(scale) and scale > 0.0
-            else np.nan
+            (
+                CPSEvaluator._ncrps(crps, scale)
+                if np.isfinite(scale) and scale > 0.0
+                else np.nan
+            )
             for crps, scale in zip(result["crps"], result["target_std"])
         ]
         return result[[id_col, "crps", "target_std", "ncrps", "n_obs"]]

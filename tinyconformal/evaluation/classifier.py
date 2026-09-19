@@ -1,3 +1,7 @@
+# Copyright (c) 2024-2026 Lucas Leão
+# TinyConformal - A small toolbox for conformal prediction
+# Licensed under the MIT License
+
 """Evaluation of already-produced binary classification predictions."""
 
 from __future__ import annotations
@@ -17,8 +21,21 @@ class ClassifierEvaluator:
     def evaluate_set(y_true, prediction_sets, coverage: float) -> pd.DataFrame:
         """Evaluate binary conformal prediction sets.
 
-        Column zero of ``prediction_sets`` represents class 0 and column one
-        represents class 1.
+        Parameters
+        ----------
+        y_true : array-like of shape (n_observations,)
+            Observed binary labels.
+        prediction_sets : array-like of shape (n_observations, 2)
+            Boolean or zero-one membership indicators. Column zero represents
+            class 0 and column one represents class 1.
+        coverage : float
+            Nominal coverage, strictly between zero and one.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Single-row evaluation summary. The ``n_obs`` column has integer
+            dtype.
         """
         observed = ClassifierEvaluator._validate_labels(y_true, "y_true")
         coverage = ClassifierEvaluator._validate_coverage(coverage)
@@ -27,7 +44,7 @@ class ClassifierEvaluator:
         )
         sizes = sets.sum(axis=1)
 
-        return pd.DataFrame(
+        result = pd.DataFrame(
             [
                 {
                     "coverage": coverage,
@@ -41,6 +58,8 @@ class ClassifierEvaluator:
                 }
             ]
         )
+        result["n_obs"] = result["n_obs"].astype("int64")
+        return result
 
     @staticmethod
     def evaluate_classification(
@@ -48,8 +67,24 @@ class ClassifierEvaluator:
     ) -> pd.DataFrame:
         """Evaluate point predictions and, optionally, class probabilities.
 
-        Probability columns must be ordered as ``[P(y=0), P(y=1)]``.
-        ``log_loss`` and ``ece`` are included only when ``y_prob`` is supplied.
+        Parameters
+        ----------
+        y_true : array-like of shape (n_observations,)
+            Observed binary labels.
+        y_pred : array-like of shape (n_observations,)
+            Predicted binary labels.
+        y_prob : array-like of shape (n_observations, 2), optional
+            Predicted class probabilities, ordered as ``[P(y=0), P(y=1)]``.
+        n_bins : int, default=5
+            Number of equal-width confidence bins used to compute expected
+            calibration error.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Single-row evaluation summary. ``log_loss`` and ``ece`` are
+            included only when ``y_prob`` is supplied. The ``n_obs`` column
+            has integer dtype.
         """
         observed = ClassifierEvaluator._validate_labels(y_true, "y_true")
         predicted = ClassifierEvaluator._validate_labels(y_pred, "y_pred")
@@ -62,9 +97,7 @@ class ClassifierEvaluator:
         negative_total = tn + fp
         result = {
             "accuracy": metrics.accuracy_score(observed, predicted),
-            "balanced_accuracy": metrics.balanced_accuracy_score(
-                observed, predicted
-            ),
+            "balanced_accuracy": metrics.balanced_accuracy_score(observed, predicted),
             "bookmaker_informedness": metrics.balanced_accuracy_score(
                 observed, predicted, adjusted=True
             ),
@@ -90,7 +123,9 @@ class ClassifierEvaluator:
             )
 
         result["n_obs"] = len(observed)
-        return pd.DataFrame([result])
+        frame = pd.DataFrame([result])
+        frame["n_obs"] = frame["n_obs"].astype("int64")
+        return frame
 
     @staticmethod
     def _validate_labels(values, name: str) -> np.ndarray:

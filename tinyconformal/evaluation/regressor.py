@@ -1,3 +1,7 @@
+# Copyright (c) 2024-2026 Lucas Leão
+# TinyConformal - A small toolbox for conformal prediction
+# Licensed under the MIT License
+
 """Evaluation of already-produced regression prediction intervals."""
 
 from __future__ import annotations
@@ -29,7 +33,8 @@ class RegressorEvaluator:
         Returns
         -------
         pandas.DataFrame
-            Single-row evaluation summary.
+            Single-row evaluation summary. The ``n_obs`` column has integer
+            dtype.
         """
         if not isinstance(coverage, Real):
             raise TypeError("coverage must be numeric.")
@@ -58,7 +63,7 @@ class RegressorEvaluator:
             raise ValueError("lower interval bounds must not exceed upper bounds.")
 
         alpha = 1.0 - coverage
-        return pd.DataFrame(
+        result = pd.DataFrame(
             [
                 {
                     "coverage": coverage,
@@ -69,3 +74,5 @@ class RegressorEvaluator:
                 }
             ]
         )
+        result["n_obs"] = result["n_obs"].astype("int64")
+        return result

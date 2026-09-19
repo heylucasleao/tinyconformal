@@ -1,8 +1,8 @@
-"""Panel-aligned facades over CPS predictive distributions."""
-
 # Copyright (c) 2024-2026 Lucas Leão
 # TinyConformal - A small toolbox for conformal prediction
 # Licensed under the MIT License
+
+"""Panel-aligned facades over CPS predictive distributions."""
 
 from __future__ import annotations
 
@@ -211,6 +211,7 @@ class PanelConformalForecast:
         result[f"Q({self._label(alpha / 2.0)})"] = bounds[:, 0]
         result[f"Q({self._label(1.0 - alpha / 2.0)})"] = bounds[:, 1]
         return result
+
 
 class DiscretePanelConformalForecast(PanelConformalForecast):
     """Panel forecast for integer targets, additionally exposing a PMF."""

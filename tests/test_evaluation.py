@@ -43,11 +43,12 @@ class _PanelForecast:
 
 
 def test_classifier_evaluator_computes_expected_set_metrics():
-    result = ClassifierEvaluator.evaluate_set(
+    frame = ClassifierEvaluator.evaluate_set(
         y_true=[0, 1, 1, 0],
         prediction_sets=[[1, 0], [0, 1], [1, 1], [0, 0]],
         coverage=0.9,
-    ).iloc[0]
+    )
+    result = frame.iloc[0]
 
     assert result["coverage"] == pytest.approx(0.9)
     assert result["coverage_rate"] == pytest.approx(0.75)
@@ -55,6 +56,7 @@ def test_classifier_evaluator_computes_expected_set_metrics():
     assert result["singleton_rate"] == pytest.approx(0.5)
     assert result["empty_rate"] == pytest.approx(0.25)
     assert result["n_obs"] == 4
+    assert pd.api.types.is_integer_dtype(frame["n_obs"])
 
 
 def test_classifier_evaluator_computes_point_and_probability_metrics():
@@ -98,14 +100,16 @@ def test_classifier_evaluator_validates_probabilities_and_sets():
 
 
 def test_regressor_evaluator_computes_exact_interval_metrics():
-    result = RegressorEvaluator.evaluate(
+    frame = RegressorEvaluator.evaluate(
         [15.0, 25.0], [[10.0, 20.0], [10.0, 20.0]], coverage=0.9
-    ).iloc[0]
+    )
+    result = frame.iloc[0]
 
     assert result["coverage_rate"] == pytest.approx(0.5)
     assert result["interval_width_mean"] == pytest.approx(10.0)
     assert result["mwis"] == pytest.approx(60.0)
     assert result["n_obs"] == 2
+    assert pd.api.types.is_integer_dtype(frame["n_obs"])
 
 
 def test_regressor_evaluator_rejects_invalid_intervals():
@@ -131,6 +135,7 @@ def test_cps_evaluator_computes_interval_and_distribution_metrics():
     assert np.all(intervals["coverage_rate"] == 1.0)
     assert result["crps"] >= 0.0
     assert result["ncrps"] == pytest.approx(result["crps"] / 2.0)
+    assert pd.api.types.is_integer_dtype(intervals["n_obs"])
 
 
 @pytest.mark.parametrize("scale", [0.0, -1.0, np.inf, np.nan])
@@ -185,6 +190,7 @@ def test_panel_evaluator_computes_per_series_ncrps():
     assert np.all(result["crps"] >= 0.0)
     assert np.all(np.isfinite(result["ncrps"]))
     assert result["n_obs"].sum() == 2
+    assert pd.api.types.is_integer_dtype(result["n_obs"])
 
 
 def test_panel_evaluator_rejects_duplicate_or_missing_targets():

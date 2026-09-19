@@ -1,3 +1,7 @@
+# Copyright (c) 2024-2026 Lucas Leão
+# TinyConformal - A small toolbox for conformal prediction
+# Licensed under the MIT License
+
 """Evaluation of tabular conformal predictive systems."""
 
 from __future__ import annotations
@@ -67,7 +71,23 @@ class CPSEvaluator:
         distribution,
         coverages=(0.5, 0.8, 0.9, 0.95),
     ) -> pd.DataFrame:
-        """Evaluate equal-tailed intervals derived from a tabular CPS."""
+        """Evaluate equal-tailed intervals derived from a tabular CPS.
+
+        Parameters
+        ----------
+        y_true : array-like of shape (n_observations,)
+            Observed target values.
+        distribution : PredictiveDistribution
+            Row-aligned batch of predictive distributions.
+        coverages : iterable of float, default=(0.5, 0.8, 0.9, 0.95)
+            Central coverage levels to evaluate.
+
+        Returns
+        -------
+        pandas.DataFrame
+            One evaluation row per coverage. The ``n_obs`` column has integer
+            dtype.
+        """
         observed = cls._observed(y_true)
         cls._validate_alignment(observed, distribution)
         records = []
@@ -75,7 +95,9 @@ class CPSEvaluator:
             bounds = distribution.interval(coverage)
             metrics = RegressorEvaluator.evaluate(observed, bounds, coverage).iloc[0]
             records.append(metrics.to_dict())
-        return pd.DataFrame.from_records(records)
+        result = pd.DataFrame.from_records(records)
+        result["n_obs"] = result["n_obs"].astype("int64")
+        return result
 
     @classmethod
     def evaluate_distribution(
@@ -84,7 +106,24 @@ class CPSEvaluator:
         distribution,
         scale: float | None = None,
     ) -> pd.DataFrame:
-        """Evaluate a complete tabular distribution with CRPS and nCRPS."""
+        """Evaluate a complete tabular distribution with CRPS and nCRPS.
+
+        Parameters
+        ----------
+        y_true : array-like of shape (n_observations,)
+            Observed target values.
+        distribution : PredictiveDistribution
+            Row-aligned batch of predictive distributions.
+        scale : float, optional
+            Positive scale used to normalize the mean CRPS. When omitted,
+            ``scale`` and ``ncrps`` are not returned.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Single-row distributional evaluation summary. The ``n_obs``
+            column has integer dtype.
+        """
         observed = cls._observed(y_true)
         cls._validate_alignment(observed, distribution)
         mean_crps = float(np.mean(cls._crps(distribution, observed)))
@@ -94,4 +133,6 @@ class CPSEvaluator:
                 scale=float(scale),
                 ncrps=cls._ncrps(mean_crps, scale),
             )
-        return pd.DataFrame([record])
+        result = pd.DataFrame([record])
+        result["n_obs"] = result["n_obs"].astype("int64")
+        return result
