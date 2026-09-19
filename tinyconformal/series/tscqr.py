@@ -42,8 +42,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
     - `<model>-lo-<level>-cqr`
     - `<model>-hi-<level>-cqr`
 
-    This naming structure allows seamless pattern matching in downstream evaluation
-    utilities such as `evaluate()`.
+    This naming structure allows seamless pattern matching by ``PanelEvaluator``.
 
     Parameters
     ----------
@@ -130,7 +129,9 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
     ... )
     >>> cqr.fit(df, horizon=7, n_windows=5)
     >>> predictions = cqr.predict_interval(h=7)
-    >>> eval_results = cqr.evaluate(df_test)
+    >>> from tinyconformal.evaluation import PanelEvaluator
+    >>> forecast = cqr.predict_interval(X_df=df_test)
+    >>> eval_results = PanelEvaluator.evaluate(df_test, forecast)
     """
 
     def __init__(
@@ -385,36 +386,3 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
             pred_df[f"{high_col}-cqr"] = upper_bound
 
         return pred_df
-
-    @requires_extra("series")
-    def evaluate(
-        self,
-        df_test: pd.DataFrame,
-        h: int | None = None,
-    ) -> pd.DataFrame:
-        """Evaluate every configured raw and conformalized interval at its own alpha.
-
-        ``df_test`` must provide exactly one non-missing target for every predicted
-        identifier and timestamp. Duplicate or missing matches raise ``ValueError``.
-        """
-        eval_df = self.predict_interval(X_df=df_test if self.exog_cols_ else None, h=h)
-        eval_df = self._merge_predictions_with_targets(eval_df, df_test)
-
-        y_true = eval_df[self.target_col].to_numpy()
-        records = []
-        for low_col, high_col in self.intervals_:
-            metadata = self.interval_metadata_[(low_col, high_col)]
-            alpha = self.interval_alphas_[(low_col, high_col)]
-            for suffix, model_suffix in (("", ""), ("-cqr", "-cqr")):
-                lower = eval_df[f"{low_col}{suffix}"].to_numpy()
-                upper = eval_df[f"{high_col}{suffix}"].to_numpy()
-                records.append(
-                    {
-                        "model": f"{metadata['model']}{model_suffix}",
-                        "level": f"{metadata['level']}%",
-                        "alpha": alpha,
-                        **core_conformal.interval_metrics(y_true, lower, upper, alpha),
-                    }
-                )
-
-        return pd.DataFrame(records)

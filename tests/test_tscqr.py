@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tinyconformal.evaluation import PanelEvaluator
 from tinyconformal.series import ConformalizedQuantileTimeSeriesRegressor
 
 
@@ -377,21 +378,20 @@ def test_evaluate_output_structure_and_metrics(
             "exog_feat": [0.0] * 6,
         }
     )
-    eval_df = cqr.evaluate(df_test=df_test)
+    forecast = cqr.predict_interval(X_df=df_test)
+    eval_df = PanelEvaluator.evaluate(df_test, forecast)
     expected_cols = [
         "model",
-        "level",
-        "alpha",
+        "coverage",
         "coverage_rate",
         "interval_width_mean",
         "mwis",
+        "n_obs",
     ]
     assert list(eval_df.columns) == expected_cols
     assert len(eval_df) == 4
     assert set(eval_df["model"]) == {"LGBM", "LGBM-cqr"}
-    assert set(eval_df["level"]) == {"90%", "50%"}
-    assert np.allclose(eval_df.loc[eval_df["level"] == "90%", "alpha"], 0.1)
-    assert np.allclose(eval_df.loc[eval_df["level"] == "50%", "alpha"], 0.5)
+    assert set(eval_df["coverage"]) == {0.9, 0.5}
     prediction_input = mock_quantile_learner_multi.predict.call_args.kwargs["X_df"]
     assert list(prediction_input.columns) == ["unique_id", "ds", "exog_feat"]
     assert "y" not in prediction_input
@@ -456,7 +456,8 @@ def test_evaluate_metric_values_correctness(mock_quantile_learner_single):
             "y": [15.0, 25.0],
         }
     )
-    eval_df = cqr.evaluate(df_test=df_test, h=2)
+    forecast = cqr.predict_interval(h=2)
+    eval_df = PanelEvaluator.evaluate(df_test, forecast)
     cqr_eval = eval_df[eval_df["model"] == "LGBM-cqr"].iloc[0]
     assert cqr_eval["coverage_rate"] == 0.5
     assert cqr_eval["interval_width_mean"] == 10.0

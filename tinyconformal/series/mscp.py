@@ -2,8 +2,6 @@
 # TinyConformal - A small toolbox for conformal prediction
 # Licensed under the MIT License
 
-import re
-
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
@@ -100,36 +98,6 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
 
         return lower_bound, upper_bound
 
-    def _extract_bound_records(
-        self, eval_df: pd.DataFrame, y_true: np.ndarray, alpha: float
-    ) -> list[dict]:
-        """Build one metrics record per lower/upper interval-column pair."""
-        bound_pattern = re.compile(r"^(?P<model>.+)-lo-(?P<level>\d+(?:\.\d+)?)$")
-        records = []
-        for column in eval_df.columns:
-            match = bound_pattern.match(column)
-            if not match:
-                continue
-            model = match.group("model")
-            level = match.group("level")
-            high_column = f"{model}-hi-{level}"
-            if high_column not in eval_df.columns:
-                continue
-            records.append(
-                {
-                    "model": model,
-                    "level": f"{level}%",
-                    "alpha": alpha,
-                    **core_conformal.interval_metrics(
-                        y_true,
-                        eval_df[column].to_numpy(),
-                        eval_df[high_column].to_numpy(),
-                        alpha,
-                    ),
-                }
-            )
-        return records
-
     @staticmethod
     def _coverage_label(alpha: float) -> str:
         """Format percentage coverage without discarding fractional levels."""
@@ -191,28 +159,3 @@ class MultiStepConformalTimeSeriesRegressor(ResidualConformalTimeSeriesRegressor
             pred_df[f"{model}-hi-{level}"] = upper_bound
 
         return pred_df
-
-    @requires_extra("series")
-    def evaluate(
-        self,
-        df_test: pd.DataFrame,
-        h: int | None = None,
-        alpha: float | None = None,
-    ) -> pd.DataFrame:
-        """Evaluate MSCP intervals using one global or overridden alpha.
-
-        ``df_test`` must provide exactly one non-missing target for every predicted
-        identifier and timestamp. Duplicate or missing matches raise ``ValueError``.
-        """
-        alpha = self._get_alpha(alpha)
-        eval_df = self.predict_interval(
-            X_df=df_test if self.exog_cols_ else None,
-            h=h,
-            alpha=alpha,
-        )
-        eval_df = self._merge_predictions_with_targets(eval_df, df_test)
-
-        y_true = eval_df[self.target_col].to_numpy()
-        records = self._extract_bound_records(eval_df, y_true, alpha)
-
-        return pd.DataFrame(records)

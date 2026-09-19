@@ -5,8 +5,16 @@ import pandas as pd
 import pytest
 
 from tinyconformal.core import conformal as core_conformal
+from tinyconformal.evaluation import PanelEvaluator
 from tinyconformal.series import MultiStepConformalTimeSeriesRegressor
 from tinyconformal.utils.inspection import call_with_supported_kwargs
+
+
+def _evaluate_panel(regressor, y_true, h):
+    forecast = regressor.predict_interval(
+        h=h, X_df=y_true if regressor.exog_cols_ else None
+    )
+    return PanelEvaluator.evaluate(y_true, forecast)
 
 
 @pytest.fixture
@@ -164,20 +172,20 @@ def test_mscp_evaluate_dataframe(mock_point_learner, sample_distribution_data):
             "y": [20.0] * 6,
         }
     )
-    eval_df = cdr.evaluate(df_test=test_df, h=3)
+    eval_df = _evaluate_panel(cdr, test_df, h=3)
     expected_cols = [
         "model",
-        "level",
-        "alpha",
+        "coverage",
         "coverage_rate",
         "interval_width_mean",
         "mwis",
+        "n_obs",
     ]
     for col in expected_cols:
         assert col in eval_df.columns
     assert len(eval_df) == 1
     assert eval_df["model"].iloc[0] == "LGBMRegressor"
-    assert eval_df["level"].iloc[0] == "95%"
+    assert eval_df["coverage"].iloc[0] == 0.95
 
 
 def test_call_with_supported_kwargs_filters_parameters():
@@ -392,7 +400,7 @@ def test_fit_and_predict_with_exogenous_features(
     )
     pred_df = cdr.predict_interval(h=3, X_df=X_future)
     assert "LGBMRegressor-lo-95" in pred_df.columns
-    evaluation = cdr.evaluate(X_future.assign(y=20.0))
+    evaluation = _evaluate_panel(cdr, X_future.assign(y=20.0), h=3)
     assert not evaluation.empty
 
 
@@ -542,7 +550,7 @@ def test_evaluate_inner_join_behavior(mock_point_learner, sample_distribution_da
         }
     )
     test_df["extra_junk"] = 999
-    eval_df = cdr.evaluate(df_test=test_df, h=3)
+    eval_df = _evaluate_panel(cdr, test_df, h=3)
     assert not eval_df.empty
     assert "coverage_rate" in eval_df.columns
     assert "X_df" not in mock_point_learner.predict.call_args.kwargs
@@ -581,8 +589,8 @@ def test_evaluate_rejects_duplicate_targets(
             "y": [20.0] * 5,
         }
     )
-    with pytest.raises(ValueError, match="at most one target"):
-        cdr.evaluate(test_df, h=2)
+    with pytest.raises(ValueError, match="duplicate"):
+        _evaluate_panel(cdr, test_df, h=2)
 
 
 def test_evaluate_requires_target_for_every_prediction(
@@ -598,8 +606,8 @@ def test_evaluate_requires_target_for_every_prediction(
             "y": [20.0] * 3,
         }
     )
-    with pytest.raises(ValueError, match="target for every prediction row"):
-        cdr.evaluate(test_df, h=2)
+    with pytest.raises(ValueError, match="target for every forecast row"):
+        _evaluate_panel(cdr, test_df, h=2)
 
 
 def test_fit_separates_static_and_dynamic_features(
@@ -638,9 +646,8 @@ def test_mscp_preserves_fractional_coverage_in_column_names(
             "y": [20.0] * 4,
         }
     )
-    eval_df = cdr.evaluate(test_df, h=2)
-    assert eval_df.loc[0, "level"] == "94.5%"
-    assert eval_df.loc[0, "alpha"] == pytest.approx(0.055)
+    eval_df = _evaluate_panel(cdr, test_df, h=2)
+    assert eval_df.loc[0, "coverage"] == pytest.approx(0.945)
 
 
 def test_nexcp_weighted_refit_passes_internal_weight_column(

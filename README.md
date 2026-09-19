@@ -380,9 +380,19 @@ column used during fitting. It must also contain exactly `h` unique timestamps p
 series, using the same timestamp grid for every series. The prediction horizon must
 be positive and cannot exceed the `horizon` used for calibration.
 
-`evaluate(df_test, h=...)` uses dynamic features from `df_test` and requires exactly
-one non-missing target for every predicted identifier/timestamp pair. Duplicate or
-missing targets raise an error instead of being silently omitted from the metrics.
+Evaluate an already-produced interval panel independently of its forecaster:
+
+```python
+from tinyconformal.evaluation import PanelEvaluator
+
+metrics = PanelEvaluator.evaluate(
+    y_true=df_test,
+    forecast=intervals_df,
+)
+```
+
+Targets are aligned by identifier and timestamp. Duplicate keys or missing targets
+raise an error instead of being silently omitted from the metrics.
 
 MSCP supports fractional coverage levels. For example, `alpha=0.055` produces
 columns such as `Model-lo-94.5` and `Model-hi-94.5`.
