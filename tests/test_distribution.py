@@ -7,7 +7,7 @@ from tinyconformal.distribution import (
     ContinuousCrossConformalPredictiveSystem,
     DiscreteCrossConformalPredictiveSystem,
 )
-from tinyconformal.evaluation import DistributionEvaluator
+from tinyconformal.evaluation import CPSEvaluator
 from tinyconformal.utils.solver import NewsvendorSolver
 
 
@@ -230,7 +230,7 @@ def test_predictive_distribution_evaluates_coverage():
     cps = ContinuousCrossConformalPredictiveSystem(_fitted_dummy(), _fitted_scale())
     cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
     distribution = cps.predict_distribution(np.array([[20], [21]]))
-    result = DistributionEvaluator.evaluate_interval(
+    result = CPSEvaluator.evaluate_interval(
         [10, 10], distribution, coverages=[0.5, 0.9]
     )
     assert list(result.columns) == [
@@ -248,7 +248,7 @@ def test_distribution_evaluator_computes_crps_and_ncrps():
     cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
     distribution = cps.predict_distribution(np.array([[20], [21]]))
 
-    result = DistributionEvaluator.evaluate_distribution(
+    result = CPSEvaluator.evaluate_distribution(
         [10, 10], distribution, scale=2.0
     )
 
@@ -265,6 +265,6 @@ def test_distribution_evaluator_rejects_invalid_ncrps_scale(scale):
     distribution = cps.predict_distribution(np.array([[20]]))
 
     with pytest.raises(ValueError, match="strictly positive"):
-        DistributionEvaluator.evaluate_distribution(
+        CPSEvaluator.evaluate_distribution(
             [10], distribution, scale=scale
         )

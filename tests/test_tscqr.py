@@ -379,7 +379,7 @@ def test_evaluate_output_structure_and_metrics(
         }
     )
     forecast = cqr.predict_interval(X_df=df_test)
-    eval_df = PanelEvaluator.evaluate(df_test, forecast)
+    eval_df = PanelEvaluator.evaluate_interval(df_test, forecast)
     expected_cols = [
         "model",
         "coverage",
@@ -457,7 +457,7 @@ def test_evaluate_metric_values_correctness(mock_quantile_learner_single):
         }
     )
     forecast = cqr.predict_interval(h=2)
-    eval_df = PanelEvaluator.evaluate(df_test, forecast)
+    eval_df = PanelEvaluator.evaluate_interval(df_test, forecast)
     cqr_eval = eval_df[eval_df["model"] == "LGBM-cqr"].iloc[0]
     assert cqr_eval["coverage_rate"] == 0.5
     assert cqr_eval["interval_width_mean"] == 10.0

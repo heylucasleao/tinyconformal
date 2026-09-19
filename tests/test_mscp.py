@@ -14,7 +14,7 @@ def _evaluate_panel(regressor, y_true, h):
     forecast = regressor.predict_interval(
         h=h, X_df=y_true if regressor.exog_cols_ else None
     )
-    return PanelEvaluator.evaluate(y_true, forecast)
+    return PanelEvaluator.evaluate_interval(y_true, forecast)
 
 
 @pytest.fixture

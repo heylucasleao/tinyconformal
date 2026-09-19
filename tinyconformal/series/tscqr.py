@@ -131,7 +131,7 @@ class ConformalizedQuantileTimeSeriesRegressor(BaseConformalTimeSeriesRegressor)
     >>> predictions = cqr.predict_interval(h=7)
     >>> from tinyconformal.evaluation import PanelEvaluator
     >>> forecast = cqr.predict_interval(X_df=df_test)
-    >>> eval_results = PanelEvaluator.evaluate(df_test, forecast)
+    >>> eval_results = PanelEvaluator.evaluate_interval(df_test, forecast)
     """
 
     def __init__(

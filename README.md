@@ -385,7 +385,7 @@ Evaluate an already-produced interval panel independently of its forecaster:
 ```python
 from tinyconformal.evaluation import PanelEvaluator
 
-metrics = PanelEvaluator.evaluate(
+metrics = PanelEvaluator.evaluate_interval(
     y_true=df_test,
     forecast=intervals_df,
 )
