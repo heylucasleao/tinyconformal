@@ -9,9 +9,6 @@ quantile estimators and operational decisions.
   requested quantile and exposes a joint prediction interface.
 - `NewsvendorSolver`: converts interval or predictive-distribution forecasts
   into cost-sensitive inventory decisions.
-- `FirstStageEvaluator`: operational diagnostics (WAPE, PBias, calibration
-  table, ...) for the first-stage conditional-mean forecaster behind a CPS,
-  computed from caller-supplied out-of-sample predictions.
 
 ## Multi-quantile regression
 
@@ -47,24 +44,3 @@ For discrete predictive distributions, `pmf_distribution` evaluates unit
 probabilities and `marginal_benefit_distribution` calculates whether each
 additional inventory unit has positive expected value. The distribution rows
 must remain in the same order as the corresponding forecast DataFrame.
-
-## First-stage forecaster diagnostics
-
-`FirstStageEvaluator.evaluate` checks a time-series location forecaster in
-isolation, before any conformal scaling, using predictions from a held-out test
-period. It requires panel identifiers and timestamps, using the Nixtla defaults
-`unique_id` and `ds`. For tabular cross-conformal models, use
-`calibration_table` on held-out predictions instead.
-
-```python
-from tinyconformal.utils import FirstStageEvaluator
-
-FirstStageEvaluator.evaluate(
-    test_predictions,
-    prediction_col="LinearRegression",
-)
-```
-
-For nonstandard schemas, pass `id_col` and `time_col` explicitly. The evaluator
-sorts observations by those columns and computes Forecast Instability without
-crossing series boundaries.

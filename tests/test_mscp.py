@@ -1,3 +1,7 @@
+# Copyright (c) 2024-2026 Lucas Leão
+# TinyConformal - A small toolbox for conformal prediction
+# Licensed under the MIT License
+
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -142,42 +146,6 @@ def test_mscp_predict_interval_output(mock_point_learner, sample_distribution_da
     assert "LGBMRegressor" in pred_df.columns
     assert "LGBMRegressor-lo-95" in pred_df.columns
     assert "LGBMRegressor-hi-95" in pred_df.columns
-
-
-def test_mscp_evaluate_dataframe(mock_point_learner, sample_distribution_data):
-    """Test full evaluation pipeline returning summary metric DataFrame."""
-    cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner, alpha=0.05)
-    cdr.id_col = "unique_id"
-    cdr.time_col = "ds"
-    cdr.target_col = "y"
-    cdr.nexcp = True
-    cdr.decay = 0.99
-    cdr.weighted_refit = True
-    cdr.horizon = 3
-    cdr.n_windows = 2
-    cdr.fit(sample_distribution_data, horizon=3, n_windows=2)
-    test_dates = pd.date_range("2024-01-26", periods=3, freq="D")
-    test_df = pd.DataFrame(
-        {
-            "unique_id": ["id_1"] * 3 + ["id_2"] * 3,
-            "ds": list(test_dates) * 2,
-            "y": [20.0] * 6,
-        }
-    )
-    eval_df = cdr.evaluate(df_test=test_df, h=3)
-    expected_cols = [
-        "model",
-        "level",
-        "alpha",
-        "coverage_rate",
-        "interval_width_mean",
-        "mwis",
-    ]
-    for col in expected_cols:
-        assert col in eval_df.columns
-    assert len(eval_df) == 1
-    assert eval_df["model"].iloc[0] == "LGBMRegressor"
-    assert eval_df["level"].iloc[0] == "95%"
 
 
 def test_call_with_supported_kwargs_filters_parameters():
@@ -392,8 +360,7 @@ def test_fit_and_predict_with_exogenous_features(
     )
     pred_df = cdr.predict_interval(h=3, X_df=X_future)
     assert "LGBMRegressor-lo-95" in pred_df.columns
-    evaluation = cdr.evaluate(X_future.assign(y=20.0))
-    assert not evaluation.empty
+    assert len(pred_df) == len(X_future)
 
 
 def test_fit_empty_ncscores_raises_runtime_error(
@@ -521,33 +488,6 @@ def test_mscp_bounds_are_calibrated_by_unique_id(mock_point_learner):
     np.testing.assert_array_equal(upper, [101.0, 102.0, 110.0, 120.0])
 
 
-def test_evaluate_inner_join_behavior(mock_point_learner, sample_distribution_data):
-    """Ensure evaluate() properly inner joins predictions with test data across id and time columns."""
-    cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner)
-    cdr.id_col = "unique_id"
-    cdr.time_col = "ds"
-    cdr.target_col = "y"
-    cdr.nexcp = True
-    cdr.decay = 0.99
-    cdr.weighted_refit = True
-    cdr.horizon = 3
-    cdr.n_windows = 2
-    cdr.fit(sample_distribution_data, horizon=3, n_windows=2)
-    test_dates = pd.date_range("2024-01-26", periods=3, freq="D")
-    test_df = pd.DataFrame(
-        {
-            "unique_id": ["id_1"] * 3 + ["id_2"] * 3,
-            "ds": list(test_dates) * 2,
-            "y": [20.0] * 6,
-        }
-    )
-    test_df["extra_junk"] = 999
-    eval_df = cdr.evaluate(df_test=test_df, h=3)
-    assert not eval_df.empty
-    assert "coverage_rate" in eval_df.columns
-    assert "X_df" not in mock_point_learner.predict.call_args.kwargs
-
-
 def test_predict_rejects_model_not_seen_during_calibration(
     mock_point_learner, sample_distribution_data
 ):
@@ -564,42 +504,6 @@ def test_predict_rejects_model_not_seen_during_calibration(
     )
     with pytest.raises(ValueError, match="was not present during calibration"):
         cdr.predict_interval(h=2)
-
-
-def test_evaluate_rejects_duplicate_targets(
-    mock_point_learner, sample_distribution_data
-):
-    cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner).fit(
-        sample_distribution_data, horizon=2, n_windows=2
-    )
-    test_df = pd.DataFrame(
-        {
-            "unique_id": ["id_1", "id_1", "id_1", "id_2", "id_2"],
-            "ds": pd.to_datetime(
-                ["2024-01-26", "2024-01-26", "2024-01-27", "2024-01-26", "2024-01-27"]
-            ),
-            "y": [20.0] * 5,
-        }
-    )
-    with pytest.raises(ValueError, match="at most one target"):
-        cdr.evaluate(test_df, h=2)
-
-
-def test_evaluate_requires_target_for_every_prediction(
-    mock_point_learner, sample_distribution_data
-):
-    cdr = MultiStepConformalTimeSeriesRegressor(learner=mock_point_learner).fit(
-        sample_distribution_data, horizon=2, n_windows=2
-    )
-    test_df = pd.DataFrame(
-        {
-            "unique_id": ["id_1", "id_1", "id_2"],
-            "ds": pd.to_datetime(["2024-01-26", "2024-01-27", "2024-01-26"]),
-            "y": [20.0] * 3,
-        }
-    )
-    with pytest.raises(ValueError, match="target for every prediction row"):
-        cdr.evaluate(test_df, h=2)
 
 
 def test_fit_separates_static_and_dynamic_features(
@@ -630,17 +534,6 @@ def test_mscp_preserves_fractional_coverage_in_column_names(
     pred_df = cdr.predict_interval(h=2)
     assert "LGBMRegressor-lo-94.5" in pred_df
     assert "LGBMRegressor-hi-94.5" in pred_df
-    test_dates = pd.date_range("2024-01-26", periods=2)
-    test_df = pd.DataFrame(
-        {
-            "unique_id": ["id_1"] * 2 + ["id_2"] * 2,
-            "ds": list(test_dates) * 2,
-            "y": [20.0] * 4,
-        }
-    )
-    eval_df = cdr.evaluate(test_df, h=2)
-    assert eval_df.loc[0, "level"] == "94.5%"
-    assert eval_df.loc[0, "alpha"] == pytest.approx(0.055)
 
 
 def test_nexcp_weighted_refit_passes_internal_weight_column(

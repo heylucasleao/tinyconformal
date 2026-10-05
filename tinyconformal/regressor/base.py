@@ -9,7 +9,6 @@ import numpy as np
 from sklearn.base import BaseEstimator
 from sklearn.utils.validation import check_is_fitted
 
-from tinyconformal.core import conformal as core_conformal
 from tinyconformal.core.quantiles import conformal_quantile_level, validate_alpha
 
 
@@ -122,33 +121,3 @@ class BaseConformalRegressor(ABC):
         )
 
         return self._compute_qhat(self.ncscore, q_level)
-
-    def evaluate(self, X, y, alpha=None):
-        """Evaluate interval coverage, width, and mean Winkler score.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Input features passed to ``predict_interval``.
-        y : array-like of shape (n_samples,)
-            Observed target values.
-        alpha : float or None, default=None
-            Significance-level override. Uses ``self.alpha`` when omitted.
-
-        Returns
-        -------
-        dict
-            Evaluation summary containing ``total``, ``alpha``,
-            ``coverage_rate``, ``interval_width_mean``, and ``mwis``.
-        """
-
-        alpha = self._get_alpha(alpha)
-
-        y_pred_intervals = self.predict_interval(X, alpha)
-        lower, upper = y_pred_intervals[:, 0], y_pred_intervals[:, -1]
-
-        return {
-            "total": len(X),
-            "alpha": alpha,
-            **core_conformal.interval_metrics(y, lower, upper, alpha),
-        }

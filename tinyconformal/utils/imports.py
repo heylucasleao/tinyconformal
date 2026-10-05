@@ -1,5 +1,5 @@
 # Copyright (c) 2024-2026 Lucas Leão
-# tinyconformal - A small toolbox for mlops
+# TinyConformal - A small toolbox for conformal prediction
 # Licensed under the MIT License
 
 import importlib.util

@@ -23,6 +23,23 @@ model.fit(X_calibration, y_calibration)
 intervals = model.predict_interval(X_test)
 ```
 
+## Evaluation
+
+Evaluation is independent of the estimator that produced the intervals:
+
+```python
+from tinyconformal.evaluation import RegressorEvaluator
+
+metrics = RegressorEvaluator.evaluate(
+    y_true=y_test,
+    intervals=intervals,
+    coverage=1 - model.alpha,
+)
+```
+
+The result reports nominal and empirical coverage, mean interval width, mean
+Winkler interval score, and the number of observations.
+
 ## CQR usage
 
 The learner must return lower and upper quantiles from

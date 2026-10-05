@@ -1,3 +1,7 @@
+# Copyright (c) 2024-2026 Lucas Leão
+# TinyConformal - A small toolbox for conformal prediction
+# Licensed under the MIT License
+
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -163,7 +167,7 @@ def test_series_cps_disables_nexcp_by_default_but_keeps_weighted_refit_enabled(
     assert cps._scale_calibrator.weighted_refit is True
 
 
-def test_series_cps_quantiles_intervals_and_evaluation(
+def test_series_cps_quantiles_and_intervals(
     nixtla_learner, dispersion_learner, panel
 ):
     cps = ContinuousTimeSeriesConformalPredictiveSystem(
@@ -181,10 +185,6 @@ def test_series_cps_quantiles_intervals_and_evaluation(
     assert {"Q(p)-0", "Q(p)-1"} <= set(rowwise_quantiles)
     intervals = forecast.interval(0.9)
     assert {"Q(0.05)", "Q(0.95)"} <= set(intervals)
-    test = intervals[["unique_id", "ds"]].copy()
-    test["y"] = 10.0
-    evaluation = forecast.evaluate(test["y"].to_numpy(), coverages=[0.9])
-    assert evaluation.loc[0, "coverage"] == 0.9
     direct_quantiles = forecast.ppf([0.1, 0.5, 0.9])
     direct_cdf = forecast.cdf(forecast.to_frame()["Model"].to_numpy()[:, None])
     assert {"Q(0.1)", "Q(0.5)", "Q(0.9)"} <= set(direct_quantiles)
