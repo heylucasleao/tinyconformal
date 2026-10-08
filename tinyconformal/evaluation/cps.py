@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from numpy.polynomial.legendre import leggauss
+from tinyshift.forecasting import crps_distribution, ncrps
 
 from .regressor import RegressorEvaluator
 
@@ -34,35 +34,6 @@ class CPSEvaluator:
             raise ValueError(
                 "y_true and the predictive distribution must have equal length."
             )
-
-    @staticmethod
-    def _crps(distribution, y_true: np.ndarray) -> np.ndarray:
-        """Approximate row-wise CRPS from the predictive quantile function."""
-        nodes, weights = leggauss(100)
-        probabilities = 0.5 * (nodes + 1.0)
-        weights = 0.5 * weights
-        quantiles = np.asarray(distribution.ppf(probabilities), dtype=float)
-        expected_shape = (len(y_true), len(probabilities))
-        if quantiles.shape != expected_shape or not np.all(np.isfinite(quantiles)):
-            raise ValueError(
-                "distribution.ppf must return finite values with shape "
-                f"{expected_shape}."
-            )
-        errors = y_true[:, None] - quantiles
-        quantile_loss = np.where(
-            errors >= 0.0,
-            probabilities * errors,
-            (probabilities - 1.0) * errors,
-        )
-        return 2.0 * np.sum(quantile_loss * weights, axis=1)
-
-    @staticmethod
-    def _ncrps(crps: float, scale: float) -> float:
-        """Normalize mean CRPS by a finite strictly positive target scale."""
-        scale = float(scale)
-        if not np.isfinite(scale) or scale <= 0.0:
-            raise ValueError("scale must be finite and strictly positive.")
-        return float(crps) / scale
 
     @classmethod
     def evaluate_interval(
@@ -153,12 +124,15 @@ class CPSEvaluator:
         """
         observed = cls._observed(y_true)
         cls._validate_alignment(observed, distribution)
-        mean_crps = float(np.mean(cls._crps(distribution, observed)))
+        mean_crps = float(np.mean(crps_distribution(observed, distribution)))
         record = {"crps": mean_crps, "n_obs": len(observed)}
         if scale is not None:
+            scale = float(scale)
+            if not np.isfinite(scale) or scale <= 0.0:
+                raise ValueError("scale must be finite and strictly positive.")
             record.update(
-                scale=float(scale),
-                ncrps=cls._ncrps(mean_crps, scale),
+                scale=scale,
+                ncrps=float(ncrps(mean_crps, scale)),
             )
         result = pd.DataFrame([record])
         result["n_obs"] = result["n_obs"].astype("int64")
