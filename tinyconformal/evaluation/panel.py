@@ -11,8 +11,8 @@ from collections.abc import Mapping
 
 import numpy as np
 import pandas as pd
+from tinyshift.forecasting import crps_distribution, ncrps
 
-from .cps import CPSEvaluator
 from .regressor import RegressorEvaluator
 
 _LOWER_BOUND = re.compile(
@@ -270,7 +270,7 @@ class PanelEvaluator:
         row_scores = pd.DataFrame(
             {
                 id_col: aligned[id_col].to_numpy(),
-                "crps": CPSEvaluator._crps(forecast.distribution, observed),
+                "crps": crps_distribution(observed, forecast.distribution),
             }
         )
         result = (
@@ -280,12 +280,7 @@ class PanelEvaluator:
         )
         result["n_obs"] = result["n_obs"].astype("int64")
         result["target_std"] = result[id_col].map(train_scales)
-        result["ncrps"] = [
-            (
-                CPSEvaluator._ncrps(crps, scale)
-                if np.isfinite(scale) and scale > 0.0
-                else np.nan
-            )
-            for crps, scale in zip(result["crps"], result["target_std"])
-        ]
+        result["ncrps"] = ncrps(
+            result["crps"].to_numpy(), result["target_std"].to_numpy()
+        )
         return result[[id_col, "crps", "target_std", "ncrps", "n_obs"]]
