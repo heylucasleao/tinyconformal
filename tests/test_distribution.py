@@ -3,7 +3,6 @@
 # Licensed under the MIT License
 
 import numpy as np
-import pandas as pd
 import pytest
 from sklearn.dummy import DummyRegressor
 
@@ -11,7 +10,6 @@ from tinyconformal.distribution import (
     ContinuousCrossConformalPredictiveSystem,
     DiscreteCrossConformalPredictiveSystem,
 )
-from tinyconformal.utils.solver import NewsvendorSolver
 
 
 def test_distribution_public_api_only_exports_modeling_classes():
@@ -99,131 +97,3 @@ def test_cps_stores_cross_fitted_location_scale_and_standardized_scores():
         cps.calibration_.residuals / cps.calibration_.scales,
     )
     assert np.all(cps.calibration_.scales > 0)
-
-
-def test_newsvendor_uses_distribution_ppf_row_wise():
-    cps = ContinuousCrossConformalPredictiveSystem(_fitted_dummy(), _fitted_scale())
-    cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
-    distribution = cps.predict_distribution(np.array([[20], [21]]))
-    frame = pd.DataFrame({"unique_id": ["a", "b"], "ds": [1, 1], "cu": [1.0, 9.0]})
-    result = NewsvendorSolver.optimize_distribution(
-        frame, distribution, underage_cost="cu", overage_cost=1.0
-    )
-    np.testing.assert_allclose(result["critical_ratio"], [0.5, 0.9])
-    np.testing.assert_allclose(
-        result["y_optimal"], distribution.ppf(np.array([[0.5], [0.9]]))
-    )
-
-
-def test_newsvendor_rejects_distribution_batch_size_mismatch():
-    cps = ContinuousCrossConformalPredictiveSystem(_fitted_dummy(), _fitted_scale())
-    cps.fit(np.array([[0], [1]]), np.array([9.0, 11.0]), cv=2)
-    distribution = cps.predict_distribution(np.array([[0]]))
-    with pytest.raises(ValueError, match="same number of rows"):
-        NewsvendorSolver.optimize_distribution(
-            pd.DataFrame({"unique_id": ["a", "b"], "ds": [1, 1]}),
-            distribution,
-            underage_cost=1,
-            overage_cost=1,
-        )
-
-
-def test_newsvendor_marginal_benefit_uses_discrete_cdf():
-    cps = DiscreteCrossConformalPredictiveSystem(
-        _fitted_dummy(value=1.5), _fitted_scale()
-    )
-    cps.fit(np.arange(5).reshape(-1, 1), np.array([0, 0, 1, 2, 3]))
-    distribution = cps.predict_distribution(np.array([[10], [11]]))
-    frame = pd.DataFrame(
-        {"unique_id": ["a", "b"], "ds": [1, 1], "cu": [10.0, 6.0], "co": [2.0, 4.0]}
-    )
-    result = NewsvendorSolver.marginal_benefit_distribution(
-        frame, distribution, underage_cost="cu", overage_cost="co", max_k=1
-    )
-    units = np.array([0, 1])
-    thresholds = np.broadcast_to(units - 1, (len(frame), len(units)))
-    probability_less = distribution.cdf(thresholds)
-    expected = (
-        frame["cu"].to_numpy()[:, None] * (1 - probability_less)
-        - frame["co"].to_numpy()[:, None] * probability_less
-    )
-    np.testing.assert_allclose(result[["MB(k=0)", "MB(k=1)"]], expected)
-
-
-def test_newsvendor_marginal_benefit_supports_explicit_units():
-    cps = DiscreteCrossConformalPredictiveSystem(
-        _fitted_dummy(value=1.5), _fitted_scale()
-    )
-    cps.fit(np.arange(5).reshape(-1, 1), np.array([0, 0, 1, 2, 3]))
-    distribution = cps.predict_distribution(np.array([[10]]))
-    frame = pd.DataFrame({"unique_id": ["a"], "ds": [1]})
-    result = NewsvendorSolver.marginal_benefit_distribution(
-        frame, distribution, underage_cost=10.0, overage_cost=2.0, units=[1, 3, 5]
-    )
-    assert [column for column in result if column.startswith("MB(")] == [
-        "MB(k=1)",
-        "MB(k=3)",
-        "MB(k=5)",
-    ]
-
-
-def test_newsvendor_pmf_supports_max_k_and_explicit_units():
-    cps = DiscreteCrossConformalPredictiveSystem(
-        _fitted_dummy(value=1.5), _fitted_scale()
-    )
-    cps.fit(np.arange(5).reshape(-1, 1), np.array([0, 0, 1, 2, 3]))
-    distribution = cps.predict_distribution(np.array([[10], [11]]))
-    frame = pd.DataFrame({"unique_id": ["a", "b"], "ds": [1, 1]})
-    dense = NewsvendorSolver.pmf_distribution(frame, distribution, max_k=3)
-    sparse = NewsvendorSolver.pmf_distribution(
-        frame, distribution, units=range(0, 4, 2)
-    )
-    assert [column for column in dense if column.startswith("P(Y=")] == [
-        "P(Y=0)",
-        "P(Y=1)",
-        "P(Y=2)",
-        "P(Y=3)",
-    ]
-    assert "P(Y>3)" in dense
-    assert [column for column in sparse if column.startswith("P(Y=")] == [
-        "P(Y=0)",
-        "P(Y=2)",
-    ]
-    assert not any(column.startswith("P(Y>") for column in sparse)
-    np.testing.assert_allclose(
-        sparse[["P(Y=0)", "P(Y=2)"]], dense[["P(Y=0)", "P(Y=2)"]]
-    )
-
-
-@pytest.mark.parametrize(
-    "method", ["pmf_distribution", "marginal_benefit_distribution"]
-)
-def test_newsvendor_unit_selection_is_mutually_exclusive(method):
-    cps = DiscreteCrossConformalPredictiveSystem(
-        _fitted_dummy(value=1.5), _fitted_scale()
-    )
-    cps.fit(np.arange(5).reshape(-1, 1), np.array([0, 0, 1, 2, 3]))
-    distribution = cps.predict_distribution(np.array([[10]]))
-    frame = pd.DataFrame({"unique_id": ["a"], "ds": [1]})
-    kwargs = (
-        {"underage_cost": 1.0, "overage_cost": 1.0}
-        if method.startswith("marginal")
-        else {}
-    )
-    with pytest.raises(ValueError, match="either max_k or units"):
-        getattr(NewsvendorSolver, method)(
-            frame, distribution, max_k=3, units=[1, 3], **kwargs
-        )
-
-
-def test_newsvendor_marginal_benefit_rejects_continuous_distribution():
-    cps = ContinuousCrossConformalPredictiveSystem(_fitted_dummy(), _fitted_scale())
-    cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
-    distribution = cps.predict_distribution(np.array([[20]]))
-    with pytest.raises(TypeError, match="only for discrete"):
-        NewsvendorSolver.marginal_benefit_distribution(
-            pd.DataFrame({"unique_id": ["a"], "ds": [1]}),
-            distribution,
-            underage_cost=1.0,
-            overage_cost=1.0,
-        )

@@ -75,7 +75,7 @@ TinyConformal is organized into six public submodules:
 - [`tinyconformal.core`](tinyconformal/core/README.md): out-of-fold calibration
   primitives.
 - [`tinyconformal.utils`](tinyconformal/utils/README.md): multi-quantile modeling
-  and Newsvendor decision utilities.
+  utilities.
 
 ### Predictive distribution submodule
 
@@ -106,33 +106,6 @@ For ordered integer targets such as demand counts, use
 `DiscreteCrossConformalPredictiveSystem`. Its predictive object additionally exposes
 `pmf(values)` and returns integer quantiles. For nominal, unordered labels, use
 the classifiers in `tinyconformal.classifier` instead.
-
-The complete distribution can be passed directly to the Newsvendor solver:
-
-```python
-from tinyconformal.utils import NewsvendorSolver
-
-result = NewsvendorSolver.optimize_distribution(
-    forecast_frame,
-    predictive,
-    underage_cost="shortage_cost",
-    overage_cost="holding_cost",
-)
-```
-
-For a discrete predictive distribution, the solver can also report the expected
-net benefit of adding each inventory unit. The calculation uses the conformal
-CDF directly and accepts either ``max_k`` or an explicit unit grid:
-
-```python
-marginal_benefit = NewsvendorSolver.marginal_benefit_distribution(
-    forecast_frame,
-    predictive,
-    underage_cost="shortage_cost",
-    overage_cost="holding_cost",
-    units=[0, 5, 10, 15],
-)
-```
 
 The tabular CPS supports cross-fitting only; it does not implement split
 calibration or CV+. For time series, use the horizon-wise series CPS below.
@@ -189,8 +162,8 @@ window weights to dispersion estimators that support `sample_weight`.
 The runnable `examples/distribution/cps.ipynb` notebook covers continuous and
 discrete cross-conformal predictive systems in one place.
 
-It covers CDF, SF, PMF where applicable, PPF, arbitrary quantiles, empirical
-coverage, and Newsvendor optimization.
+It covers CDF, SF, PMF where applicable, PPF, arbitrary quantiles, and empirical
+coverage.
 
 The complete OOF workflow for ICP, CQR, CPS, and both binary classification
 strategies is available in `examples/calibration/cross_validation.ipynb`.
