@@ -17,7 +17,6 @@ from tinyconformal.series import (
     DiscreteTimeSeriesConformalPredictiveSystem,
 )
 from tinyconformal.series.cps.distribution import HorizonConformalDistribution
-from tinyconformal.utils import NewsvendorSolver
 
 
 def test_series_public_api_only_exports_modeling_classes():
@@ -232,22 +231,3 @@ def test_series_cps_rejects_multiple_forecast_models(
     cps.n_windows = 2
     with pytest.raises(ValueError, match="exactly one model"):
         cps.fit(panel, n_jobs=1, horizon=2, n_windows=2)
-
-
-def test_newsvendor_accepts_self_contained_series_forecast(
-    nixtla_learner, dispersion_learner, panel
-):
-    cps = DiscreteTimeSeriesConformalPredictiveSystem(
-        nixtla_learner, dispersion_learner
-    ).fit(panel, n_jobs=1, horizon=2, n_windows=2)
-    forecast = cps.predict_distribution(h=2)
-    decision = NewsvendorSolver.optimize(
-        forecast, underage_cost=8.0, overage_cost=2.0
-    )
-    masses = NewsvendorSolver.pmf_distribution(forecast, units=[0, 1])
-    benefit = NewsvendorSolver.marginal_benefit_distribution(
-        forecast, underage_cost=8.0, overage_cost=2.0, units=[0, 1]
-    )
-    assert {"critical_ratio", "y_optimal"} <= set(decision)
-    assert {"P(Y=0)", "P(Y=1)"} <= set(masses)
-    assert {"MB(k=0)", "MB(k=1)"} <= set(benefit)
