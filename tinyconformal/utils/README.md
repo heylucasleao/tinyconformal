@@ -7,8 +7,8 @@ quantile estimators and operational decisions.
 
 - `MultiQuantileRegressor`: fits one clone of a mono-quantile estimator for each
   requested quantile and exposes a joint prediction interface.
-- `NewsvendorSolver`: converts interval or predictive-distribution forecasts
-  into cost-sensitive inventory decisions.
+- `NewsvendorSolver`: converts predictive-distribution forecasts into
+  cost-sensitive inventory decisions.
 
 ## Multi-quantile regression
 
@@ -29,7 +29,7 @@ quantile_predictions = learner.predict(X_test)
 ```python
 from tinyconformal.utils import NewsvendorSolver
 
-result = NewsvendorSolver.optimize_distribution(
+result = NewsvendorSolver.optimize(
     time_series_predictive_forecast,
     underage_cost="shortage_cost",
     overage_cost="holding_cost",

@@ -112,7 +112,7 @@ The complete distribution can be passed directly to the Newsvendor solver:
 ```python
 from tinyconformal.utils import NewsvendorSolver
 
-result = NewsvendorSolver.optimize_distribution(
+result = NewsvendorSolver.optimize(
     forecast_frame,
     predictive,
     underage_cost="shortage_cost",

@@ -101,12 +101,12 @@ def test_cps_stores_cross_fitted_location_scale_and_standardized_scores():
     assert np.all(cps.calibration_.scales > 0)
 
 
-def test_newsvendor_uses_distribution_ppf_row_wise():
+def test_newsvendor_optimize_uses_distribution_ppf_row_wise():
     cps = ContinuousCrossConformalPredictiveSystem(_fitted_dummy(), _fitted_scale())
     cps.fit(np.arange(5).reshape(-1, 1), np.array([8, 9, 10, 11, 12]))
     distribution = cps.predict_distribution(np.array([[20], [21]]))
     frame = pd.DataFrame({"unique_id": ["a", "b"], "ds": [1, 1], "cu": [1.0, 9.0]})
-    result = NewsvendorSolver.optimize_distribution(
+    result = NewsvendorSolver.optimize(
         frame, distribution, underage_cost="cu", overage_cost=1.0
     )
     np.testing.assert_allclose(result["critical_ratio"], [0.5, 0.9])
@@ -120,12 +120,16 @@ def test_newsvendor_rejects_distribution_batch_size_mismatch():
     cps.fit(np.array([[0], [1]]), np.array([9.0, 11.0]), cv=2)
     distribution = cps.predict_distribution(np.array([[0]]))
     with pytest.raises(ValueError, match="same number of rows"):
-        NewsvendorSolver.optimize_distribution(
+        NewsvendorSolver.optimize(
             pd.DataFrame({"unique_id": ["a", "b"], "ds": [1, 1]}),
             distribution,
             underage_cost=1,
             overage_cost=1,
         )
+
+
+def test_newsvendor_has_no_separate_distribution_optimizer():
+    assert not hasattr(NewsvendorSolver, "optimize_distribution")
 
 
 def test_newsvendor_marginal_benefit_uses_discrete_cdf():

@@ -241,7 +241,7 @@ def test_newsvendor_accepts_self_contained_series_forecast(
         nixtla_learner, dispersion_learner
     ).fit(panel, n_jobs=1, horizon=2, n_windows=2)
     forecast = cps.predict_distribution(h=2)
-    decision = NewsvendorSolver.optimize_distribution(
+    decision = NewsvendorSolver.optimize(
         forecast, underage_cost=8.0, overage_cost=2.0
     )
     masses = NewsvendorSolver.pmf_distribution(forecast, units=[0, 1])
